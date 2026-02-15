@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -26,13 +26,11 @@ import { colors, fontSize, spacing } from '../src/constants/theme';
 import type { Channel, Programme, ServerConfig } from '../src/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-// Minimum vertical swipe distance to trigger a channel change
 const SWIPE_THRESHOLD = 80;
-// How long to show the channel info overlay (ms)
 const OVERLAY_DURATION = 4000;
 
 /**
- * Full-screen HLS player.
+ * Full-screen video player using expo-video.
  * - Receives channelIndex as route param
  * - Swipe up = next channel, swipe down = previous channel
  * - Tap to show/hide channel info overlay with gradient fade
@@ -84,12 +82,37 @@ export default function PlayerScreen() {
   }, []);
 
   const currentChannel = channels[currentIndex];
+
+  // expo-video player — recreates when stream URL changes
+  const player = useVideoPlayer(
+    currentChannel?.streamUrl ?? '',
+    (p) => {
+      p.loop = false;
+      p.play();
+    },
+  );
+
+  // Listen for buffering state changes
+  useEffect(() => {
+    if (!player) return;
+    const sub = player.addListener('statusChange', (event) => {
+      if (event.status === 'readyToPlay') {
+        setBuffering(false);
+      } else if (event.status === 'loading') {
+        setBuffering(true);
+      } else if (event.status === 'error') {
+        console.error('Video error:', event.error);
+        setBuffering(false);
+      }
+    });
+    return () => sub.remove();
+  }, [player]);
+
   const nowPlaying = useMemo(
     () => (currentChannel ? getNowPlaying(programmes, currentChannel.id) : undefined),
     [currentChannel, programmes],
   );
 
-  // Progress fraction (0–1) through the current programme
   const progress = useMemo(() => {
     if (!nowPlaying) return 0;
     const now = Date.now();
@@ -100,13 +123,10 @@ export default function PlayerScreen() {
     return Math.min(1, Math.max(0, (now - start) / duration));
   }, [nowPlaying]);
 
-  // Show overlay briefly on channel change, then fade out
   const flashOverlay = useCallback(() => {
     if (overlayTimer.current) clearTimeout(overlayTimer.current);
-
     setShowOverlay(true);
     overlayOpacity.setValue(1);
-
     overlayTimer.current = setTimeout(() => {
       Animated.timing(overlayOpacity, {
         toValue: 0,
@@ -116,26 +136,22 @@ export default function PlayerScreen() {
     }, OVERLAY_DURATION);
   }, [overlayOpacity]);
 
-  // Flash overlay on channel change
   useEffect(() => {
     if (!loading && currentChannel) {
       flashOverlay();
     }
   }, [currentIndex, loading, currentChannel, flashOverlay]);
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (overlayTimer.current) clearTimeout(overlayTimer.current);
     };
   }, []);
 
-  // Handle swipe gestures for channel switching
   const onGestureEvent = useCallback(
     ({ nativeEvent }: any) => {
       if (nativeEvent.state === State.END) {
         const { translationY } = nativeEvent;
-
         if (translationY < -SWIPE_THRESHOLD && currentIndex < channels.length - 1) {
           setCurrentIndex((i) => i + 1);
           setBuffering(true);
@@ -148,7 +164,6 @@ export default function PlayerScreen() {
     [currentIndex, channels.length],
   );
 
-  // Toggle overlay on tap
   const handleTap = useCallback(() => {
     if (showOverlay) {
       if (overlayTimer.current) clearTimeout(overlayTimer.current);
@@ -179,25 +194,12 @@ export default function PlayerScreen() {
         <View style={styles.container}>
           <TouchableWithoutFeedback onPress={handleTap}>
             <View style={styles.container}>
-              {/* HLS/MPEG-TS Video Player */}
-              <Video
-                source={{ uri: currentChannel.streamUrl, overrideFileExtensionAndroid: 'ts' }}
+              {/* Video Player (expo-video) */}
+              <VideoView
+                player={player}
                 style={styles.video}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay
-                isLooping={false}
-                isMuted={false}
-                volume={1.0}
-                onPlaybackStatusUpdate={(status) => {
-                  if (status.isLoaded) {
-                    setBuffering(status.isBuffering);
-                  }
-                }}
-                onError={(error) => {
-                  console.error('Video error:', error);
-                  setBuffering(false);
-                }}
-                onLoad={() => setBuffering(false)}
+                contentFit="contain"
+                nativeControls={false}
               />
 
               {/* Buffering indicator */}
@@ -210,7 +212,6 @@ export default function PlayerScreen() {
               {/* Channel info overlay with gradient */}
               {showOverlay && (
                 <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
-                  {/* Top gradient: back button area */}
                   <LinearGradient
                     colors={['rgba(0,0,0,0.7)', 'transparent']}
                     style={styles.topGradient}
@@ -224,13 +225,11 @@ export default function PlayerScreen() {
                     </TouchableOpacity>
                   </LinearGradient>
 
-                  {/* Bottom gradient: channel info area */}
                   <LinearGradient
                     colors={['transparent', 'rgba(0,0,0,0.85)']}
                     style={styles.bottomGradient}
                   >
                     <View style={styles.channelInfo}>
-                      {/* Channel badge + name */}
                       <View style={styles.channelHeader}>
                         <View style={styles.channelBadge}>
                           <Text style={styles.channelNumber}>{currentChannel.number}</Text>
@@ -238,7 +237,6 @@ export default function PlayerScreen() {
                         <Text style={styles.channelName}>{currentChannel.name}</Text>
                       </View>
 
-                      {/* Now playing info */}
                       {nowPlaying && (
                         <>
                           <Text style={styles.nowPlayingText} numberOfLines={2}>
@@ -250,7 +248,6 @@ export default function PlayerScreen() {
                               {nowPlaying.description}
                             </Text>
                           )}
-                          {/* Programme progress bar */}
                           <View style={styles.progressTrack}>
                             <View
                               style={[styles.progressFill, { width: `${progress * 100}%` }]}
@@ -296,8 +293,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
   },
-
-  // Top gradient with back button
   topGradient: {
     paddingTop: 56,
     paddingHorizontal: spacing.lg,
@@ -311,8 +306,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  // Bottom gradient with channel info
   bottomGradient: {
     paddingTop: spacing.xxl,
   },
@@ -356,8 +349,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     lineHeight: 20,
   },
-
-  // Programme progress bar
   progressTrack: {
     height: 3,
     backgroundColor: 'rgba(255,255,255,0.15)',
@@ -369,7 +360,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.nowPlaying,
     borderRadius: 1.5,
   },
-
   swipeHint: {
     fontSize: fontSize.xs,
     color: 'rgba(255,255,255,0.3)',
