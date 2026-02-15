@@ -9,6 +9,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../src/constants/storage';
@@ -107,7 +108,7 @@ export default function ChannelsScreen() {
         params: { channelIndex: index.toString() },
       });
     },
-    []
+    [],
   );
 
   // Reset server config
@@ -144,11 +145,19 @@ export default function ChannelsScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>IPSwitch</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity onPress={() => router.push('/guide')} style={styles.headerButton}>
+          <TouchableOpacity
+            onPress={() => router.push('/guide')}
+            style={styles.headerButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="grid-outline" size={18} color={colors.accent} />
             <Text style={styles.headerAction}>Guide</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleDisconnect}>
-            <Text style={styles.headerActionMuted}>Settings</Text>
+          <TouchableOpacity
+            onPress={handleDisconnect}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="settings-outline" size={18} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
       </View>
@@ -194,8 +203,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
@@ -203,20 +212,22 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xl,
     fontWeight: '700',
     color: colors.text,
+    letterSpacing: -0.5,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
+    gap: spacing.xl,
   },
-  headerButton: {},
+  headerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   headerAction: {
     fontSize: fontSize.sm,
     color: colors.accent,
-  },
-  headerActionMuted: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
+    fontWeight: '500',
   },
   loadingText: {
     color: colors.textSecondary,
@@ -232,8 +243,8 @@ const styles = StyleSheet.create({
   retryButton: {
     backgroundColor: colors.accent,
     paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    borderRadius: 8,
+    paddingVertical: spacing.md,
+    borderRadius: 10,
     marginBottom: spacing.md,
   },
   retryText: {

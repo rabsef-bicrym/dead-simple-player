@@ -5,12 +5,15 @@ import {
   StyleSheet,
   Dimensions,
   TouchableWithoutFeedback,
+  TouchableOpacity,
   Animated,
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Video, { ResizeMode } from 'react-native-video';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import {
   GestureHandlerRootView,
   PanGestureHandler,
@@ -32,7 +35,7 @@ const OVERLAY_DURATION = 4000;
  * Full-screen HLS player.
  * - Receives channelIndex as route param
  * - Swipe up = next channel, swipe down = previous channel
- * - Tap to show/hide channel info overlay
+ * - Tap to show/hide channel info overlay with gradient fade
  * - Back gesture or button returns to channel list
  */
 export default function PlayerScreen() {
@@ -46,7 +49,7 @@ export default function PlayerScreen() {
   const overlayOpacity = useRef(new Animated.Value(1)).current;
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load channel data (same as channel list, but we need it here too)
+  // Load channel data
   useEffect(() => {
     (async () => {
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG);
@@ -69,13 +72,9 @@ export default function PlayerScreen() {
           xmltvRes.text(),
         ]);
 
-        const parsed = parseM3U(m3uText, config.host, config.port);
-        const epg = parseXMLTV(xmltvText, config.host, config.port);
-
-        setChannels(parsed);
-        setProgrammes(epg.programmes);
+        setChannels(parseM3U(m3uText, config.host, config.port));
+        setProgrammes(parseXMLTV(xmltvText, config.host, config.port).programmes);
       } catch {
-        // If fetch fails, go back to channel list
         router.back();
         return;
       }
@@ -86,9 +85,20 @@ export default function PlayerScreen() {
 
   const currentChannel = channels[currentIndex];
   const nowPlaying = useMemo(
-    () => currentChannel ? getNowPlaying(programmes, currentChannel.id) : undefined,
-    [currentChannel, programmes]
+    () => (currentChannel ? getNowPlaying(programmes, currentChannel.id) : undefined),
+    [currentChannel, programmes],
   );
+
+  // Progress fraction (0–1) through the current programme
+  const progress = useMemo(() => {
+    if (!nowPlaying) return 0;
+    const now = Date.now();
+    const start = nowPlaying.start.getTime();
+    const stop = nowPlaying.stop.getTime();
+    const duration = stop - start;
+    if (duration <= 0) return 0;
+    return Math.min(1, Math.max(0, (now - start) / duration));
+  }, [nowPlaying]);
 
   // Show overlay briefly on channel change, then fade out
   const flashOverlay = useCallback(() => {
@@ -127,17 +137,15 @@ export default function PlayerScreen() {
         const { translationY } = nativeEvent;
 
         if (translationY < -SWIPE_THRESHOLD && currentIndex < channels.length - 1) {
-          // Swipe up = next channel
           setCurrentIndex((i) => i + 1);
           setBuffering(true);
         } else if (translationY > SWIPE_THRESHOLD && currentIndex > 0) {
-          // Swipe down = previous channel
           setCurrentIndex((i) => i - 1);
           setBuffering(true);
         }
       }
     },
-    [currentIndex, channels.length]
+    [currentIndex, channels.length],
   );
 
   // Toggle overlay on tap
@@ -185,39 +193,65 @@ export default function PlayerScreen() {
               {/* Buffering indicator */}
               {buffering && (
                 <View style={styles.bufferingOverlay}>
-                  <ActivityIndicator size="large" color={colors.accent} />
+                  <ActivityIndicator size="large" color={colors.text} />
                 </View>
               )}
 
-              {/* Channel info overlay */}
+              {/* Channel info overlay with gradient */}
               {showOverlay && (
                 <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
-                  {/* Top bar: back button */}
-                  <TouchableWithoutFeedback onPress={() => router.back()}>
-                    <View style={styles.backButton}>
-                      <Text style={styles.backText}>Back</Text>
-                    </View>
-                  </TouchableWithoutFeedback>
+                  {/* Top gradient: back button area */}
+                  <LinearGradient
+                    colors={['rgba(0,0,0,0.7)', 'transparent']}
+                    style={styles.topGradient}
+                  >
+                    <TouchableOpacity
+                      onPress={() => router.back()}
+                      style={styles.backButton}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    >
+                      <Ionicons name="chevron-back" size={28} color={colors.text} />
+                    </TouchableOpacity>
+                  </LinearGradient>
 
-                  {/* Bottom bar: channel info */}
-                  <View style={styles.channelInfo}>
-                    <View style={styles.channelHeader}>
-                      <Text style={styles.channelNumber}>{currentChannel.number}</Text>
-                      <Text style={styles.channelName}>{currentChannel.name}</Text>
+                  {/* Bottom gradient: channel info area */}
+                  <LinearGradient
+                    colors={['transparent', 'rgba(0,0,0,0.85)']}
+                    style={styles.bottomGradient}
+                  >
+                    <View style={styles.channelInfo}>
+                      {/* Channel badge + name */}
+                      <View style={styles.channelHeader}>
+                        <View style={styles.channelBadge}>
+                          <Text style={styles.channelNumber}>{currentChannel.number}</Text>
+                        </View>
+                        <Text style={styles.channelName}>{currentChannel.name}</Text>
+                      </View>
+
+                      {/* Now playing info */}
+                      {nowPlaying && (
+                        <>
+                          <Text style={styles.nowPlayingText} numberOfLines={2}>
+                            {nowPlaying.title}
+                            {nowPlaying.subtitle ? ` — ${nowPlaying.subtitle}` : ''}
+                          </Text>
+                          {nowPlaying.description && (
+                            <Text style={styles.descriptionText} numberOfLines={2}>
+                              {nowPlaying.description}
+                            </Text>
+                          )}
+                          {/* Programme progress bar */}
+                          <View style={styles.progressTrack}>
+                            <View
+                              style={[styles.progressFill, { width: `${progress * 100}%` }]}
+                            />
+                          </View>
+                        </>
+                      )}
+
+                      <Text style={styles.swipeHint}>Swipe up/down to change channels</Text>
                     </View>
-                    {nowPlaying && (
-                      <Text style={styles.nowPlayingText} numberOfLines={2}>
-                        {nowPlaying.title}
-                        {nowPlaying.subtitle ? ` — ${nowPlaying.subtitle}` : ''}
-                      </Text>
-                    )}
-                    {nowPlaying?.description && (
-                      <Text style={styles.descriptionText} numberOfLines={2}>
-                        {nowPlaying.description}
-                      </Text>
-                    )}
-                    <Text style={styles.swipeHint}>Swipe up/down to change channels</Text>
-                  </View>
+                  </LinearGradient>
                 </Animated.View>
               )}
             </View>
@@ -252,53 +286,84 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
   },
-  backButton: {
-    paddingTop: 60,
-    paddingLeft: spacing.lg,
-    paddingBottom: spacing.md,
+
+  // Top gradient with back button
+  topGradient: {
+    paddingTop: 56,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
   },
-  backText: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '600',
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Bottom gradient with channel info
+  bottomGradient: {
+    paddingTop: spacing.xxl,
   },
   channelInfo: {
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    paddingBottom: 40,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: 44,
   },
   channelHeader: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    marginBottom: spacing.xs,
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  channelBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
   },
   channelNumber: {
-    fontSize: fontSize.xxl,
+    fontSize: fontSize.lg,
     fontWeight: '700',
     color: colors.text,
-    marginRight: spacing.md,
     fontVariant: ['tabular-nums'],
   },
   channelName: {
     fontSize: fontSize.xl,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
   },
   nowPlayingText: {
     fontSize: fontSize.md,
-    color: colors.textSecondary,
+    color: 'rgba(255,255,255,0.8)',
     marginTop: spacing.xs,
   },
   descriptionText: {
     fontSize: fontSize.sm,
-    color: colors.textMuted,
+    color: 'rgba(255,255,255,0.5)',
     marginTop: spacing.xs,
+    lineHeight: 20,
   },
+
+  // Programme progress bar
+  progressTrack: {
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 1.5,
+    marginTop: spacing.md,
+  },
+  progressFill: {
+    height: 3,
+    backgroundColor: colors.nowPlaying,
+    borderRadius: 1.5,
+  },
+
   swipeHint: {
     fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginTop: spacing.sm,
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: spacing.md,
     textAlign: 'center',
   },
 });

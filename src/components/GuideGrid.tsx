@@ -1,9 +1,11 @@
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
+  Dimensions,
+  Image,
 } from 'react-native';
 import { colors, spacing, fontSize } from '../constants/theme';
 import type { Channel, Programme } from '../types';
@@ -11,58 +13,82 @@ import type { Channel, Programme } from '../types';
 interface GuideGridProps {
   channels: Channel[];
   programmes: Programme[];
-  /** Number of hours to display in the grid (default 3) */
+  /** Number of hours to display in the grid (default 4) */
   hoursToShow?: number;
 }
 
-// Layout constants
-const CHANNEL_LABEL_WIDTH = 100;
-const HOUR_WIDTH = 300; // pixels per hour
-const ROW_HEIGHT = 56;
-const TIME_HEADER_HEIGHT = 32;
-// Minimum pixel width for a programme cell so tiny ones remain tappable
+// ── Layout constants ──────────────────────────────────────────────────
+const CHANNEL_LABEL_WIDTH = 120;
+const HOUR_WIDTH = 360;
+const ROW_HEIGHT = 64;
+const TIME_HEADER_HEIGHT = 44;
 const MIN_CELL_WIDTH = 4;
+// Below this width (px), programme cells render as thin bars without text
+const TINY_CELL_THRESHOLD = 24;
 
 /**
- * EPG guide grid showing upcoming programmes per channel.
+ * EPG guide grid with synchronized scrolling.
  *
- * Layout:
- * - Fixed left column with channel names
- * - Horizontally scrollable programme grid
- * - Time markers at the top
- * - Current time indicated with a red vertical line
+ * Architecture:
+ * - Top-left corner shows the current time
+ * - Time header row scrolls horizontally (synced with programme grid)
+ * - Left rail of channel labels scrolls vertically (synced with grid)
+ * - Programme grid is the master scroller (horizontal + vertical)
  *
- * Handles tiny-duration programmes by enforcing a minimum cell width
- * so they don't disappear, while keeping them proportional to duration.
+ * Visual features:
+ * - Now-playing cells highlighted with green accent border + subtle glow
+ * - Past cells dimmed
+ * - Tiny-duration programmes render as thin bars (no text)
+ * - Prominent red current-time indicator with triangle marker
+ * - Half-hour grid lines for alignment
+ * - Auto-scrolls to "now" on mount
  */
-export function GuideGrid({ channels, programmes, hoursToShow = 3 }: GuideGridProps) {
-  const scrollRef = useRef<ScrollView>(null);
+export function GuideGrid({ channels, programmes, hoursToShow = 4 }: GuideGridProps) {
+  const timeHeaderScrollRef = useRef<ScrollView>(null);
+  const channelLabelScrollRef = useRef<ScrollView>(null);
+  const gridHScrollRef = useRef<ScrollView>(null);
+  const initialScrollDone = useRef(false);
+
   const now = useMemo(() => new Date(), []);
 
-  // Round start time down to the nearest half hour
+  // Start the grid 30 min before the current half-hour for context
   const gridStart = useMemo(() => {
     const d = new Date(now);
     d.setMinutes(d.getMinutes() < 30 ? 0 : 30, 0, 0);
-    return d;
+    return new Date(d.getTime() - 30 * 60 * 1000);
   }, [now]);
 
   const gridEnd = useMemo(
     () => new Date(gridStart.getTime() + hoursToShow * 60 * 60 * 1000),
-    [gridStart, hoursToShow]
+    [gridStart, hoursToShow],
   );
 
   const gridWidthPx = hoursToShow * HOUR_WIDTH;
+  const totalContentHeight = channels.length * ROW_HEIGHT;
 
-  // Current time position as pixels from grid start
+  // Current time position in pixels from grid start
   const nowOffsetPx = useMemo(
     () => ((now.getTime() - gridStart.getTime()) / (1000 * 60 * 60)) * HOUR_WIDTH,
-    [now, gridStart]
+    [now, gridStart],
   );
 
-  // Build time markers (every 30 minutes)
+  // Auto-scroll so "now" is visible at ~25% from left edge
+  useEffect(() => {
+    if (initialScrollDone.current) return;
+    const timer = setTimeout(() => {
+      const viewWidth = Dimensions.get('window').width - CHANNEL_LABEL_WIDTH;
+      const targetX = Math.max(0, nowOffsetPx - viewWidth * 0.25);
+      gridHScrollRef.current?.scrollTo({ x: targetX, animated: false });
+      timeHeaderScrollRef.current?.scrollTo({ x: targetX, animated: false });
+      initialScrollDone.current = true;
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [nowOffsetPx]);
+
+  // Half-hour time markers
   const timeMarkers = useMemo(() => {
     const markers: { label: string; offsetPx: number }[] = [];
-    const step = 30 * 60 * 1000; // 30 minutes in ms
+    const step = 30 * 60 * 1000;
     for (let t = gridStart.getTime(); t < gridEnd.getTime(); t += step) {
       const d = new Date(t);
       const label = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -72,17 +98,13 @@ export function GuideGrid({ channels, programmes, hoursToShow = 3 }: GuideGridPr
     return markers;
   }, [gridStart, gridEnd]);
 
-  // Build per-channel programme cells
+  // Per-channel programme cells with positioning metadata
   const channelRows = useMemo(() => {
     return channels.map((ch) => {
-      // Get programmes that overlap the grid window
       const chProgs = programmes
-        .filter((p) => {
-          return p.channelId === ch.id && p.stop > gridStart && p.start < gridEnd;
-        })
+        .filter((p) => p.channelId === ch.id && p.stop > gridStart && p.start < gridEnd)
         .sort((a, b) => a.start.getTime() - b.start.getTime());
 
-      // Convert to positioned cells
       const cells = chProgs.map((p) => {
         const startMs = Math.max(p.start.getTime(), gridStart.getTime());
         const endMs = Math.min(p.stop.getTime(), gridEnd.getTime());
@@ -90,183 +112,378 @@ export function GuideGrid({ channels, programmes, hoursToShow = 3 }: GuideGridPr
         const rawWidth = ((endMs - startMs) / (1000 * 60 * 60)) * HOUR_WIDTH;
         const widthPx = Math.max(rawWidth, MIN_CELL_WIDTH);
         const isNow = p.start <= now && p.stop > now;
+        const isPast = p.stop <= now;
 
-        return { programme: p, leftPx, widthPx, isNow };
+        return { programme: p, leftPx, widthPx, isNow, isPast };
       });
 
       return { channel: ch, cells };
     });
   }, [channels, programmes, gridStart, gridEnd, now]);
 
+  // Sync horizontal scroll to time header
+  const onGridHScroll = (e: any) => {
+    timeHeaderScrollRef.current?.scrollTo({
+      x: e.nativeEvent.contentOffset.x,
+      animated: false,
+    });
+  };
+
+  // Sync vertical scroll to channel labels
+  const onGridVScroll = (e: any) => {
+    channelLabelScrollRef.current?.scrollTo({
+      y: e.nativeEvent.contentOffset.y,
+      animated: false,
+    });
+  };
+
   return (
     <View style={styles.container}>
-      {/* Time header row */}
+      {/* ── Top row: corner + time header ── */}
       <View style={styles.headerRow}>
-        <View style={styles.channelLabelHeader} />
+        <View style={styles.cornerCell}>
+          <Text style={styles.cornerTimeText}>
+            {now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </Text>
+        </View>
         <ScrollView
-          ref={scrollRef}
+          ref={timeHeaderScrollRef}
           horizontal
+          scrollEnabled={false}
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ width: gridWidthPx }}
-          scrollEventThrottle={16}
         >
           <View style={[styles.timeHeaderContent, { width: gridWidthPx }]}>
             {timeMarkers.map((marker, i) => (
-              <Text
-                key={i}
-                style={[styles.timeLabel, { left: marker.offsetPx }]}
-              >
-                {marker.label}
-              </Text>
+              <View key={i} style={[styles.timeMarkerGroup, { left: marker.offsetPx }]}>
+                <Text style={styles.timeLabel}>{marker.label}</Text>
+                <View style={styles.timeMarkerTick} />
+              </View>
             ))}
+            {/* Red dot in time header at "now" position */}
+            <View style={[styles.timeHeaderNowDot, { left: nowOffsetPx - 3 }]} />
           </View>
         </ScrollView>
       </View>
 
-      {/* Channel rows with scrollable programmes */}
-      <ScrollView style={styles.verticalScroll} showsVerticalScrollIndicator={false}>
-        {channelRows.map(({ channel, cells }) => (
-          <View key={channel.id} style={styles.row}>
-            {/* Fixed channel label */}
-            <View style={styles.channelLabel}>
-              <Text style={styles.channelNumber}>{channel.number}</Text>
-              <Text style={styles.channelName} numberOfLines={1}>
+      {/* ── Body: channel labels + programme grid ── */}
+      <View style={styles.bodyRow}>
+        {/* Fixed channel label column (synced vertically with grid) */}
+        <ScrollView
+          ref={channelLabelScrollRef}
+          scrollEnabled={false}
+          showsVerticalScrollIndicator={false}
+          style={styles.channelLabelColumn}
+        >
+          {channelRows.map(({ channel }) => (
+            <View key={channel.id} style={styles.channelLabel}>
+              {channel.logo ? (
+                <Image
+                  source={{ uri: channel.logo }}
+                  style={styles.channelLogo}
+                  resizeMode="contain"
+                />
+              ) : (
+                <View style={styles.channelNumberBadge}>
+                  <Text style={styles.channelNumberText}>{channel.number}</Text>
+                </View>
+              )}
+              <Text style={styles.channelName} numberOfLines={2}>
                 {channel.name}
               </Text>
             </View>
+          ))}
+        </ScrollView>
 
-            {/* Scrollable programme cells */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ width: gridWidthPx, height: ROW_HEIGHT }}
-            >
-              <View style={[styles.programmeTrack, { width: gridWidthPx }]}>
-                {cells.map((cell, i) => (
-                  <View
-                    key={`${cell.programme.channelId}-${i}`}
-                    style={[
-                      styles.programmeCell,
-                      {
-                        left: cell.leftPx,
-                        width: cell.widthPx - 2, // 2px gap between cells
-                      },
-                      cell.isNow && styles.programmeCellNow,
-                    ]}
-                  >
-                    <Text style={styles.programmeCellTitle} numberOfLines={1}>
-                      {cell.programme.title}
-                    </Text>
-                    {cell.widthPx > 80 && cell.programme.subtitle && (
-                      <Text style={styles.programmeCellSubtitle} numberOfLines={1}>
-                        {cell.programme.subtitle}
-                      </Text>
-                    )}
-                  </View>
-                ))}
-
-                {/* Current time indicator */}
+        {/* Scrollable programme grid (master scroller) */}
+        <ScrollView
+          ref={gridHScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          onScroll={onGridHScroll}
+          scrollEventThrottle={16}
+        >
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            onScroll={onGridVScroll}
+            scrollEventThrottle={16}
+          >
+            <View style={{ width: gridWidthPx, height: totalContentHeight }}>
+              {/* Half-hour grid lines */}
+              {timeMarkers.map((marker, i) => (
                 <View
-                  style={[styles.nowLine, { left: nowOffsetPx }]}
+                  key={`gl-${i}`}
+                  style={[styles.gridLine, { left: marker.offsetPx }]}
                 />
+              ))}
+
+              {/* Programme rows */}
+              {channelRows.map(({ channel, cells }, rowIndex) => (
+                <View
+                  key={channel.id}
+                  style={[
+                    styles.programmeRow,
+                    { top: rowIndex * ROW_HEIGHT },
+                    rowIndex % 2 === 1 && styles.programmeRowAlt,
+                  ]}
+                >
+                  {cells.map((cell, i) => {
+                    const isTiny = cell.widthPx < TINY_CELL_THRESHOLD;
+                    const cellWidth = Math.max(cell.widthPx - 2, MIN_CELL_WIDTH);
+
+                    return (
+                      <View
+                        key={`${cell.programme.channelId}-${i}`}
+                        style={[
+                          styles.programmeCell,
+                          { left: cell.leftPx, width: cellWidth },
+                          cell.isNow && styles.programmeCellNow,
+                          cell.isPast && styles.programmeCellPast,
+                          isTiny && styles.programmeCellTiny,
+                        ]}
+                      >
+                        {!isTiny && (
+                          <>
+                            <Text
+                              style={[
+                                styles.programmeCellTitle,
+                                cell.isNow && styles.programmeCellTitleNow,
+                                cell.isPast && styles.programmeCellTitlePast,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {cell.programme.title}
+                            </Text>
+                            {cell.widthPx > 100 && cell.programme.subtitle && (
+                              <Text
+                                style={[
+                                  styles.programmeCellSubtitle,
+                                  cell.isPast && styles.programmeCellSubtitlePast,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {cell.programme.subtitle}
+                              </Text>
+                            )}
+                          </>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+
+              {/* ── Current time indicator ── */}
+              <View style={[styles.nowIndicatorContainer, { left: nowOffsetPx }]}>
+                <View style={styles.nowTriangle} />
+                <View style={[styles.nowLine, { height: totalContentHeight - 6 }]} />
               </View>
-            </ScrollView>
-          </View>
-        ))}
-      </ScrollView>
+            </View>
+          </ScrollView>
+        </ScrollView>
+      </View>
     </View>
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
+
+  // ── Header row ──
   headerRow: {
     flexDirection: 'row',
     height: TIME_HEADER_HEIGHT,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  channelLabelHeader: {
+  cornerCell: {
     width: CHANNEL_LABEL_WIDTH,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  cornerTimeText: {
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+    color: colors.accent,
+    fontVariant: ['tabular-nums'],
   },
   timeHeaderContent: {
     height: TIME_HEADER_HEIGHT,
     position: 'relative',
   },
-  timeLabel: {
+  timeMarkerGroup: {
     position: 'absolute',
-    top: 8,
+    top: 0,
+    bottom: 0,
+    alignItems: 'flex-start',
+  },
+  timeLabel: {
     fontSize: fontSize.xs,
     color: colors.textMuted,
     fontVariant: ['tabular-nums'],
+    fontWeight: '500',
+    paddingLeft: spacing.sm,
+    paddingTop: spacing.md,
   },
-  verticalScroll: {
+  timeMarkerTick: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    width: 1,
+    height: 10,
+    backgroundColor: colors.borderLight,
+  },
+  timeHeaderNowDot: {
+    position: 'absolute',
+    bottom: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.timeIndicator,
+  },
+
+  // ── Body row ──
+  bodyRow: {
     flex: 1,
-  },
-  row: {
     flexDirection: 'row',
-    height: ROW_HEIGHT,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+  },
+  channelLabelColumn: {
+    width: CHANNEL_LABEL_WIDTH,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    backgroundColor: colors.surface,
   },
   channelLabel: {
-    width: CHANNEL_LABEL_WIDTH,
+    height: ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.sm,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  channelNumber: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    color: colors.textMuted,
-    width: 24,
+  channelLogo: {
+    width: 32,
+    height: 24,
+    borderRadius: 4,
+    marginRight: spacing.sm,
+  },
+  channelNumberBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: colors.surfaceLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
+  },
+  channelNumberText: {
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+    color: colors.textSecondary,
     fontVariant: ['tabular-nums'],
   },
   channelName: {
     flex: 1,
-    fontSize: fontSize.sm,
+    fontSize: fontSize.xs,
+    fontWeight: '600',
     color: colors.text,
+    lineHeight: 16,
   },
-  programmeTrack: {
-    position: 'relative',
+
+  // ── Programme grid ──
+  gridLine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    zIndex: 1,
+  },
+  programmeRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     height: ROW_HEIGHT,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  programmeRowAlt: {
+    backgroundColor: 'rgba(255,255,255,0.015)',
   },
   programmeCell: {
     position: 'absolute',
-    top: 4,
-    bottom: 4,
-    backgroundColor: colors.surface,
-    borderRadius: 4,
-    paddingHorizontal: spacing.xs,
+    top: 6,
+    bottom: 6,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 6,
+    paddingHorizontal: spacing.sm,
     justifyContent: 'center',
     overflow: 'hidden',
   },
   programmeCellNow: {
-    backgroundColor: colors.surfaceLight,
-    borderLeftWidth: 2,
+    backgroundColor: colors.nowPlayingDim,
+    borderLeftWidth: 3,
     borderLeftColor: colors.nowPlaying,
+    // Shadow for subtle glow on iOS
+    shadowColor: colors.nowPlaying,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  programmeCellPast: {
+    opacity: 0.35,
+  },
+  programmeCellTiny: {
+    paddingHorizontal: 0,
+    borderRadius: 2,
+    backgroundColor: colors.surfaceBright,
   },
   programmeCellTitle: {
     fontSize: fontSize.xs,
     color: colors.text,
     fontWeight: '500',
   },
+  programmeCellTitleNow: {
+    fontWeight: '600',
+  },
+  programmeCellTitlePast: {
+    color: colors.textMuted,
+  },
   programmeCellSubtitle: {
     fontSize: 10,
     color: colors.textMuted,
     marginTop: 1,
   },
-  nowLine: {
+  programmeCellSubtitlePast: {
+    color: colors.textMuted,
+  },
+
+  // ── Current time indicator ──
+  nowIndicatorContainer: {
     position: 'absolute',
     top: 0,
-    bottom: 0,
+    zIndex: 20,
+    alignItems: 'center',
+  },
+  nowTriangle: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: colors.timeIndicator,
+  },
+  nowLine: {
     width: 2,
-    backgroundColor: '#e74c3c',
-    zIndex: 10,
+    backgroundColor: colors.timeIndicator,
   },
 });

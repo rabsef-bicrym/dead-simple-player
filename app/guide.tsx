@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../src/constants/storage';
@@ -85,8 +86,13 @@ export default function GuideScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backText}>Back</Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Ionicons name="chevron-back" size={22} color={colors.accent} />
+          <Text style={styles.backText}>Channels</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Guide</Text>
         <View style={styles.headerSpacer} />
@@ -117,9 +123,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 80,
+  },
   backText: {
     fontSize: fontSize.sm,
     color: colors.accent,
+    marginLeft: 2,
   },
   headerTitle: {
     fontSize: fontSize.lg,
@@ -127,7 +139,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   headerSpacer: {
-    width: 40,
+    minWidth: 80,
   },
   loadingText: {
     color: colors.textSecondary,

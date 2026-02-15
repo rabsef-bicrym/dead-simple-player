@@ -12,60 +12,78 @@ interface ChannelRowProps {
  * A single row in the channel list showing:
  * - Channel number and logo
  * - Channel name
- * - Currently airing programme title and time remaining
+ * - Currently airing programme with title, subtitle, and time remaining
+ * - Progress bar showing how far into the current programme we are
  */
 export function ChannelRow({ channel, nowPlaying, onPress }: ChannelRowProps) {
-  const timeRemaining = nowPlaying
-    ? formatTimeRemaining(nowPlaying.stop)
-    : null;
+  const timeRemaining = nowPlaying ? formatTimeRemaining(nowPlaying.stop) : null;
+  const progress = nowPlaying ? getProgress(nowPlaying) : 0;
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
-      {/* Channel number */}
-      <View style={styles.numberContainer}>
-        <Text style={styles.number}>{channel.number}</Text>
+    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.6}>
+      <View style={styles.content}>
+        {/* Channel number */}
+        <View style={styles.numberContainer}>
+          <Text style={styles.number}>{channel.number}</Text>
+        </View>
+
+        {/* Logo or placeholder */}
+        <View style={styles.logoContainer}>
+          {channel.logo ? (
+            <Image source={{ uri: channel.logo }} style={styles.logo} resizeMode="contain" />
+          ) : (
+            <View style={styles.logoPlaceholder}>
+              <Text style={styles.logoPlaceholderText}>
+                {channel.name.charAt(0)}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Channel info + now playing */}
+        <View style={styles.info}>
+          <Text style={styles.channelName} numberOfLines={1}>
+            {channel.name}
+          </Text>
+          {nowPlaying ? (
+            <View style={styles.nowPlayingRow}>
+              <Text style={styles.nowPlayingTitle} numberOfLines={1}>
+                {nowPlaying.title}
+                {nowPlaying.subtitle ? ` — ${nowPlaying.subtitle}` : ''}
+              </Text>
+              {timeRemaining && (
+                <Text style={styles.timeRemaining}>{timeRemaining}</Text>
+              )}
+            </View>
+          ) : (
+            <Text style={styles.noData}>No programme data</Text>
+          )}
+        </View>
       </View>
 
-      {/* Logo */}
-      <View style={styles.logoContainer}>
-        {channel.logo ? (
-          <Image source={{ uri: channel.logo }} style={styles.logo} resizeMode="contain" />
-        ) : (
-          <View style={styles.logoPlaceholder}>
-            <Text style={styles.logoPlaceholderText}>
-              {channel.name.charAt(0)}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Channel info + now playing */}
-      <View style={styles.info}>
-        <Text style={styles.channelName} numberOfLines={1}>
-          {channel.name}
-        </Text>
-        {nowPlaying ? (
-          <View style={styles.nowPlayingRow}>
-            <Text style={styles.nowPlayingTitle} numberOfLines={1}>
-              {nowPlaying.title}
-              {nowPlaying.subtitle ? ` — ${nowPlaying.subtitle}` : ''}
-            </Text>
-            {timeRemaining && (
-              <Text style={styles.timeRemaining}>{timeRemaining}</Text>
-            )}
-          </View>
-        ) : (
-          <Text style={styles.noData}>No programme data</Text>
-        )}
-      </View>
+      {/* Progress bar */}
+      {nowPlaying && (
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
 
+/** Fraction of the programme that has elapsed (0–1). */
+function getProgress(programme: Programme): number {
+  const now = Date.now();
+  const start = programme.start.getTime();
+  const stop = programme.stop.getTime();
+  const duration = stop - start;
+  if (duration <= 0) return 0;
+  return Math.min(1, Math.max(0, (now - start) / duration));
+}
+
 /** Format time remaining until programme ends as "Xh Ym" or "Ym". */
 function formatTimeRemaining(stop: Date): string | null {
-  const now = new Date();
-  const diffMs = stop.getTime() - now.getTime();
+  const diffMs = stop.getTime() - Date.now();
   if (diffMs <= 0) return null;
 
   const totalMins = Math.ceil(diffMs / 60000);
@@ -78,51 +96,53 @@ function formatTimeRemaining(stop: Date): string | null {
 
 const styles = StyleSheet.create({
   container: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  content: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
   },
   numberContainer: {
-    width: 32,
+    width: 36,
     alignItems: 'center',
   },
   number: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
+    fontSize: fontSize.lg,
+    fontWeight: '700',
     color: colors.textMuted,
     fontVariant: ['tabular-nums'],
   },
   logoContainer: {
-    width: 48,
-    height: 36,
-    marginLeft: spacing.sm,
+    width: 52,
+    height: 40,
+    marginLeft: spacing.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
   logo: {
-    width: 48,
-    height: 36,
-    borderRadius: 4,
+    width: 52,
+    height: 40,
+    borderRadius: 6,
   },
   logoPlaceholder: {
-    width: 48,
-    height: 36,
-    borderRadius: 4,
+    width: 52,
+    height: 40,
+    borderRadius: 6,
     backgroundColor: colors.surfaceLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
   logoPlaceholderText: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.lg,
     fontWeight: '700',
     color: colors.textMuted,
   },
   info: {
     flex: 1,
-    marginLeft: spacing.md,
+    marginLeft: spacing.lg,
   },
   channelName: {
     fontSize: fontSize.md,
@@ -132,7 +152,7 @@ const styles = StyleSheet.create({
   nowPlayingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: spacing.xs,
   },
   nowPlayingTitle: {
     flex: 1,
@@ -143,12 +163,25 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.nowPlaying,
     marginLeft: spacing.sm,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   noData: {
     fontSize: fontSize.sm,
     color: colors.textMuted,
     fontStyle: 'italic',
-    marginTop: 2,
+    marginTop: spacing.xs,
+  },
+
+  // Progress bar
+  progressTrack: {
+    height: 2,
+    backgroundColor: colors.border,
+    marginHorizontal: spacing.lg,
+  },
+  progressFill: {
+    height: 2,
+    backgroundColor: colors.nowPlaying,
+    borderRadius: 1,
   },
 });

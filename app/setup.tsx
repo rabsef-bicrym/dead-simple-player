@@ -8,6 +8,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -40,7 +41,6 @@ export default function SetupScreen() {
     setConnecting(true);
 
     try {
-      // Quick check: fetch the M3U to verify the server is reachable
       const url = `http://${trimmedHost}:${portNum}/iptv/channels.m3u`;
       const response = await fetch(url, { method: 'HEAD' });
 
@@ -50,14 +50,13 @@ export default function SetupScreen() {
         return;
       }
 
-      // Save config and navigate to channel list
       const config: ServerConfig = { host: trimmedHost, port: portNum };
       await AsyncStorage.setItem(STORAGE_KEYS.SERVER_CONFIG, JSON.stringify(config));
       router.replace('/channels');
     } catch (error) {
       Alert.alert(
         'Connection failed',
-        'Could not reach the server. Check the address and ensure you\'re on the same network.'
+        'Could not reach the server. Check the address and ensure you\'re on the same network.',
       );
       setConnecting(false);
     }
@@ -69,20 +68,23 @@ export default function SetupScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
+        {/* Branding */}
         <Text style={styles.title}>IPSwitch</Text>
         <Text style={styles.subtitle}>Connect to your ErsatzTV server</Text>
 
+        {/* Form */}
         <View style={styles.form}>
           <Text style={styles.label}>Server Address</Text>
           <TextInput
             style={styles.input}
             value={host}
             onChangeText={setHost}
-            placeholder="192.168.1.100"
+            placeholder="192.168.1.100 or hostname"
             placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"
+            returnKeyType="next"
           />
 
           <Text style={styles.label}>Port</Text>
@@ -93,18 +95,31 @@ export default function SetupScreen() {
             placeholder="8409"
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
+            returnKeyType="done"
+            onSubmitEditing={handleConnect}
           />
 
           <TouchableOpacity
             style={[styles.button, connecting && styles.buttonDisabled]}
             onPress={handleConnect}
             disabled={connecting}
+            activeOpacity={0.8}
           >
-            <Text style={styles.buttonText}>
-              {connecting ? 'Connecting...' : 'Connect'}
-            </Text>
+            {connecting ? (
+              <View style={styles.buttonContent}>
+                <ActivityIndicator size="small" color={colors.text} />
+                <Text style={styles.buttonText}>Connecting...</Text>
+              </View>
+            ) : (
+              <Text style={styles.buttonText}>Connect</Text>
+            )}
           </TouchableOpacity>
         </View>
+
+        {/* Footer hint */}
+        <Text style={styles.hint}>
+          ErsatzTV default port is 8409
+        </Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -121,49 +136,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,
   },
   title: {
-    fontSize: fontSize.xxl,
+    fontSize: fontSize.hero,
     fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
+    letterSpacing: -1,
   },
   subtitle: {
     fontSize: fontSize.md,
     color: colors.textSecondary,
     textAlign: 'center',
     marginTop: spacing.sm,
-    marginBottom: spacing.xxl,
+    marginBottom: 48,
   },
   form: {
     gap: spacing.sm,
   },
   label: {
     fontSize: fontSize.sm,
+    fontWeight: '500',
     color: colors.textSecondary,
     marginTop: spacing.sm,
+    marginBottom: spacing.xs,
   },
   input: {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: 14,
     fontSize: fontSize.md,
     color: colors.text,
   },
   button: {
     backgroundColor: colors.accent,
-    borderRadius: 8,
-    paddingVertical: spacing.md,
+    borderRadius: 10,
+    paddingVertical: 16,
     alignItems: 'center',
-    marginTop: spacing.lg,
+    marginTop: spacing.xl,
   },
   buttonDisabled: {
     backgroundColor: colors.accentDim,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   buttonText: {
     fontSize: fontSize.md,
     fontWeight: '600',
     color: colors.text,
+  },
+  hint: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: spacing.xxl,
   },
 });
