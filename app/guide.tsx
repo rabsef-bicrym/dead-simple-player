@@ -14,6 +14,7 @@ import { STORAGE_KEYS } from '../src/constants/storage';
 import { parseM3U } from '../src/parsers/m3u';
 import { parseXMLTV } from '../src/parsers/xmltv';
 import { GuideGrid } from '../src/components/GuideGrid';
+import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
 import { colors, spacing, fontSize } from '../src/constants/theme';
 import type { Channel, Programme, ServerConfig } from '../src/types';
 
@@ -23,6 +24,7 @@ export default function GuideScreen() {
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedProgramme, setSelectedProgramme] = useState<Programme | null>(null);
 
   const fetchData = useCallback(async () => {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG);
@@ -97,7 +99,16 @@ export default function GuideScreen() {
         <Text style={styles.headerTitle}>Guide</Text>
         <View style={styles.headerSpacer} />
       </View>
-      <GuideGrid channels={channels} programmes={programmes} />
+      <GuideGrid
+        channels={channels}
+        programmes={programmes}
+        onProgrammePress={setSelectedProgramme}
+      />
+      <ProgrammeDetailModal
+        programme={selectedProgramme}
+        visible={selectedProgramme !== null}
+        onClose={() => setSelectedProgramme(null)}
+      />
     </SafeAreaView>
   );
 }

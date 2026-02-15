@@ -92,7 +92,28 @@ function parseProgramme(raw: any): Programme {
   const icons = ensureArray(raw['icon']);
   const icon = icons.length > 0 ? icons[0]?.['@_src'] : undefined;
 
-  return { channelId, start, stop, title, subtitle, description, icon };
+  // Categories — collect all <category> text values
+  const catRaw = ensureArray(raw['category']);
+  const categories = catRaw.map((c: any) => extractText(c)).filter((c): c is string => !!c);
+
+  // Episode number — prefer "onscreen" format (e.g. "S01E16") over xmltv_ns
+  const epNums = ensureArray(raw['episode-num']);
+  let episodeNum: string | undefined;
+  for (const ep of epNums) {
+    if (typeof ep === 'object' && ep['@_system'] === 'onscreen') {
+      episodeNum = extractText(ep);
+      break;
+    }
+  }
+
+  // Year from <date> element (ErsatzTV uses "0" as sentinel for unknown — treat as absent)
+  const rawDate = raw['date'] ? String(raw['date']) : undefined;
+  const year = rawDate && rawDate !== '0' ? rawDate : undefined;
+
+  // Previously-shown flag — element exists means true (self-closing: <previously-shown/>)
+  const previouslyShown = raw['previously-shown'] !== undefined && raw['previously-shown'] !== null;
+
+  return { channelId, start, stop, title, subtitle, description, icon, categories, episodeNum, year, previouslyShown };
 }
 
 /**

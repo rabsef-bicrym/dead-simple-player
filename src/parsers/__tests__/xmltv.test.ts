@@ -114,6 +114,76 @@ describe('XMLTV Parser', () => {
         }
       });
     });
+
+    it('should parse categories from programmes', () => {
+      const { programmes } = parseXMLTV(raw);
+      // C1 The Prisoner has categories: Series, Drama, Mystery, Science Fiction
+      const prisoner = programmes.find(
+        (p) => p.channelId === 'C1.145.ersatztv.org' && p.title === 'The Prisoner',
+      );
+      expect(prisoner).toBeDefined();
+      expect(prisoner!.categories).toContain('Series');
+      expect(prisoner!.categories).toContain('Drama');
+      expect(prisoner!.categories).toContain('Mystery');
+      expect(prisoner!.categories).toContain('Science Fiction');
+    });
+
+    it('should parse all known category values', () => {
+      const { programmes } = parseXMLTV(raw);
+      const allCategories = new Set(programmes.flatMap((p) => p.categories));
+      // Verify a selection of known categories from the data
+      expect(allCategories.has('Series')).toBe(true);
+      expect(allCategories.has('Drama')).toBe(true);
+      expect(allCategories.has('Music')).toBe(true);
+      expect(allCategories.has('Animation')).toBe(true);
+      expect(allCategories.has('Comedy')).toBe(true);
+    });
+
+    it('should parse onscreen episode numbers', () => {
+      const { programmes } = parseXMLTV(raw);
+      // The Prisoner S01E16 "Once Upon a Time" is the first programme
+      const prisonerEps = programmes.filter(
+        (p) => p.channelId === 'C1.145.ersatztv.org' && p.episodeNum,
+      );
+      expect(prisonerEps.length).toBeGreaterThan(0);
+      // Episode numbers should follow SxxExx format
+      prisonerEps.forEach((p) => {
+        expect(p.episodeNum).toMatch(/^S\d{2}E\d{2}$/);
+      });
+    });
+
+    it('should parse year from date element (skipping sentinel "0")', () => {
+      const { programmes } = parseXMLTV(raw);
+      const withYear = programmes.filter((p) => p.year !== undefined);
+      // The data has ~725 <date> elements, but some are "0" (unknown) and get filtered
+      expect(withYear.length).toBeGreaterThan(50);
+      // Every parsed year should be a real 4-digit year
+      withYear.forEach((p) => {
+        expect(p.year).toMatch(/^\d{4}$/);
+      });
+    });
+
+    it('should parse previouslyShown flag', () => {
+      const { programmes } = parseXMLTV(raw);
+      // All 1343 programmes in the test data have <previously-shown/>
+      const withPrevShown = programmes.filter((p) => p.previouslyShown);
+      expect(withPrevShown.length).toBe(programmes.length);
+    });
+
+    it('should handle programmes without optional new fields gracefully', () => {
+      const { programmes } = parseXMLTV(raw);
+      // Some programmes may lack categories, episodeNum, or year — ensure no crashes
+      programmes.forEach((p) => {
+        expect(Array.isArray(p.categories)).toBe(true);
+        expect(typeof p.previouslyShown).toBe('boolean');
+        if (p.episodeNum !== undefined) {
+          expect(typeof p.episodeNum).toBe('string');
+        }
+        if (p.year !== undefined) {
+          expect(typeof p.year).toBe('string');
+        }
+      });
+    });
   });
 
   describe('parseXmltvTimestamp', () => {
@@ -213,5 +283,53 @@ describe('HTML entity handling', () => {
     expect(programmes[0].description).toContain("\u201C");
     expect(programmes[0].description).toContain("\u201D");
     expect(programmes[0].description).toContain("\u2014");
+    // New fields default correctly when absent
+    expect(programmes[0].categories).toEqual([]);
+    expect(programmes[0].episodeNum).toBeUndefined();
+    expect(programmes[0].year).toBeUndefined();
+    expect(programmes[0].previouslyShown).toBe(false);
+  });
+});
+
+describe('new XMLTV fields with synthetic data', () => {
+  it('should parse categories, episodeNum, year, and previouslyShown', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<tv>
+  <channel id="test"><display-name>Test</display-name></channel>
+  <programme start="20260215120000 -0800" stop="20260215130000 -0800" channel="test">
+    <title lang="en">Test Show</title>
+    <sub-title lang="en">Pilot Episode</sub-title>
+    <desc lang="en">A test description.</desc>
+    <category lang="en">Drama</category>
+    <category lang="en">Mystery</category>
+    <episode-num system="onscreen">S01E01</episode-num>
+    <episode-num system="xmltv_ns">0.0.0/1</episode-num>
+    <date>2026</date>
+    <previously-shown/>
+  </programme>
+</tv>`;
+
+    const { programmes } = parseXMLTV(xml);
+    expect(programmes).toHaveLength(1);
+    const p = programmes[0];
+    expect(p.categories).toEqual(['Drama', 'Mystery']);
+    expect(p.episodeNum).toBe('S01E01');
+    expect(p.year).toBe('2026');
+    expect(p.previouslyShown).toBe(true);
+  });
+
+  it('should prefer onscreen episode-num over xmltv_ns', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<tv>
+  <channel id="test"><display-name>Test</display-name></channel>
+  <programme start="20260215120000 -0800" stop="20260215130000 -0800" channel="test">
+    <title lang="en">Test</title>
+    <episode-num system="xmltv_ns">0.5.0/1</episode-num>
+    <episode-num system="onscreen">S01E06</episode-num>
+  </programme>
+</tv>`;
+
+    const { programmes } = parseXMLTV(xml);
+    expect(programmes[0].episodeNum).toBe('S01E06');
   });
 });

@@ -3,11 +3,12 @@ import {
   View,
   Text,
   ScrollView,
+  TouchableOpacity,
   StyleSheet,
   Dimensions,
   Image,
 } from 'react-native';
-import { colors, spacing, fontSize } from '../constants/theme';
+import { colors, spacing, fontSize, categoryColor } from '../constants/theme';
 import type { Channel, Programme } from '../types';
 
 interface GuideGridProps {
@@ -15,6 +16,8 @@ interface GuideGridProps {
   programmes: Programme[];
   /** Number of hours to display in the grid (default 4) */
   hoursToShow?: number;
+  /** Called when user taps a programme cell */
+  onProgrammePress?: (programme: Programme) => void;
 }
 
 // ── Layout constants ──────────────────────────────────────────────────
@@ -25,6 +28,8 @@ const TIME_HEADER_HEIGHT = 44;
 const MIN_CELL_WIDTH = 4;
 // Below this width (px), programme cells render as thin bars without text
 const TINY_CELL_THRESHOLD = 24;
+// Minimum width to show episode number below subtitle
+const EPISODE_NUM_THRESHOLD = 140;
 
 /**
  * EPG guide grid with synchronized scrolling.
@@ -36,14 +41,17 @@ const TINY_CELL_THRESHOLD = 24;
  * - Programme grid is the master scroller (horizontal + vertical)
  *
  * Visual features:
+ * - Category color-coded left border on each programme cell
  * - Now-playing cells highlighted with green accent border + subtle glow
  * - Past cells dimmed
  * - Tiny-duration programmes render as thin bars (no text)
+ * - Episode number shown when space permits
  * - Prominent red current-time indicator with triangle marker
  * - Half-hour grid lines for alignment
  * - Auto-scrolls to "now" on mount
+ * - Tapping a cell triggers onProgrammePress callback
  */
-export function GuideGrid({ channels, programmes, hoursToShow = 4 }: GuideGridProps) {
+export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePress }: GuideGridProps) {
   const timeHeaderScrollRef = useRef<ScrollView>(null);
   const channelLabelScrollRef = useRef<ScrollView>(null);
   const gridHScrollRef = useRef<ScrollView>(null);
@@ -230,8 +238,21 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4 }: GuideGridPr
                     const isTiny = cell.widthPx < TINY_CELL_THRESHOLD;
                     const cellWidth = Math.max(cell.widthPx - 2, MIN_CELL_WIDTH);
 
+                    // Derive category border color from first category (if any)
+                    const catBorderColor = cell.programme.categories.length > 0
+                      ? categoryColor(cell.programme.categories[0])
+                      : undefined;
+
+                    // Build dynamic border styles — category color on left unless now-playing
+                    // (now-playing always gets the green border for visual priority)
+                    const borderStyle = cell.isNow
+                      ? undefined
+                      : catBorderColor && !isTiny
+                        ? { borderLeftWidth: 3, borderLeftColor: catBorderColor }
+                        : undefined;
+
                     return (
-                      <View
+                      <TouchableOpacity
                         key={`${cell.programme.channelId}-${i}`}
                         style={[
                           styles.programmeCell,
@@ -239,7 +260,11 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4 }: GuideGridPr
                           cell.isNow && styles.programmeCellNow,
                           cell.isPast && styles.programmeCellPast,
                           isTiny && styles.programmeCellTiny,
+                          borderStyle,
                         ]}
+                        activeOpacity={isTiny ? 1 : 0.7}
+                        onPress={() => !isTiny && onProgrammePress?.(cell.programme)}
+                        disabled={isTiny}
                       >
                         {!isTiny && (
                           <>
@@ -264,9 +289,20 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4 }: GuideGridPr
                                 {cell.programme.subtitle}
                               </Text>
                             )}
+                            {cell.widthPx > EPISODE_NUM_THRESHOLD && cell.programme.episodeNum && (
+                              <Text
+                                style={[
+                                  styles.programmeCellEpisode,
+                                  cell.isPast && styles.programmeCellSubtitlePast,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {cell.programme.episodeNum}
+                              </Text>
+                            )}
                           </>
                         )}
-                      </View>
+                      </TouchableOpacity>
                     );
                   })}
                 </View>
@@ -463,6 +499,12 @@ const styles = StyleSheet.create({
   },
   programmeCellSubtitlePast: {
     color: colors.textMuted,
+  },
+  programmeCellEpisode: {
+    fontSize: 9,
+    color: colors.textMuted,
+    fontVariant: ['tabular-nums'],
+    marginTop: 1,
   },
 
   // ── Current time indicator ──

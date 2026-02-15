@@ -28,6 +28,14 @@ export interface Programme {
   description?: string;
   /** Programme icon URL, if present */
   icon?: string;
+  /** Genre/category tags (e.g. "Series", "Drama", "Science Fiction") */
+  categories: string[];
+  /** Onscreen episode number (e.g. "S01E16"), if present */
+  episodeNum?: string;
+  /** Production year from <date> element, if present */
+  year?: string;
+  /** Whether this is a rerun/repeat */
+  previouslyShown: boolean;
 }
 
 /** XMLTV channel metadata (separate from M3U channel). */

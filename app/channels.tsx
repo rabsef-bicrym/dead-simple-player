@@ -17,6 +17,7 @@ import { colors, spacing, fontSize } from '../src/constants/theme';
 import { parseM3U } from '../src/parsers/m3u';
 import { parseXMLTV, getNowPlaying } from '../src/parsers/xmltv';
 import { ChannelRow } from '../src/components/ChannelRow';
+import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
 import type { Channel, EpgData, ServerConfig, Programme } from '../src/types';
 
 /** Channel list screen — shows all channels with now-playing info. */
@@ -29,6 +30,8 @@ export default function ChannelsScreen() {
   const [error, setError] = useState<string | null>(null);
   // Tick state to force re-render every minute for time-remaining updates
   const [tick, setTick] = useState(0);
+  // Programme detail modal state
+  const [selectedProgramme, setSelectedProgramme] = useState<Programme | null>(null);
 
   // Load config on mount
   useEffect(() => {
@@ -169,6 +172,7 @@ export default function ChannelsScreen() {
             channel={item}
             nowPlaying={nowPlayingMap.get(item.id)}
             onPress={() => handleChannelPress(index)}
+            onNowPlayingPress={setSelectedProgramme}
           />
         )}
         refreshControl={
@@ -182,6 +186,11 @@ export default function ChannelsScreen() {
         ListEmptyComponent={
           <Text style={styles.emptyText}>No channels found</Text>
         }
+      />
+      <ProgrammeDetailModal
+        programme={selectedProgramme}
+        visible={selectedProgramme !== null}
+        onClose={() => setSelectedProgramme(null)}
       />
     </SafeAreaView>
   );

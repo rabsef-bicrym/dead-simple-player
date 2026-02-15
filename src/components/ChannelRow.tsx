@@ -1,21 +1,28 @@
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors, spacing, fontSize } from '../constants/theme';
+import { colors, spacing, fontSize, categoryColor } from '../constants/theme';
 import type { Channel, Programme } from '../types';
 
 interface ChannelRowProps {
   channel: Channel;
   nowPlaying?: Programme;
+  /** Navigate to player on channel tap */
   onPress: () => void;
+  /** Open programme detail modal on now-playing tap */
+  onNowPlayingPress?: (programme: Programme) => void;
 }
 
 /**
  * A single row in the channel list showing:
  * - Channel number and logo
  * - Channel name
- * - Currently airing programme with title, subtitle, and time remaining
+ * - Currently airing programme with title, subtitle, episode number, and time remaining
+ * - Category tags as small colored pills
  * - Progress bar showing how far into the current programme we are
+ *
+ * Tapping the row navigates to the player.
+ * Tapping the now-playing info area opens the programme detail modal.
  */
-export function ChannelRow({ channel, nowPlaying, onPress }: ChannelRowProps) {
+export function ChannelRow({ channel, nowPlaying, onPress, onNowPlayingPress }: ChannelRowProps) {
   const timeRemaining = nowPlaying ? formatTimeRemaining(nowPlaying.stop) : null;
   const progress = nowPlaying ? getProgress(nowPlaying) : 0;
 
@@ -46,15 +53,39 @@ export function ChannelRow({ channel, nowPlaying, onPress }: ChannelRowProps) {
             {channel.name}
           </Text>
           {nowPlaying ? (
-            <View style={styles.nowPlayingRow}>
-              <Text style={styles.nowPlayingTitle} numberOfLines={1}>
-                {nowPlaying.title}
-                {nowPlaying.subtitle ? ` — ${nowPlaying.subtitle}` : ''}
-              </Text>
-              {timeRemaining && (
-                <Text style={styles.timeRemaining}>{timeRemaining}</Text>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={(e) => {
+                e.stopPropagation();
+                onNowPlayingPress?.(nowPlaying);
+              }}
+            >
+              <View style={styles.nowPlayingRow}>
+                <Text style={styles.nowPlayingTitle} numberOfLines={1}>
+                  {nowPlaying.title}
+                  {nowPlaying.subtitle ? ` — ${nowPlaying.subtitle}` : ''}
+                </Text>
+                {timeRemaining && (
+                  <Text style={styles.timeRemaining}>{timeRemaining}</Text>
+                )}
+              </View>
+              {/* Episode number + categories row */}
+              {(nowPlaying.episodeNum || nowPlaying.categories.length > 0) && (
+                <View style={styles.metaRow}>
+                  {nowPlaying.episodeNum && (
+                    <Text style={styles.episodeNum}>{nowPlaying.episodeNum}</Text>
+                  )}
+                  {nowPlaying.categories.slice(0, 3).map((cat) => (
+                    <View
+                      key={cat}
+                      style={[styles.categoryTag, { backgroundColor: categoryColor(cat) + '20', borderColor: categoryColor(cat) + '55' }]}
+                    >
+                      <Text style={[styles.categoryTagText, { color: categoryColor(cat) }]}>{cat}</Text>
+                    </View>
+                  ))}
+                </View>
               )}
-            </View>
+            </TouchableOpacity>
           ) : (
             <Text style={styles.noData}>No programme data</Text>
           )}
@@ -71,7 +102,7 @@ export function ChannelRow({ channel, nowPlaying, onPress }: ChannelRowProps) {
   );
 }
 
-/** Fraction of the programme that has elapsed (0–1). */
+/** Fraction of the programme that has elapsed (0-1). */
 function getProgress(programme: Programme): number {
   const now = Date.now();
   const start = programme.start.getTime();
@@ -165,6 +196,29 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    gap: spacing.xs,
+  },
+  episodeNum: {
+    fontSize: fontSize.xs,
+    color: colors.accent,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    marginRight: spacing.xs,
+  },
+  categoryTag: {
+    paddingHorizontal: spacing.sm - 2,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  categoryTagText: {
+    fontSize: 10,
+    fontWeight: '600',
   },
   noData: {
     fontSize: fontSize.sm,
