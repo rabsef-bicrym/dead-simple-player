@@ -8,7 +8,7 @@ export interface Channel {
   id: string;
   /** Logo/icon URL, if present */
   logo?: string;
-  /** HLS stream URL */
+  /** MPEG-TS stream URL */
   streamUrl: string;
 }
 

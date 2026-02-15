@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -30,7 +30,109 @@ const SWIPE_THRESHOLD = 80;
 const OVERLAY_DURATION = 4000;
 
 /**
- * Full-screen video player using expo-video.
+ * Build the inline HTML string that loads mpegts.js from CDN and plays an
+ * MPEG-TS stream in a full-screen <video> element.
+ *
+ * - Uses mpegts.js to demux the transport stream in JS.
+ * - Posts messages back to React Native on errors so the overlay can react.
+ * - Black background, no native controls, auto-play with sound.
+ */
+function buildPlayerHTML(streamUrl: string): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" playsinline webkit-playsinline></video>
+  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js"></script>
+  <script>
+    (function() {
+      // Send structured messages to React Native
+      function postMsg(type, payload) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: type, payload: payload }));
+      }
+
+      var video = document.getElementById('video');
+      var url = ${JSON.stringify(streamUrl)};
+
+      if (!mpegts.isSupported()) {
+        postMsg('error', 'mpegts.js is not supported in this browser');
+        return;
+      }
+
+      var player = mpegts.createPlayer({
+        type: 'mpegts',
+        url: url,
+        isLive: true
+      }, {
+        // Low-latency live streaming config
+        enableWorker: false,
+        liveBufferLatencyChasing: true,
+        liveBufferLatencyMaxLatency: 3,
+        liveBufferLatencyMinRemain: 0.5
+      });
+
+      player.attachMediaElement(video);
+      player.load();
+
+      // Attempt autoplay — iOS requires non-muted for sound
+      video.muted = false;
+      video.play().then(function() {
+        postMsg('status', 'playing');
+      }).catch(function(e) {
+        // iOS may block unmuted autoplay; try muted first then unmute
+        console.warn('Autoplay blocked, trying muted:', e.message);
+        video.muted = true;
+        video.play().then(function() {
+          // Unmute after play starts (works on iOS with user-gesture-bypass props)
+          video.muted = false;
+          postMsg('status', 'playing');
+        }).catch(function(e2) {
+          postMsg('error', 'Autoplay failed: ' + e2.message);
+        });
+      });
+
+      // Forward mpegts.js errors to RN
+      player.on(mpegts.Events.ERROR, function(type, detail, info) {
+        console.error('mpegts error:', type, detail, info);
+        postMsg('error', type + ': ' + detail);
+      });
+
+      // Track buffering state via video element events
+      video.addEventListener('waiting', function() {
+        postMsg('status', 'buffering');
+      });
+      video.addEventListener('playing', function() {
+        postMsg('status', 'playing');
+      });
+      video.addEventListener('error', function() {
+        var err = video.error;
+        postMsg('error', 'Video error: ' + (err ? err.message : 'unknown'));
+      });
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+/**
+ * Full-screen MPEG-TS video player using WebView + mpegts.js.
+ *
+ * Replaces expo-video (which can't demux raw .ts streams) with a WebView that
+ * loads mpegts.js from CDN to handle MPEG-TS demuxing in JavaScript.
+ *
  * - Receives channelIndex as route param
  * - Swipe up = next channel, swipe down = previous channel
  * - Tap to show/hide channel info overlay with gradient fade
@@ -47,7 +149,7 @@ export default function PlayerScreen() {
   const overlayOpacity = useRef(new Animated.Value(1)).current;
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load channel data
+  // Load channel data from server
   useEffect(() => {
     (async () => {
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG);
@@ -83,30 +185,27 @@ export default function PlayerScreen() {
 
   const currentChannel = channels[currentIndex];
 
-  // expo-video player — recreates when stream URL changes
-  const player = useVideoPlayer(
-    currentChannel?.streamUrl ?? '',
-    (p) => {
-      p.loop = false;
-      p.play();
-    },
-  );
+  // Build the HTML source for the WebView player.
+  // Memoized on streamUrl so it only regenerates on channel change.
+  const webViewSource = useMemo(() => {
+    if (!currentChannel) return undefined;
+    return { html: buildPlayerHTML(currentChannel.streamUrl) };
+  }, [currentChannel?.streamUrl]);
 
-  // Listen for buffering state changes
-  useEffect(() => {
-    if (!player) return;
-    const sub = player.addListener('statusChange', (event) => {
-      if (event.status === 'readyToPlay') {
+  /** Handle messages from the WebView (error reports, status updates). */
+  const onWebViewMessage = useCallback((event: WebViewMessageEvent) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      if (msg.type === 'error') {
+        console.error('[WebView player]', msg.payload);
         setBuffering(false);
-      } else if (event.status === 'loading') {
-        setBuffering(true);
-      } else if (event.status === 'error') {
-        console.error('Video error:', event.error);
-        setBuffering(false);
+      } else if (msg.type === 'status') {
+        setBuffering(msg.payload === 'buffering');
       }
-    });
-    return () => sub.remove();
-  }, [player]);
+    } catch {
+      console.warn('[WebView player] unparseable message:', event.nativeEvent.data);
+    }
+  }, []);
 
   const nowPlaying = useMemo(
     () => (currentChannel ? getNowPlaying(programmes, currentChannel.id) : undefined),
@@ -142,6 +241,7 @@ export default function PlayerScreen() {
     }
   }, [currentIndex, loading, currentChannel, flashOverlay]);
 
+  // Clean up overlay timer on unmount
   useEffect(() => {
     return () => {
       if (overlayTimer.current) clearTimeout(overlayTimer.current);
@@ -194,13 +294,23 @@ export default function PlayerScreen() {
         <View style={styles.container}>
           <TouchableWithoutFeedback onPress={handleTap}>
             <View style={styles.container}>
-              {/* Video Player (expo-video) */}
-              <VideoView
-                player={player}
-                style={styles.video}
-                contentFit="contain"
-                nativeControls={false}
-              />
+              {/* WebView MPEG-TS player (behind overlay) */}
+              {webViewSource && (
+                <WebView
+                  key={currentChannel.streamUrl}
+                  source={webViewSource}
+                  style={styles.video}
+                  originWhitelist={['*']}
+                  allowsInlineMediaPlayback
+                  mediaPlaybackRequiresUserAction={false}
+                  javaScriptEnabled
+                  scrollEnabled={false}
+                  bounces={false}
+                  onMessage={onWebViewMessage}
+                  allowsFullscreenVideo={false}
+                  mixedContentMode="always"
+                />
+              )}
 
               {/* Buffering indicator */}
               {buffering && (
@@ -283,6 +393,7 @@ const styles = StyleSheet.create({
   video: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
+    backgroundColor: '#000',
   },
   bufferingOverlay: {
     ...StyleSheet.absoluteFillObject,
