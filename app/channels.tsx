@@ -1,12 +1,175 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { colors, fontSize, spacing } from '../src/constants/theme';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  ActivityIndicator,
+  TouchableOpacity,
+  StyleSheet,
+  RefreshControl,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '../src/constants/storage';
+import { colors, spacing, fontSize } from '../src/constants/theme';
+import { parseM3U } from '../src/parsers/m3u';
+import { parseXMLTV, getNowPlaying } from '../src/parsers/xmltv';
+import { ChannelRow } from '../src/components/ChannelRow';
+import type { Channel, EpgData, ServerConfig, Programme } from '../src/types';
 
-/** Channel list screen — placeholder until parsers are built. */
+/** Channel list screen — shows all channels with now-playing info. */
 export default function ChannelsScreen() {
+  const [config, setConfig] = useState<ServerConfig | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [epg, setEpg] = useState<EpgData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Tick state to force re-render every minute for time-remaining updates
+  const [tick, setTick] = useState(0);
+
+  // Load config on mount
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG).then((value) => {
+      if (value) {
+        setConfig(JSON.parse(value));
+      } else {
+        router.replace('/setup');
+      }
+    });
+  }, []);
+
+  // Fetch channel data when config is available
+  const fetchData = useCallback(async (cfg: ServerConfig) => {
+    try {
+      const baseUrl = `http://${cfg.host}:${cfg.port}`;
+
+      const [m3uRes, xmltvRes] = await Promise.all([
+        fetch(`${baseUrl}/iptv/channels.m3u`),
+        fetch(`${baseUrl}/iptv/xmltv.xml`),
+      ]);
+
+      if (!m3uRes.ok) throw new Error(`M3U: ${m3uRes.status}`);
+      if (!xmltvRes.ok) throw new Error(`XMLTV: ${xmltvRes.status}`);
+
+      const [m3uText, xmltvText] = await Promise.all([
+        m3uRes.text(),
+        xmltvRes.text(),
+      ]);
+
+      setChannels(parseM3U(m3uText, cfg.host, cfg.port));
+      setEpg(parseXMLTV(xmltvText, cfg.host, cfg.port));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!config) return;
+    setLoading(true);
+    fetchData(config).finally(() => setLoading(false));
+  }, [config, fetchData]);
+
+  // Pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    if (!config) return;
+    setRefreshing(true);
+    await fetchData(config);
+    setRefreshing(false);
+  }, [config, fetchData]);
+
+  // Tick every 60s to update time-remaining displays
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Build a lookup map of channelId -> current programme
+  const nowPlayingMap = useMemo(() => {
+    if (!epg) return new Map<string, Programme>();
+    const map = new Map<string, Programme>();
+    const now = new Date();
+    for (const ch of channels) {
+      const prog = getNowPlaying(epg.programmes, ch.id, now);
+      if (prog) map.set(ch.id, prog);
+    }
+    return map;
+    // tick forces periodic recalc for time-remaining updates
+  }, [epg, channels, tick]);
+
+  // Navigate to player with channel index
+  const handleChannelPress = useCallback(
+    (index: number) => {
+      router.push({
+        pathname: '/player',
+        params: { channelIndex: index.toString() },
+      });
+    },
+    []
+  );
+
+  // Reset server config
+  const handleDisconnect = useCallback(async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.SERVER_CONFIG);
+    router.replace('/setup');
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={styles.loadingText}>Loading channels...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => config && fetchData(config)}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.disconnectButton} onPress={handleDisconnect}>
+          <Text style={styles.disconnectText}>Change Server</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.text}>Channels — coming soon</Text>
-    </View>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>IPSwitch</Text>
+        <TouchableOpacity onPress={handleDisconnect}>
+          <Text style={styles.headerAction}>Settings</Text>
+        </TouchableOpacity>
+      </View>
+      <FlatList
+        data={channels}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => (
+          <ChannelRow
+            channel={item}
+            nowPlaying={nowPlayingMap.get(item.id)}
+            onPress={() => handleChannelPress(index)}
+          />
+        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+          />
+        }
+        contentContainerStyle={channels.length === 0 ? styles.emptyContainer : undefined}
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>No channels found</Text>
+        }
+      />
+    </SafeAreaView>
   );
 }
 
@@ -14,12 +177,70 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  center: {
+    flex: 1,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.lg,
+    padding: spacing.xxl,
   },
-  text: {
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  headerTitle: {
+    fontSize: fontSize.xl,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  headerAction: {
+    fontSize: fontSize.sm,
+    color: colors.accent,
+  },
+  loadingText: {
     color: colors.textSecondary,
-    fontSize: fontSize.lg,
+    fontSize: fontSize.md,
+    marginTop: spacing.md,
+  },
+  errorText: {
+    color: colors.error,
+    fontSize: fontSize.md,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+  },
+  retryButton: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    marginBottom: spacing.md,
+  },
+  retryText: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: '600',
+  },
+  disconnectButton: {
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+  },
+  disconnectText: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: colors.textMuted,
+    fontSize: fontSize.md,
   },
 });
