@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Video, { ResizeMode } from 'react-native-video';
+import { Video, ResizeMode } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -184,10 +184,14 @@ export default function PlayerScreen() {
                 source={{ uri: currentChannel.streamUrl }}
                 style={styles.video}
                 resizeMode={ResizeMode.CONTAIN}
-                onBuffer={({ isBuffering }: { isBuffering: boolean }) => setBuffering(isBuffering)}
+                shouldPlay
+                isLooping={false}
+                onPlaybackStatusUpdate={(status) => {
+                  if (status.isLoaded) {
+                    setBuffering(status.isBuffering);
+                  }
+                }}
                 onError={() => setBuffering(false)}
-                repeat={false}
-                paused={false}
               />
 
               {/* Buffering indicator */}
