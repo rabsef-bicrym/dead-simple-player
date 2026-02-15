@@ -143,9 +143,14 @@ export default function ChannelsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>IPSwitch</Text>
-        <TouchableOpacity onPress={handleDisconnect}>
-          <Text style={styles.headerAction}>Settings</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={() => router.push('/guide')} style={styles.headerButton}>
+            <Text style={styles.headerAction}>Guide</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleDisconnect}>
+            <Text style={styles.headerActionMuted}>Settings</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       <FlatList
         data={channels}
@@ -199,9 +204,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.lg,
+  },
+  headerButton: {},
   headerAction: {
     fontSize: fontSize.sm,
     color: colors.accent,
+  },
+  headerActionMuted: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
   },
   loadingText: {
     color: colors.textSecondary,
