@@ -179,19 +179,25 @@ export default function PlayerScreen() {
         <View style={styles.container}>
           <TouchableWithoutFeedback onPress={handleTap}>
             <View style={styles.container}>
-              {/* HLS Video Player */}
+              {/* HLS/MPEG-TS Video Player */}
               <Video
-                source={{ uri: currentChannel.streamUrl }}
+                source={{ uri: currentChannel.streamUrl, overrideFileExtensionAndroid: 'ts' }}
                 style={styles.video}
                 resizeMode={ResizeMode.CONTAIN}
                 shouldPlay
                 isLooping={false}
+                isMuted={false}
+                volume={1.0}
                 onPlaybackStatusUpdate={(status) => {
                   if (status.isLoaded) {
                     setBuffering(status.isBuffering);
                   }
                 }}
-                onError={() => setBuffering(false)}
+                onError={(error) => {
+                  console.error('Video error:', error);
+                  setBuffering(false);
+                }}
+                onLoad={() => setBuffering(false)}
               />
 
               {/* Buffering indicator */}
