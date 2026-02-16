@@ -31,6 +31,8 @@ const MIN_HOUR_WIDTH = 140;
 const MAX_HOUR_WIDTH = 1400;
 const PINCH_UPDATE_EPSILON = 3;
 const LEFT_ANCHOR_FRACTION = 0.03;
+const GRID_CONTEXT_BEFORE_NOW_MS = 2 * 60 * 1000;
+const ANCHOR_CHANNEL_COUNT = 6;
 const ROW_HEIGHT = 64;
 const TIME_HEADER_HEIGHT = 44;
 const MIN_CELL_WIDTH = 4;
@@ -73,7 +75,7 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
   const [hourWidth, setHourWidth] = useState(DEFAULT_HOUR_WIDTH);
 
   const channelLabelWidth = useMemo(
-    () => Math.max(80, Math.min(108, Math.round(screenWidth * 0.24))),
+    () => Math.max(64, Math.min(92, Math.round(screenWidth * 0.2))),
     [screenWidth],
   );
 
@@ -85,10 +87,11 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
     return () => clearInterval(interval);
   }, []);
 
-  // Start the grid at the current half-hour to avoid left-side dead space.
+  // Start the grid close to now to avoid large dead-space windows.
   const gridStart = useMemo(() => {
     const d = new Date(initialTime);
-    d.setMinutes(d.getMinutes() < 30 ? 0 : 30, 0, 0);
+    d.setSeconds(0, 0);
+    d.setTime(d.getTime() - GRID_CONTEXT_BEFORE_NOW_MS);
     return d;
   }, [initialTime]);
 
@@ -106,10 +109,11 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
     [now, gridStart, hourWidth],
   );
 
-  // Left-most programme cell currently available in the visible time window.
+  // Left-most programme in the top visible channels (avoid off-screen rows biasing anchor).
   const firstContentOffsetPx = useMemo(() => {
+    const anchorChannels = channels.slice(0, ANCHOR_CHANNEL_COUNT);
     let min = Number.POSITIVE_INFINITY;
-    for (const ch of channels) {
+    for (const ch of anchorChannels) {
       const chProgs = programmes
         .filter((p) => p.channelId === ch.id && p.stop > gridStart && p.start < gridEnd)
         .sort((a, b) => a.start.getTime() - b.start.getTime());

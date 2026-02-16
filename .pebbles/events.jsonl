@@ -59,3 +59,9 @@
 {"type":"dep_add","timestamp":"2026-02-16T18:22:37.794824Z","issue_id":"ipswitch-5c2","payload":{"dep_type":"blocks","depends_on":"ipswitch-5c2.10"}}
 {"type":"comment","timestamp":"2026-02-16T18:22:37.830924Z","issue_id":"ipswitch-9e8","payload":{"body":"Adjusted grid start window from now-minus-30 to current half-hour and changed initial horizontal anchor to first actual programme cell (with minimal left margin), reducing dead timeline space in portrait and landscape."}}
 {"type":"close","timestamp":"2026-02-16T18:22:37.898671Z","issue_id":"ipswitch-5c2.10","payload":{}}
+{"type":"create","timestamp":"2026-02-16T18:42:10.781087Z","issue_id":"ipswitch-58f","payload":{"description":"Guide initial horizontal anchor can be biased by off-screen rows, leaving visible top rows with large empty timeline space.","priority":"1","title":"Guide initial anchor uses off-screen rows","type":"bug"}}
+{"type":"rename","timestamp":"2026-02-16T18:42:19.478854Z","issue_id":"ipswitch-58f","payload":{"new_id":"ipswitch-5c2.11"}}
+{"type":"dep_add","timestamp":"2026-02-16T18:42:19.478854Z","issue_id":"ipswitch-5c2.11","payload":{"dep_type":"parent-child","depends_on":"ipswitch-5c2"}}
+{"type":"dep_add","timestamp":"2026-02-16T18:42:19.513065Z","issue_id":"ipswitch-5c2","payload":{"dep_type":"blocks","depends_on":"ipswitch-5c2.11"}}
+{"type":"comment","timestamp":"2026-02-16T18:42:19.545174Z","issue_id":"ipswitch-58f","payload":{"body":"Adjusted guide viewport anchoring to only consider top visible channels and moved grid start to near-now context, reducing large empty left-side timeline regions in both portrait and landscape."}}
+{"type":"close","timestamp":"2026-02-16T18:42:19.577754Z","issue_id":"ipswitch-5c2.11","payload":{}}
