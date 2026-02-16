@@ -47,3 +47,9 @@
 {"type":"dep_add","timestamp":"2026-02-16T15:59:24.040202Z","issue_id":"ipswitch-5c2","payload":{"dep_type":"blocks","depends_on":"ipswitch-5c2.8"}}
 {"type":"comment","timestamp":"2026-02-16T15:59:24.066645Z","issue_id":"ipswitch-99e","payload":{"body":"Fixed by wrapping app root in GestureHandlerRootView in app/_layout.tsx, making PinchGestureHandler valid at runtime."}}
 {"type":"close","timestamp":"2026-02-16T15:59:24.092649Z","issue_id":"ipswitch-5c2.8","payload":{}}
+{"type":"create","timestamp":"2026-02-16T17:24:48.104578Z","issue_id":"ipswitch-6cc","payload":{"description":"Pinch zoom works but feedback is too subtle and channel rail consumes too much width in portrait, making guide changes hard to perceive.","priority":"1","title":"Guide pinch responsiveness is too subtle","type":"bug"}}
+{"type":"rename","timestamp":"2026-02-16T17:24:54.452075Z","issue_id":"ipswitch-6cc","payload":{"new_id":"ipswitch-5c2.9"}}
+{"type":"dep_add","timestamp":"2026-02-16T17:24:54.452075Z","issue_id":"ipswitch-5c2.9","payload":{"dep_type":"parent-child","depends_on":"ipswitch-5c2"}}
+{"type":"dep_add","timestamp":"2026-02-16T17:24:54.480051Z","issue_id":"ipswitch-5c2","payload":{"dep_type":"blocks","depends_on":"ipswitch-5c2.9"}}
+{"type":"comment","timestamp":"2026-02-16T17:24:54.505274Z","issue_id":"ipswitch-6cc","payload":{"body":"Updated GuideGrid pinch behavior to continuous scaling during gesture (onGestureEvent), preserved center timeline during zoom, and reduced channel rail width responsively on narrow screens so programme grid remains primary."}}
+{"type":"close","timestamp":"2026-02-16T17:24:54.531432Z","issue_id":"ipswitch-5c2.9","payload":{}}
