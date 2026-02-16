@@ -32,3 +32,12 @@
 {"type":"dep_add","timestamp":"2026-02-16T05:00:56.649165Z","issue_id":"ipswitch-5c2","payload":{"dep_type":"blocks","depends_on":"ipswitch-5c2.7"}}
 {"type":"comment","timestamp":"2026-02-16T05:01:14.410934Z","issue_id":"ipswitch-76d","payload":{"body":"Patched app/player.tsx to add a periodic clock tick (15s) and pass explicit now to getNowPlaying so programme metadata/progress rollover without user interaction. Also reset clock on channel change."}}
 {"type":"close","timestamp":"2026-02-16T05:01:14.436234Z","issue_id":"ipswitch-5c2.7","payload":{}}
+{"type":"comment","timestamp":"2026-02-16T05:24:33.143485Z","issue_id":"ipswitch-5c2.1","payload":{"body":"Implemented pinch-to-zoom in GuideGrid using PinchGestureHandler. Horizontal time scale now adjusts with two-finger gesture and preserves center timeline position during zoom."}}
+{"type":"close","timestamp":"2026-02-16T05:24:33.169445Z","issue_id":"ipswitch-5c2.1","payload":{}}
+{"type":"comment","timestamp":"2026-02-16T05:24:33.193785Z","issue_id":"ipswitch-5c2.2","payload":{"body":"Reworked programme modal touch hierarchy to avoid backdrop gesture conflicts, enabled nested vertical scrolling, and made long descriptions reliably scrollable."}}
+{"type":"close","timestamp":"2026-02-16T05:24:33.218735Z","issue_id":"ipswitch-5c2.2","payload":{}}
+{"type":"comment","timestamp":"2026-02-16T05:24:33.241776Z","issue_id":"ipswitch-5c2.3","payload":{"body":"Updated previously-shown badge copy from 'Rerun' to clearer 'Previously Aired'."}}
+{"type":"close","timestamp":"2026-02-16T05:24:33.267347Z","issue_id":"ipswitch-5c2.3","payload":{}}
+{"type":"comment","timestamp":"2026-02-16T05:24:33.293235Z","issue_id":"ipswitch-5c2.4","payload":{"body":"Implemented background playback and lock-screen/PiP control plumbing for native player path: playInBackground/playWhenInactive, enterPictureInPictureOnLeave, showNotificationControls, source metadata, and iOS UIBackgroundModes audio + Android notification permission in app config."}}
+{"type":"close","timestamp":"2026-02-16T05:24:33.318214Z","issue_id":"ipswitch-5c2.4","payload":{}}
+{"type":"comment","timestamp":"2026-02-16T05:24:33.341724Z","issue_id":"ipswitch-5c2.5","payload":{"body":"Current implementation routes HLS streams through native player first to expose PiP/Now Playing/AirPlay controls, with VLC fallback retained for TS reliability. Remaining gap is dedicated tvOS/watch app surface, which is a separate product-scope effort beyond transport controls in iOS Now Playing."}}

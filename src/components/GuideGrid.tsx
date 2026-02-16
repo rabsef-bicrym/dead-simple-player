@@ -8,6 +8,11 @@ import {
   Dimensions,
   Image,
 } from 'react-native';
+import {
+  PinchGestureHandler,
+  State,
+  type PinchGestureHandlerStateChangeEvent,
+} from 'react-native-gesture-handler';
 import { colors, spacing, fontSize, categoryColor } from '../constants/theme';
 import type { Channel, Programme } from '../types';
 
@@ -22,7 +27,12 @@ interface GuideGridProps {
 
 // ── Layout constants ──────────────────────────────────────────────────
 const CHANNEL_LABEL_WIDTH = 120;
-const HOUR_WIDTH = 360;
+const DEFAULT_HOUR_WIDTH = 360;
+const MIN_HOUR_WIDTH = 180;
+const MAX_HOUR_WIDTH = 900;
+const PINCH_IN_THRESHOLD = 1.05;
+const PINCH_OUT_THRESHOLD = 0.95;
+const ZOOM_STEP = 1.25;
 const ROW_HEIGHT = 64;
 const TIME_HEADER_HEIGHT = 44;
 const MIN_CELL_WIDTH = 4;
@@ -56,8 +66,10 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
   const channelLabelScrollRef = useRef<ScrollView>(null);
   const gridHScrollRef = useRef<ScrollView>(null);
   const initialScrollDone = useRef(false);
+  const currentScrollXRef = useRef(0);
   const initialTime = useRef(new Date()).current;
   const [now, setNow] = useState(initialTime);
+  const [hourWidth, setHourWidth] = useState(DEFAULT_HOUR_WIDTH);
 
   // Refresh the "now" marker and current-programme styling periodically.
   useEffect(() => {
@@ -79,13 +91,13 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
     [gridStart, hoursToShow],
   );
 
-  const gridWidthPx = hoursToShow * HOUR_WIDTH;
+  const gridWidthPx = hoursToShow * hourWidth;
   const totalContentHeight = channels.length * ROW_HEIGHT;
 
   // Current time position in pixels from grid start
   const nowOffsetPx = useMemo(
-    () => ((now.getTime() - gridStart.getTime()) / (1000 * 60 * 60)) * HOUR_WIDTH,
-    [now, gridStart],
+    () => ((now.getTime() - gridStart.getTime()) / (1000 * 60 * 60)) * hourWidth,
+    [now, gridStart, hourWidth],
   );
 
   // Auto-scroll so "now" is visible at ~25% from left edge
@@ -93,13 +105,14 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
     if (initialScrollDone.current) return;
     const timer = setTimeout(() => {
       const viewWidth = Dimensions.get('window').width - CHANNEL_LABEL_WIDTH;
-      const targetX = Math.max(0, nowOffsetPx - viewWidth * 0.25);
+      const maxX = Math.max(0, gridWidthPx - viewWidth);
+      const targetX = Math.min(maxX, Math.max(0, nowOffsetPx - viewWidth * 0.25));
       gridHScrollRef.current?.scrollTo({ x: targetX, animated: false });
       timeHeaderScrollRef.current?.scrollTo({ x: targetX, animated: false });
       initialScrollDone.current = true;
     }, 100);
     return () => clearTimeout(timer);
-  }, [nowOffsetPx]);
+  }, [nowOffsetPx, gridWidthPx]);
 
   // Half-hour time markers
   const timeMarkers = useMemo(() => {
@@ -108,11 +121,11 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
     for (let t = gridStart.getTime(); t < gridEnd.getTime(); t += step) {
       const d = new Date(t);
       const label = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const offsetPx = ((t - gridStart.getTime()) / (1000 * 60 * 60)) * HOUR_WIDTH;
+      const offsetPx = ((t - gridStart.getTime()) / (1000 * 60 * 60)) * hourWidth;
       markers.push({ label, offsetPx });
     }
     return markers;
-  }, [gridStart, gridEnd]);
+  }, [gridStart, gridEnd, hourWidth]);
 
   // Per-channel programme cells with positioning metadata
   const channelRows = useMemo(() => {
@@ -124,8 +137,8 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
       const cells = chProgs.map((p) => {
         const startMs = Math.max(p.start.getTime(), gridStart.getTime());
         const endMs = Math.min(p.stop.getTime(), gridEnd.getTime());
-        const leftPx = ((startMs - gridStart.getTime()) / (1000 * 60 * 60)) * HOUR_WIDTH;
-        const rawWidth = ((endMs - startMs) / (1000 * 60 * 60)) * HOUR_WIDTH;
+        const leftPx = ((startMs - gridStart.getTime()) / (1000 * 60 * 60)) * hourWidth;
+        const rawWidth = ((endMs - startMs) / (1000 * 60 * 60)) * hourWidth;
         const widthPx = Math.max(rawWidth, MIN_CELL_WIDTH);
         const isNow = p.start <= now && p.stop > now;
         const isPast = p.stop <= now;
@@ -135,10 +148,11 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
 
       return { channel: ch, cells };
     });
-  }, [channels, programmes, gridStart, gridEnd, now]);
+  }, [channels, programmes, gridStart, gridEnd, now, hourWidth]);
 
   // Sync horizontal scroll to time header
   const onGridHScroll = (e: any) => {
+    currentScrollXRef.current = e.nativeEvent.contentOffset.x;
     timeHeaderScrollRef.current?.scrollTo({
       x: e.nativeEvent.contentOffset.x,
       animated: false,
@@ -151,6 +165,42 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
       y: e.nativeEvent.contentOffset.y,
       animated: false,
     });
+  };
+
+  /** Adjust the horizontal time scale while keeping the same center time in view. */
+  const applyZoom = (scale: number) => {
+    setHourWidth((previousHourWidth) => {
+      let nextHourWidth = previousHourWidth;
+
+      if (scale > PINCH_IN_THRESHOLD) {
+        nextHourWidth = Math.min(MAX_HOUR_WIDTH, previousHourWidth * ZOOM_STEP);
+      } else if (scale < PINCH_OUT_THRESHOLD) {
+        nextHourWidth = Math.max(MIN_HOUR_WIDTH, previousHourWidth / ZOOM_STEP);
+      }
+
+      if (nextHourWidth === previousHourWidth) return previousHourWidth;
+
+      const viewWidth = Math.max(0, Dimensions.get('window').width - CHANNEL_LABEL_WIDTH);
+      const centerHours = (currentScrollXRef.current + viewWidth / 2) / previousHourWidth;
+
+      requestAnimationFrame(() => {
+        const nextGridWidthPx = hoursToShow * nextHourWidth;
+        const maxX = Math.max(0, nextGridWidthPx - viewWidth);
+        const targetX = Math.min(maxX, Math.max(0, centerHours * nextHourWidth - viewWidth / 2));
+
+        currentScrollXRef.current = targetX;
+        gridHScrollRef.current?.scrollTo({ x: targetX, animated: false });
+        timeHeaderScrollRef.current?.scrollTo({ x: targetX, animated: false });
+      });
+
+      return nextHourWidth;
+    });
+  };
+
+  const onPinchStateChange = ({ nativeEvent }: PinchGestureHandlerStateChangeEvent) => {
+    if (nativeEvent.state === State.END) {
+      applyZoom(nativeEvent.scale);
+    }
   };
 
   return (
@@ -211,19 +261,21 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
         </ScrollView>
 
         {/* Scrollable programme grid (master scroller) */}
-        <ScrollView
-          ref={gridHScrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          onScroll={onGridHScroll}
-          scrollEventThrottle={16}
-        >
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            onScroll={onGridVScroll}
-            scrollEventThrottle={16}
-          >
-            <View style={{ width: gridWidthPx, height: totalContentHeight }}>
+        <PinchGestureHandler onHandlerStateChange={onPinchStateChange}>
+          <View style={styles.gridWrapper}>
+            <ScrollView
+              ref={gridHScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              onScroll={onGridHScroll}
+              scrollEventThrottle={16}
+            >
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                onScroll={onGridVScroll}
+                scrollEventThrottle={16}
+              >
+                <View style={{ width: gridWidthPx, height: totalContentHeight }}>
               {/* Half-hour grid lines */}
               {timeMarkers.map((marker, i) => (
                 <View
@@ -317,13 +369,15 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
               ))}
 
               {/* ── Current time indicator ── */}
-              <View style={[styles.nowIndicatorContainer, { left: nowOffsetPx }]}>
-                <View style={styles.nowTriangle} />
-                <View style={[styles.nowLine, { height: totalContentHeight - 6 }]} />
-              </View>
-            </View>
-          </ScrollView>
-        </ScrollView>
+                  <View style={[styles.nowIndicatorContainer, { left: nowOffsetPx }]}>
+                    <View style={styles.nowTriangle} />
+                    <View style={[styles.nowLine, { height: totalContentHeight - 6 }]} />
+                  </View>
+                </View>
+              </ScrollView>
+            </ScrollView>
+          </View>
+        </PinchGestureHandler>
       </View>
     </View>
   );
@@ -396,6 +450,9 @@ const styles = StyleSheet.create({
   bodyRow: {
     flex: 1,
     flexDirection: 'row',
+  },
+  gridWrapper: {
+    flex: 1,
   },
   channelLabelColumn: {
     width: CHANNEL_LABEL_WIDTH,

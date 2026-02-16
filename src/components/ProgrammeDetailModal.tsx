@@ -5,8 +5,8 @@ import {
   Modal,
   ScrollView,
   Image,
+  Pressable,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   StyleSheet,
   Dimensions,
 } from 'react-native';
@@ -45,96 +45,94 @@ export function ProgrammeDetailModal({ programme, visible, onClose }: ProgrammeD
       animationType="fade"
       onRequestClose={onClose}
     >
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.backdrop}>
-          <TouchableWithoutFeedback>
-            <View style={styles.card}>
-              {/* Close button */}
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={onClose}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              >
-                <Text style={styles.closeText}>Done</Text>
-              </TouchableOpacity>
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={styles.card}>
+          {/* Close button */}
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={onClose}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={styles.closeText}>Done</Text>
+          </TouchableOpacity>
 
-              <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-              >
-                {/* Thumbnail */}
-                {programme.icon && (
-                  <Image
-                    source={{ uri: programme.icon }}
-                    style={styles.thumbnail}
-                    resizeMode="cover"
-                  />
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator
+            nestedScrollEnabled
+          >
+            {/* Thumbnail */}
+            {programme.icon && (
+              <Image
+                source={{ uri: programme.icon }}
+                style={styles.thumbnail}
+                resizeMode="cover"
+              />
+            )}
+
+            {/* Title */}
+            <Text style={styles.title}>{programme.title}</Text>
+
+            {/* Episode line: subtitle + episode number */}
+            {(programme.subtitle || programme.episodeNum) && (
+              <Text style={styles.episodeLine}>
+                {programme.episodeNum && (
+                  <Text style={styles.episodeNum}>{programme.episodeNum}</Text>
                 )}
-
-                {/* Title */}
-                <Text style={styles.title}>{programme.title}</Text>
-
-                {/* Episode line: subtitle + episode number */}
-                {(programme.subtitle || programme.episodeNum) && (
-                  <Text style={styles.episodeLine}>
-                    {programme.episodeNum && (
-                      <Text style={styles.episodeNum}>{programme.episodeNum}</Text>
-                    )}
-                    {programme.episodeNum && programme.subtitle && (
-                      <Text style={styles.episodeSeparator}> &middot; </Text>
-                    )}
-                    {programme.subtitle && (
-                      <Text style={styles.subtitleText}>{programme.subtitle}</Text>
-                    )}
-                  </Text>
+                {programme.episodeNum && programme.subtitle && (
+                  <Text style={styles.episodeSeparator}> &middot; </Text>
                 )}
-
-                {/* Time + duration row */}
-                <View style={styles.timeRow}>
-                  <Text style={styles.timeText}>{timeRange}</Text>
-                  <Text style={styles.durationText}>{duration}</Text>
-                </View>
-
-                {/* Metadata badges: year, previously-shown */}
-                {(programme.year || programme.previouslyShown) && (
-                  <View style={styles.badgeRow}>
-                    {programme.year && (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{programme.year}</Text>
-                      </View>
-                    )}
-                    {programme.previouslyShown && (
-                      <View style={[styles.badge, styles.rerunBadge]}>
-                        <Text style={styles.badgeText}>Rerun</Text>
-                      </View>
-                    )}
-                  </View>
+                {programme.subtitle && (
+                  <Text style={styles.subtitleText}>{programme.subtitle}</Text>
                 )}
+              </Text>
+            )}
 
-                {/* Category pills */}
-                {programme.categories.length > 0 && (
-                  <View style={styles.categoryRow}>
-                    {programme.categories.map((cat) => (
-                      <View
-                        key={cat}
-                        style={[styles.categoryPill, { backgroundColor: categoryColor(cat) + '22', borderColor: categoryColor(cat) + '66' }]}
-                      >
-                        <Text style={[styles.categoryText, { color: categoryColor(cat) }]}>{cat}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Description */}
-                {programme.description && (
-                  <Text style={styles.description}>{programme.description}</Text>
-                )}
-              </ScrollView>
+            {/* Time + duration row */}
+            <View style={styles.timeRow}>
+              <Text style={styles.timeText}>{timeRange}</Text>
+              <Text style={styles.durationText}>{duration}</Text>
             </View>
-          </TouchableWithoutFeedback>
+
+            {/* Metadata badges: year, previously-shown */}
+            {(programme.year || programme.previouslyShown) && (
+              <View style={styles.badgeRow}>
+                {programme.year && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{programme.year}</Text>
+                  </View>
+                )}
+                {programme.previouslyShown && (
+                  <View style={[styles.badge, styles.rerunBadge]}>
+                    <Text style={styles.badgeText}>Previously Aired</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Category pills */}
+            {programme.categories.length > 0 && (
+              <View style={styles.categoryRow}>
+                {programme.categories.map((cat) => (
+                  <View
+                    key={cat}
+                    style={[styles.categoryPill, { backgroundColor: categoryColor(cat) + '22', borderColor: categoryColor(cat) + '66' }]}
+                  >
+                    <Text style={[styles.categoryText, { color: categoryColor(cat) }]}>{cat}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Description */}
+            {programme.description && (
+              <Text style={styles.description}>{programme.description}</Text>
+            )}
+          </ScrollView>
         </View>
-      </TouchableWithoutFeedback>
+      </View>
     </Modal>
   );
 }
@@ -168,7 +166,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: SCREEN_WIDTH - spacing.xl * 2,
-    maxHeight: '80%',
+    maxHeight: '85%',
     backgroundColor: colors.surface,
     borderRadius: 16,
     overflow: 'hidden',
@@ -185,7 +183,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
   },
   scrollView: {
-    flexGrow: 0,
+    flex: 1,
   },
   scrollContent: {
     padding: spacing.xl,

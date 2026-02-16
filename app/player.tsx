@@ -68,8 +68,16 @@ function formatVideoError(errorData: OnVideoErrorData): string {
 }
 
 /** Determine which engine should be tried first. */
-function resolvePrimaryEngine(vlcAvailable: boolean): PlayerEngine {
-  return vlcAvailable ? 'vlc' : 'native';
+function resolvePrimaryEngine(vlcAvailable: boolean, streamUrl?: string): PlayerEngine {
+  if (!vlcAvailable) return 'native';
+  if (!streamUrl) return 'vlc';
+
+  // Prefer native for HLS to unlock PiP/Now Playing controls, keep VLC for TS.
+  if (streamUrl.toLowerCase().includes('.m3u8')) {
+    return 'native';
+  }
+
+  return 'vlc';
 }
 
 function describeEngine(engine: PlayerEngine): string {
@@ -165,7 +173,7 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (!currentChannel) return;
 
-    setPlayerEngine(resolvePrimaryEngine(hasVlc));
+    setPlayerEngine(resolvePrimaryEngine(hasVlc, currentChannel.streamUrl));
     setFallbackUsed(false);
     setPlayerError(null);
     setBuffering(true);
@@ -394,7 +402,14 @@ export default function PlayerScreen() {
               ) : (
                 <Video
                   key={`${playerEngine}:${currentChannel.streamUrl}`}
-                  source={{ uri: currentChannel.streamUrl }}
+                  source={{
+                    uri: currentChannel.streamUrl,
+                    metadata: {
+                      title: currentChannel.name,
+                      subtitle: nowPlaying?.title,
+                      description: nowPlaying?.description,
+                    },
+                  }}
                   style={styles.video}
                   resizeMode="contain"
                   paused={false}
@@ -403,6 +418,9 @@ export default function PlayerScreen() {
                   automaticallyWaitsToMinimizeStalling={false}
                   playInBackground
                   playWhenInactive
+                  enterPictureInPictureOnLeave
+                  allowsExternalPlayback
+                  showNotificationControls
                   onLoadStart={handlePlaybackLoadStart}
                   onLoad={handlePlaybackStarted}
                   onBuffer={handleNativeBuffer}

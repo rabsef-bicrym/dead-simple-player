@@ -104,6 +104,7 @@ export default function GuideScreen() {
         <Text style={styles.headerTitle}>Guide</Text>
         <View style={styles.headerSpacer} />
       </View>
+      <Text style={styles.zoomHint}>Pinch to zoom timeline</Text>
       <GuideGrid
         channels={channels}
         programmes={programmes}
@@ -161,6 +162,13 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: fontSize.md,
     marginTop: spacing.md,
+  },
+  zoomHint: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
   },
   errorText: {
     color: colors.error,

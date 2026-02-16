@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Dead Simple, Player",
+    "name": "(×▶×) DS,P",
     "slug": "ipswitch",
     "version": "1.0.0",
     "orientation": "default",
@@ -19,7 +19,10 @@
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
-        "NSLocalNetworkUsageDescription": "Dead Simple, Player uses your local network to connect to your ErsatzTV server and stream channels."
+        "NSLocalNetworkUsageDescription": "(×▶×) DS,P uses your local network to connect to your ErsatzTV server and stream channels.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
       },
       "bundleIdentifier": "com.anonymous.ipswitch"
     },
@@ -30,6 +33,9 @@
       },
       "edgeToEdgeEnabled": true,
       "usesCleartextTraffic": true,
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "package": "com.anonymous.ipswitch"
     },
     "web": {
