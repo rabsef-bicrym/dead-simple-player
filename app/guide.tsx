@@ -8,11 +8,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '../src/constants/storage';
+import { router, useNavigation } from 'expo-router';
 import { parseM3U } from '../src/parsers/m3u';
 import { parseXMLTV } from '../src/parsers/xmltv';
+import { useServerConfig } from '../src/hooks/useServerConfig';
 import { GuideGrid } from '../src/components/GuideGrid';
 import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
 import { colors, spacing, fontSize } from '../src/constants/theme';
@@ -20,21 +19,37 @@ import type { Channel, Programme, ServerConfig } from '../src/types';
 
 /** EPG guide screen — shows programme grid for all channels. */
 export default function GuideScreen() {
+  const {
+    activeConfig,
+    loading: configLoading,
+    reload: reloadConfig,
+  } = useServerConfig();
+
+  const navigation = useNavigation();
+
   const [channels, setChannels] = useState<Channel[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedProgramme, setSelectedProgramme] = useState<Programme | null>(null);
 
-  const fetchData = useCallback(async () => {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG);
-    if (!raw) {
-      router.replace('/setup');
-      return;
-    }
+  // Reload config on screen focus
+  useEffect(() => {
+    return navigation.addListener('focus', () => {
+      reloadConfig();
+    });
+  }, [navigation, reloadConfig]);
 
-    const config: ServerConfig = JSON.parse(raw);
-    const baseUrl = `http://${config.host}:${config.port}`;
+  // Redirect to setup if no config
+  useEffect(() => {
+    if (!configLoading && !activeConfig) {
+      router.replace('/setup');
+    }
+  }, [configLoading, activeConfig]);
+
+  /** Fetch and parse M3U + XMLTV from the active server. */
+  const fetchData = useCallback(async (cfg: ServerConfig) => {
+    const baseUrl = `http://${cfg.host}:${cfg.port}`;
 
     try {
       const [m3uRes, xmltvRes] = await Promise.all([
@@ -50,22 +65,25 @@ export default function GuideScreen() {
         xmltvRes.text(),
       ]);
 
-      setChannels(parseM3U(m3uText, config.host, config.port));
-      const epg = parseXMLTV(xmltvText, config.host, config.port);
+      setChannels(parseM3U(m3uText, cfg.host, cfg.port));
+      const epg = parseXMLTV(xmltvText, cfg.host, cfg.port);
       setProgrammes(epg.programmes);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
-    } finally {
-      setLoading(false);
     }
   }, []);
 
+  // Fetch data when config is available
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (!activeConfig) return;
+    setDataLoading(true);
+    fetchData(activeConfig).finally(() => setDataLoading(false));
+  }, [activeConfig, fetchData]);
 
-  if (loading) {
+  const isLoading = configLoading || dataLoading;
+
+  if (isLoading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.accent} />
@@ -78,7 +96,10 @@ export default function GuideScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchData}>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => activeConfig && fetchData(activeConfig)}
+        >
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
       </View>

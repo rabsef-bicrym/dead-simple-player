@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,11 +18,11 @@ import {
   PanGestureHandler,
   State,
 } from 'react-native-gesture-handler';
-import { STORAGE_KEYS } from '../src/constants/storage';
+import { useServerConfig } from '../src/hooks/useServerConfig';
 import { parseM3U } from '../src/parsers/m3u';
 import { parseXMLTV, getNowPlaying } from '../src/parsers/xmltv';
 import { colors, fontSize, spacing } from '../src/constants/theme';
-import type { Channel, Programme, ServerConfig } from '../src/types';
+import type { Channel, Programme } from '../src/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
@@ -140,26 +139,30 @@ function buildPlayerHTML(streamUrl: string): string {
  */
 export default function PlayerScreen() {
   const { channelIndex: indexParam } = useLocalSearchParams<{ channelIndex: string }>();
+  const { activeConfig, loading: configLoading } = useServerConfig();
+
   const [channels, setChannels] = useState<Channel[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [currentIndex, setCurrentIndex] = useState(parseInt(indexParam || '0', 10));
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
   const [showOverlay, setShowOverlay] = useState(true);
   const [buffering, setBuffering] = useState(true);
   const overlayOpacity = useRef(new Animated.Value(1)).current;
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load channel data from server
+  // Redirect to setup if no config
   useEffect(() => {
-    (async () => {
-      const raw = await AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG);
-      if (!raw) {
-        router.replace('/setup');
-        return;
-      }
+    if (!configLoading && !activeConfig) {
+      router.replace('/setup');
+    }
+  }, [configLoading, activeConfig]);
 
-      const config: ServerConfig = JSON.parse(raw);
-      const baseUrl = `http://${config.host}:${config.port}`;
+  // Load channel data from active server config
+  useEffect(() => {
+    if (!activeConfig) return;
+
+    (async () => {
+      const baseUrl = `http://${activeConfig.host}:${activeConfig.port}`;
 
       try {
         const [m3uRes, xmltvRes] = await Promise.all([
@@ -172,16 +175,16 @@ export default function PlayerScreen() {
           xmltvRes.text(),
         ]);
 
-        setChannels(parseM3U(m3uText, config.host, config.port));
-        setProgrammes(parseXMLTV(xmltvText, config.host, config.port).programmes);
+        setChannels(parseM3U(m3uText, activeConfig.host, activeConfig.port));
+        setProgrammes(parseXMLTV(xmltvText, activeConfig.host, activeConfig.port).programmes);
       } catch {
         router.back();
         return;
       }
 
-      setLoading(false);
+      setDataLoading(false);
     })();
-  }, []);
+  }, [activeConfig]);
 
   const currentChannel = channels[currentIndex];
 
@@ -236,10 +239,10 @@ export default function PlayerScreen() {
   }, [overlayOpacity]);
 
   useEffect(() => {
-    if (!loading && currentChannel) {
+    if (!dataLoading && currentChannel) {
       flashOverlay();
     }
-  }, [currentIndex, loading, currentChannel, flashOverlay]);
+  }, [currentIndex, dataLoading, currentChannel, flashOverlay]);
 
   // Clean up overlay timer on unmount
   useEffect(() => {
@@ -277,7 +280,7 @@ export default function PlayerScreen() {
     }
   }, [showOverlay, overlayOpacity, flashOverlay]);
 
-  if (loading || !currentChannel) {
+  if (configLoading || dataLoading || !currentChannel) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.accent} />

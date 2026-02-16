@@ -10,22 +10,28 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '../src/constants/storage';
+import { router, useNavigation } from 'expo-router';
 import { colors, spacing, fontSize } from '../src/constants/theme';
 import { parseM3U } from '../src/parsers/m3u';
 import { parseXMLTV, getNowPlaying } from '../src/parsers/xmltv';
+import { useServerConfig } from '../src/hooks/useServerConfig';
 import { ChannelRow } from '../src/components/ChannelRow';
 import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
 import type { Channel, EpgData, ServerConfig, Programme } from '../src/types';
 
 /** Channel list screen — shows all channels with now-playing info. */
 export default function ChannelsScreen() {
-  const [config, setConfig] = useState<ServerConfig | null>(null);
+  const {
+    activeConfig,
+    loading: configLoading,
+    reload: reloadConfig,
+  } = useServerConfig();
+
+  const navigation = useNavigation();
+
   const [channels, setChannels] = useState<Channel[]>([]);
   const [epg, setEpg] = useState<EpgData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Tick state to force re-render every minute for time-remaining updates
@@ -33,18 +39,24 @@ export default function ChannelsScreen() {
   // Programme detail modal state
   const [selectedProgramme, setSelectedProgramme] = useState<Programme | null>(null);
 
-  // Load config on mount
+  // Reload config when screen gains focus (picks up settings changes)
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG).then((value) => {
-      if (value) {
-        setConfig(JSON.parse(value));
-      } else {
-        router.replace('/setup');
-      }
+    return navigation.addListener('focus', () => {
+      reloadConfig();
     });
-  }, []);
+  }, [navigation, reloadConfig]);
 
-  // Fetch channel data when config is available
+  // Redirect to setup if no config after hook finishes loading
+  useEffect(() => {
+    if (!configLoading && !activeConfig) {
+      router.replace('/setup');
+    }
+  }, [configLoading, activeConfig]);
+
+  /**
+   * Fetch M3U and XMLTV data from the active server, parse both.
+   * Clears error state on success, sets it on failure.
+   */
   const fetchData = useCallback(async (cfg: ServerConfig) => {
     try {
       const baseUrl = `http://${cfg.host}:${cfg.port}`;
@@ -70,19 +82,20 @@ export default function ChannelsScreen() {
     }
   }, []);
 
+  // Fetch channel data when activeConfig becomes available or changes
   useEffect(() => {
-    if (!config) return;
-    setLoading(true);
-    fetchData(config).finally(() => setLoading(false));
-  }, [config, fetchData]);
+    if (!activeConfig) return;
+    setDataLoading(true);
+    fetchData(activeConfig).finally(() => setDataLoading(false));
+  }, [activeConfig, fetchData]);
 
   // Pull-to-refresh
   const onRefresh = useCallback(async () => {
-    if (!config) return;
+    if (!activeConfig) return;
     setRefreshing(true);
-    await fetchData(config);
+    await fetchData(activeConfig);
     setRefreshing(false);
-  }, [config, fetchData]);
+  }, [activeConfig, fetchData]);
 
   // Tick every 60s to update time-remaining displays
   useEffect(() => {
@@ -114,13 +127,15 @@ export default function ChannelsScreen() {
     [],
   );
 
-  // Reset server config
-  const handleDisconnect = useCallback(async () => {
-    await AsyncStorage.removeItem(STORAGE_KEYS.SERVER_CONFIG);
-    router.replace('/setup');
+  // Navigate to settings (NOT clear config)
+  const handleSettings = useCallback(() => {
+    router.push('/settings');
   }, []);
 
-  if (loading) {
+  // Show loading during config loading or initial data fetch
+  const isLoading = configLoading || dataLoading;
+
+  if (isLoading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.accent} />
@@ -133,10 +148,16 @@ export default function ChannelsScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={() => config && fetchData(config)}>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => activeConfig && fetchData(activeConfig)}
+        >
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.disconnectButton} onPress={handleDisconnect}>
+        <TouchableOpacity
+          style={styles.disconnectButton}
+          onPress={() => router.push('/settings')}
+        >
           <Text style={styles.disconnectText}>Change Server</Text>
         </TouchableOpacity>
       </View>
@@ -157,7 +178,7 @@ export default function ChannelsScreen() {
             <Text style={styles.headerAction}>Guide</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={handleDisconnect}
+            onPress={handleSettings}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Ionicons name="settings-outline" size={18} color={colors.textMuted} />

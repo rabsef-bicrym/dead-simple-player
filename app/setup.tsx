@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,20 +9,37 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '../src/constants/storage';
+import { Ionicons } from '@expo/vector-icons';
+import { useServerConfig } from '../src/hooks/useServerConfig';
 import { colors, spacing, fontSize } from '../src/constants/theme';
-import type { ServerConfig } from '../src/types';
+import type { SavedServer } from '../src/types';
 
-/** First-time setup: user enters ErsatzTV server address. */
+/**
+ * Server setup screen — add a new ErsatzTV server or select an existing one.
+ *
+ * Shows a form for adding a new server. If there are already saved servers,
+ * they appear above the form so the user can quickly pick one instead.
+ */
 export default function SetupScreen() {
+  const {
+    servers,
+    loading: configLoading,
+    addServer,
+    setActiveServer,
+  } = useServerConfig();
+
+  const [name, setName] = useState('');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('8409');
   const [connecting, setConnecting] = useState(false);
 
-  // Attempt to connect and validate the server responds with an M3U
+  /**
+   * Validate the server address, test the connection, and persist the config.
+   * On success, navigates to the channels screen.
+   */
   const handleConnect = async () => {
     const trimmedHost = host.trim();
     const trimmedPort = port.trim();
@@ -38,6 +55,9 @@ export default function SetupScreen() {
       return;
     }
 
+    // Default name to host:port if the user left it blank
+    const serverName = name.trim() || `${trimmedHost}:${portNum}`;
+
     setConnecting(true);
 
     try {
@@ -50,10 +70,9 @@ export default function SetupScreen() {
         return;
       }
 
-      const config: ServerConfig = { host: trimmedHost, port: portNum };
-      await AsyncStorage.setItem(STORAGE_KEYS.SERVER_CONFIG, JSON.stringify(config));
+      await addServer(serverName, trimmedHost, portNum);
       router.replace('/channels');
-    } catch (error) {
+    } catch {
       Alert.alert(
         'Connection failed',
         'Could not reach the server. Check the address and ensure you\'re on the same network.',
@@ -62,18 +81,92 @@ export default function SetupScreen() {
     }
   };
 
+  /** Select an existing saved server and navigate to channels. */
+  const handleSelectServer = useCallback(
+    async (server: SavedServer) => {
+      await setActiveServer(server.id);
+      router.replace('/channels');
+    },
+    [setActiveServer],
+  );
+
+  if (configLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Back button — only if there's a previous screen (e.g. came from settings) */}
+        {router.canGoBack() && (
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.accent} />
+            <Text style={styles.backText}>Back</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Branding */}
         <Text style={styles.title}>IPSwitch</Text>
         <Text style={styles.subtitle}>Connect to your ErsatzTV server</Text>
 
-        {/* Form */}
+        {/* Existing saved servers (if any) */}
+        {servers.length > 0 && (
+          <View style={styles.savedSection}>
+            <Text style={styles.sectionLabel}>Saved Servers</Text>
+            {servers.map((server) => (
+              <TouchableOpacity
+                key={server.id}
+                style={styles.savedRow}
+                onPress={() => handleSelectServer(server)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.savedInfo}>
+                  <Text style={styles.savedName}>{server.name}</Text>
+                  <Text style={styles.savedHost}>
+                    {server.host}:{server.port}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            ))}
+
+            {/* Divider between saved servers and new-server form */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or add a new server</Text>
+              <View style={styles.dividerLine} />
+            </View>
+          </View>
+        )}
+
+        {/* New server form */}
         <View style={styles.form}>
+          <Text style={styles.label}>Server Name</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="Living Room ETV (optional)"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="words"
+            autoCorrect={false}
+            returnKeyType="next"
+          />
+
           <Text style={styles.label}>Server Address</Text>
           <TextInput
             style={styles.input}
@@ -117,10 +210,8 @@ export default function SetupScreen() {
         </View>
 
         {/* Footer hint */}
-        <Text style={styles.hint}>
-          ErsatzTV default port is 8409
-        </Text>
-      </View>
+        <Text style={styles.hint}>ErsatzTV default port is 8409</Text>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -130,10 +221,28 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  content: {
+  center: {
     flex: 1,
+    backgroundColor: colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: spacing.xxl,
+    paddingVertical: spacing.xxl,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginBottom: spacing.xl,
+  },
+  backText: {
+    fontSize: fontSize.sm,
+    color: colors.accent,
+    marginLeft: 2,
   },
   title: {
     fontSize: fontSize.hero,
@@ -149,6 +258,59 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: 48,
   },
+
+  // Saved servers section
+  savedSection: {
+    marginBottom: spacing.lg,
+  },
+  sectionLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: spacing.sm,
+  },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  savedInfo: {
+    flex: 1,
+  },
+  savedName: {
+    fontSize: fontSize.md,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  savedHost: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: spacing.xl,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginHorizontal: spacing.md,
+  },
+
+  // Form
   form: {
     gap: spacing.sm,
   },

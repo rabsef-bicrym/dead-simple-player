@@ -58,3 +58,17 @@ export interface ServerConfig {
   /** Port number */
   port: number;
 }
+
+/** A saved ErsatzTV server configuration with metadata for multi-server management. */
+export interface SavedServer {
+  /** Unique identifier for this server entry */
+  id: string;
+  /** User-friendly display name (e.g. "Living Room ETV") */
+  name: string;
+  /** Host address (IP or hostname, no protocol) */
+  host: string;
+  /** Port number */
+  port: number;
+  /** Timestamp (ms since epoch) of last time this server was selected */
+  lastUsed: number;
+}
