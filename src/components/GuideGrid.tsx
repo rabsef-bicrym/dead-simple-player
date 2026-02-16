@@ -32,7 +32,7 @@ const MAX_HOUR_WIDTH = 1400;
 const PINCH_UPDATE_EPSILON = 3;
 const LEFT_ANCHOR_FRACTION = 0.03;
 const GRID_CONTEXT_BEFORE_NOW_MS = 2 * 60 * 1000;
-const ANCHOR_CHANNEL_COUNT = 6;
+const ANCHOR_CHANNEL_COUNT = 8;
 const ROW_HEIGHT = 64;
 const TIME_HEADER_HEIGHT = 44;
 const MIN_CELL_WIDTH = 4;
@@ -109,42 +109,6 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
     [now, gridStart, hourWidth],
   );
 
-  // Left-most programme in the top visible channels (avoid off-screen rows biasing anchor).
-  const firstContentOffsetPx = useMemo(() => {
-    const anchorChannels = channels.slice(0, ANCHOR_CHANNEL_COUNT);
-    let min = Number.POSITIVE_INFINITY;
-    for (const ch of anchorChannels) {
-      const chProgs = programmes
-        .filter((p) => p.channelId === ch.id && p.stop > gridStart && p.start < gridEnd)
-        .sort((a, b) => a.start.getTime() - b.start.getTime());
-
-      for (const p of chProgs) {
-        const startMs = Math.max(p.start.getTime(), gridStart.getTime());
-        const leftPx = ((startMs - gridStart.getTime()) / (1000 * 60 * 60)) * hourWidth;
-        if (leftPx < min) min = leftPx;
-      }
-    }
-    return Number.isFinite(min) ? min : null;
-  }, [channels, programmes, gridStart, gridEnd, hourWidth]);
-
-  // Auto-scroll so "now" is visible at ~25% from left edge
-  useEffect(() => {
-    if (initialScrollDone.current) return;
-    const timer = setTimeout(() => {
-      const viewWidth = screenWidth - channelLabelWidth;
-      const targetOffsetPx = firstContentOffsetPx ?? nowOffsetPx;
-      const maxX = Math.max(0, gridWidthPx - viewWidth);
-      const targetX = Math.min(
-        maxX,
-        Math.max(0, targetOffsetPx - viewWidth * LEFT_ANCHOR_FRACTION),
-      );
-      gridHScrollRef.current?.scrollTo({ x: targetX, animated: false });
-      timeHeaderScrollRef.current?.scrollTo({ x: targetX, animated: false });
-      initialScrollDone.current = true;
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [nowOffsetPx, gridWidthPx, screenWidth, channelLabelWidth, firstContentOffsetPx]);
-
   // Half-hour time markers
   const timeMarkers = useMemo(() => {
     const markers: { label: string; offsetPx: number }[] = [];
@@ -180,6 +144,39 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
       return { channel: ch, cells };
     });
   }, [channels, programmes, gridStart, gridEnd, now, hourWidth]);
+
+  // Find earliest current/upcoming programme in visible channels (skip past dead area).
+  const firstPlayableOffsetPx = useMemo(() => {
+    let min = Number.POSITIVE_INFINITY;
+
+    for (const row of channelRows.slice(0, ANCHOR_CHANNEL_COUNT)) {
+      for (const cell of row.cells) {
+        if (!cell.isPast && cell.leftPx < min) {
+          min = cell.leftPx;
+        }
+      }
+    }
+
+    return Number.isFinite(min) ? min : null;
+  }, [channelRows]);
+
+  // Auto-scroll to earliest current/upcoming content so dead left area is minimized.
+  useEffect(() => {
+    if (initialScrollDone.current) return;
+    const timer = setTimeout(() => {
+      const viewWidth = screenWidth - channelLabelWidth;
+      const targetOffsetPx = firstPlayableOffsetPx ?? nowOffsetPx;
+      const maxX = Math.max(0, gridWidthPx - viewWidth);
+      const targetX = Math.min(
+        maxX,
+        Math.max(0, targetOffsetPx - viewWidth * LEFT_ANCHOR_FRACTION),
+      );
+      gridHScrollRef.current?.scrollTo({ x: targetX, animated: false });
+      timeHeaderScrollRef.current?.scrollTo({ x: targetX, animated: false });
+      initialScrollDone.current = true;
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [nowOffsetPx, gridWidthPx, screenWidth, channelLabelWidth, firstPlayableOffsetPx]);
 
   // Sync horizontal scroll to time header
   const onGridHScroll = (e: any) => {
