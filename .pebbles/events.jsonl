@@ -53,3 +53,9 @@
 {"type":"dep_add","timestamp":"2026-02-16T17:24:54.480051Z","issue_id":"ipswitch-5c2","payload":{"dep_type":"blocks","depends_on":"ipswitch-5c2.9"}}
 {"type":"comment","timestamp":"2026-02-16T17:24:54.505274Z","issue_id":"ipswitch-6cc","payload":{"body":"Updated GuideGrid pinch behavior to continuous scaling during gesture (onGestureEvent), preserved center timeline during zoom, and reduced channel rail width responsively on narrow screens so programme grid remains primary."}}
 {"type":"close","timestamp":"2026-02-16T17:24:54.531432Z","issue_id":"ipswitch-5c2.9","payload":{}}
+{"type":"create","timestamp":"2026-02-16T18:22:30.413788Z","issue_id":"ipswitch-9e8","payload":{"description":"Guide viewport shows large empty timeline area before programme cells, making portrait and landscape feel unusable. Reduce left dead-space and anchor initial view to content.","priority":"1","title":"Guide wasted timeline dead-space in portrait","type":"bug"}}
+{"type":"rename","timestamp":"2026-02-16T18:22:37.754428Z","issue_id":"ipswitch-9e8","payload":{"new_id":"ipswitch-5c2.10"}}
+{"type":"dep_add","timestamp":"2026-02-16T18:22:37.754428Z","issue_id":"ipswitch-5c2.10","payload":{"dep_type":"parent-child","depends_on":"ipswitch-5c2"}}
+{"type":"dep_add","timestamp":"2026-02-16T18:22:37.794824Z","issue_id":"ipswitch-5c2","payload":{"dep_type":"blocks","depends_on":"ipswitch-5c2.10"}}
+{"type":"comment","timestamp":"2026-02-16T18:22:37.830924Z","issue_id":"ipswitch-9e8","payload":{"body":"Adjusted grid start window from now-minus-30 to current half-hour and changed initial horizontal anchor to first actual programme cell (with minimal left margin), reducing dead timeline space in portrait and landscape."}}
+{"type":"close","timestamp":"2026-02-16T18:22:37.898671Z","issue_id":"ipswitch-5c2.10","payload":{}}

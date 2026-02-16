@@ -30,6 +30,7 @@ const DEFAULT_HOUR_WIDTH = 360;
 const MIN_HOUR_WIDTH = 140;
 const MAX_HOUR_WIDTH = 1400;
 const PINCH_UPDATE_EPSILON = 3;
+const LEFT_ANCHOR_FRACTION = 0.03;
 const ROW_HEIGHT = 64;
 const TIME_HEADER_HEIGHT = 44;
 const MIN_CELL_WIDTH = 4;
@@ -84,11 +85,11 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
     return () => clearInterval(interval);
   }, []);
 
-  // Start the grid 30 min before the current half-hour for context
+  // Start the grid at the current half-hour to avoid left-side dead space.
   const gridStart = useMemo(() => {
     const d = new Date(initialTime);
     d.setMinutes(d.getMinutes() < 30 ? 0 : 30, 0, 0);
-    return new Date(d.getTime() - 30 * 60 * 1000);
+    return d;
   }, [initialTime]);
 
   const gridEnd = useMemo(
@@ -105,19 +106,40 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
     [now, gridStart, hourWidth],
   );
 
+  // Left-most programme cell currently available in the visible time window.
+  const firstContentOffsetPx = useMemo(() => {
+    let min = Number.POSITIVE_INFINITY;
+    for (const ch of channels) {
+      const chProgs = programmes
+        .filter((p) => p.channelId === ch.id && p.stop > gridStart && p.start < gridEnd)
+        .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+      for (const p of chProgs) {
+        const startMs = Math.max(p.start.getTime(), gridStart.getTime());
+        const leftPx = ((startMs - gridStart.getTime()) / (1000 * 60 * 60)) * hourWidth;
+        if (leftPx < min) min = leftPx;
+      }
+    }
+    return Number.isFinite(min) ? min : null;
+  }, [channels, programmes, gridStart, gridEnd, hourWidth]);
+
   // Auto-scroll so "now" is visible at ~25% from left edge
   useEffect(() => {
     if (initialScrollDone.current) return;
     const timer = setTimeout(() => {
       const viewWidth = screenWidth - channelLabelWidth;
+      const targetOffsetPx = firstContentOffsetPx ?? nowOffsetPx;
       const maxX = Math.max(0, gridWidthPx - viewWidth);
-      const targetX = Math.min(maxX, Math.max(0, nowOffsetPx - viewWidth * 0.25));
+      const targetX = Math.min(
+        maxX,
+        Math.max(0, targetOffsetPx - viewWidth * LEFT_ANCHOR_FRACTION),
+      );
       gridHScrollRef.current?.scrollTo({ x: targetX, animated: false });
       timeHeaderScrollRef.current?.scrollTo({ x: targetX, animated: false });
       initialScrollDone.current = true;
     }, 100);
     return () => clearTimeout(timer);
-  }, [nowOffsetPx, gridWidthPx, screenWidth, channelLabelWidth]);
+  }, [nowOffsetPx, gridWidthPx, screenWidth, channelLabelWidth, firstContentOffsetPx]);
 
   // Half-hour time markers
   const timeMarkers = useMemo(() => {
