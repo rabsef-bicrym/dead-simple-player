@@ -118,7 +118,7 @@ export default function SetupScreen() {
         )}
 
         {/* Branding */}
-        <Text style={styles.title}>IPSwitch</Text>
+        <Text style={styles.title}>Dead Simple, Player</Text>
         <Text style={styles.subtitle}>Connect to your ErsatzTV server</Text>
 
         {/* Existing saved servers (if any) */}

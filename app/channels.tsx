@@ -153,7 +153,7 @@ export default function ChannelsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>IPSwitch</Text>
+        <Text style={styles.headerTitle}>Dead Simple, Player</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
             onPress={() => router.push('/guide')}

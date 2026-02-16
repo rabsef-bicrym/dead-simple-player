@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "IPSwitch",
+    "name": "Dead Simple, Player",
     "slug": "ipswitch",
     "version": "1.0.0",
     "orientation": "default",
@@ -19,7 +19,7 @@
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
-        "NSLocalNetworkUsageDescription": "IPSwitch uses your local network to connect to your ErsatzTV server and stream channels."
+        "NSLocalNetworkUsageDescription": "Dead Simple, Player uses your local network to connect to your ErsatzTV server and stream channels."
       },
       "bundleIdentifier": "com.anonymous.ipswitch"
     },
