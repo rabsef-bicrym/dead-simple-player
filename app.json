@@ -18,8 +18,10 @@
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        }
-      }
+        },
+        "NSLocalNetworkUsageDescription": "IPSwitch uses your local network to connect to your ErsatzTV server and stream channels."
+      },
+      "bundleIdentifier": "com.anonymous.ipswitch"
     },
     "android": {
       "adaptiveIcon": {
@@ -27,13 +29,15 @@
         "backgroundColor": "#111111"
       },
       "edgeToEdgeEnabled": true,
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": true,
+      "package": "com.anonymous.ipswitch"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "react-native-vlc-media-player"
     ]
   }
 }

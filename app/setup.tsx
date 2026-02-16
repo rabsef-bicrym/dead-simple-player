@@ -14,6 +14,7 @@ import {
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useServerConfig } from '../src/hooks/useServerConfig';
+import { verifyServerConnection } from '../src/services/iptv';
 import { colors, spacing, fontSize } from '../src/constants/theme';
 import type { SavedServer } from '../src/types';
 
@@ -57,26 +58,23 @@ export default function SetupScreen() {
 
     // Default name to host:port if the user left it blank
     const serverName = name.trim() || `${trimmedHost}:${portNum}`;
+    const nextConfig = { host: trimmedHost, port: portNum };
 
     setConnecting(true);
 
     try {
-      const url = `http://${trimmedHost}:${portNum}/iptv/channels.m3u`;
-      const response = await fetch(url, { method: 'HEAD' });
-
-      if (!response.ok) {
-        Alert.alert('Connection failed', `Server returned ${response.status}. Check the address.`);
-        setConnecting(false);
-        return;
-      }
-
+      await verifyServerConnection(nextConfig);
       await addServer(serverName, trimmedHost, portNum);
       router.replace('/channels');
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'Could not reach the server. Check the address and ensure you are on the same network.';
       Alert.alert(
         'Connection failed',
-        'Could not reach the server. Check the address and ensure you\'re on the same network.',
+        message,
       );
+    } finally {
       setConnecting(false);
     }
   };

@@ -1,16 +1,16 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, type ComponentType } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Dimensions,
   TouchableWithoutFeedback,
   TouchableOpacity,
   Animated,
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import Constants from 'expo-constants';
+import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -19,211 +19,179 @@ import {
   State,
 } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
-import { parseM3U } from '../src/parsers/m3u';
-import { parseXMLTV, getNowPlaying } from '../src/parsers/xmltv';
+import { getNowPlaying } from '../src/parsers/xmltv';
+import { fetchIptvData } from '../src/services/iptv';
 import { colors, fontSize, spacing } from '../src/constants/theme';
 import type { Channel, Programme } from '../src/types';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
 const OVERLAY_DURATION = 4000;
+const BUFFERING_OVERLAY_DELAY_MS = 800;
+const BUFFER_STALL_WINDOW_MS = 1500;
+const PROGRAMME_CLOCK_TICK_MS = 15000;
 
-/**
- * Build the inline HTML string that loads mpegts.js from CDN and plays an
- * MPEG-TS stream in a full-screen <video> element.
- *
- * - Uses mpegts.js to demux the transport stream in JS.
- * - Posts messages back to React Native on errors so the overlay can react.
- * - Black background, no native controls, auto-play with sound.
- */
-function buildPlayerHTML(streamUrl: string): string {
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
-    video {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: #000;
-    }
-  </style>
-</head>
-<body>
-  <video id="video" playsinline webkit-playsinline></video>
-  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js"></script>
-  <script>
-    (function() {
-      // Send structured messages to React Native
-      function postMsg(type, payload) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: type, payload: payload }));
-      }
+type PlayerEngine = 'vlc' | 'native';
 
-      var video = document.getElementById('video');
-      var url = ${JSON.stringify(streamUrl)};
+const vlcModule = (() => {
+  try {
+    return require('react-native-vlc-media-player');
+  } catch {
+    return null;
+  }
+})();
 
-      if (!mpegts.isSupported()) {
-        postMsg('error', 'mpegts.js is not supported in this browser');
-        return;
-      }
+const VLCPlayer = (vlcModule?.VLCPlayer ?? null) as ComponentType<any> | null;
 
-      var player = mpegts.createPlayer({
-        type: 'mpegts',
-        url: url,
-        isLive: true
-      }, {
-        // Low-latency live streaming config
-        enableWorker: false,
-        liveBufferLatencyChasing: true,
-        liveBufferLatencyMaxLatency: 3,
-        liveBufferLatencyMinRemain: 0.5
-      });
+/** Parse channel index route param safely and default to 0. */
+function parseChannelIndex(raw: string | undefined): number {
+  const parsed = Number.parseInt(raw ?? '0', 10);
+  if (Number.isNaN(parsed) || parsed < 0) return 0;
+  return parsed;
+}
 
-      player.attachMediaElement(video);
-      player.load();
+/** Keep the selected index inside available channel bounds. */
+function clampChannelIndex(index: number, length: number): number {
+  if (length <= 0) return 0;
+  return Math.max(0, Math.min(index, length - 1));
+}
 
-      // Attempt autoplay — iOS requires non-muted for sound
-      video.muted = false;
-      video.play().then(function() {
-        postMsg('status', 'playing');
-      }).catch(function(e) {
-        // iOS may block unmuted autoplay; try muted first then unmute
-        console.warn('Autoplay blocked, trying muted:', e.message);
-        video.muted = true;
-        video.play().then(function() {
-          // Unmute after play starts (works on iOS with user-gesture-bypass props)
-          video.muted = false;
-          postMsg('status', 'playing');
-        }).catch(function(e2) {
-          postMsg('error', 'Autoplay failed: ' + e2.message);
-        });
-      });
+/** Normalize react-native-video errors into readable text. */
+function formatVideoError(errorData: OnVideoErrorData): string {
+  const details = errorData.error;
+  return (
+    details.errorString
+    || details.localizedDescription
+    || details.errorException
+    || details.error
+    || 'Playback failed'
+  );
+}
 
-      // Forward mpegts.js errors to RN
-      player.on(mpegts.Events.ERROR, function(type, detail, info) {
-        console.error('mpegts error:', type, detail, info);
-        postMsg('error', type + ': ' + detail);
-      });
+/** Determine which engine should be tried first. */
+function resolvePrimaryEngine(vlcAvailable: boolean): PlayerEngine {
+  return vlcAvailable ? 'vlc' : 'native';
+}
 
-      // Track buffering state via video element events
-      video.addEventListener('waiting', function() {
-        postMsg('status', 'buffering');
-      });
-      video.addEventListener('playing', function() {
-        postMsg('status', 'playing');
-      });
-      video.addEventListener('error', function() {
-        var err = video.error;
-        postMsg('error', 'Video error: ' + (err ? err.message : 'unknown'));
-      });
-    })();
-  </script>
-</body>
-</html>`;
+function describeEngine(engine: PlayerEngine): string {
+  return engine === 'vlc' ? 'VLC' : 'Native';
 }
 
 /**
- * Full-screen MPEG-TS video player using WebView + mpegts.js.
+ * Full-screen live player with automatic engine failover.
  *
- * Replaces expo-video (which can't demux raw .ts streams) with a WebView that
- * loads mpegts.js from CDN to handle MPEG-TS demuxing in JavaScript.
- *
- * - Receives channelIndex as route param
- * - Swipe up = next channel, swipe down = previous channel
- * - Tap to show/hide channel info overlay with gradient fade
- * - Back gesture or button returns to channel list
+ * Strategy:
+ * - Primary engine: VLC (handles TS/HLS broadly on iOS + Android)
+ * - Fallback engine: react-native-video native backend
  */
 export default function PlayerScreen() {
   const { channelIndex: indexParam } = useLocalSearchParams<{ channelIndex: string }>();
   const { activeConfig, loading: configLoading } = useServerConfig();
+  const isExpoGo = Constants.appOwnership === 'expo';
+  const hasVlc = VLCPlayer !== null;
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(parseInt(indexParam || '0', 10));
+  const [currentIndex, setCurrentIndex] = useState(parseChannelIndex(indexParam));
   const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [playerError, setPlayerError] = useState<string | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
   const [buffering, setBuffering] = useState(true);
+  const [showBufferingOverlay, setShowBufferingOverlay] = useState(false);
+  const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
+  const [fallbackUsed, setFallbackUsed] = useState(false);
+  const [clockNow, setClockNow] = useState(() => new Date());
+  const isMountedRef = useRef(true);
   const overlayOpacity = useRef(new Animated.Value(1)).current;
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bufferingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastProgressAt = useRef<number>(0);
 
-  // Redirect to setup if no config
+  // Keep current channel index in sync with route updates.
+  useEffect(() => {
+    setCurrentIndex(parseChannelIndex(indexParam));
+  }, [indexParam]);
+
+  // Redirect to setup if no config.
   useEffect(() => {
     if (!configLoading && !activeConfig) {
       router.replace('/setup');
     }
   }, [configLoading, activeConfig]);
 
-  // Load channel data from active server config
-  useEffect(() => {
+  /** Load channels + EPG from the active server. */
+  const loadData = useCallback(async () => {
     if (!activeConfig) return;
 
-    (async () => {
-      const baseUrl = `http://${activeConfig.host}:${activeConfig.port}`;
+    setDataLoading(true);
+    if (isMountedRef.current) setDataError(null);
 
-      try {
-        const [m3uRes, xmltvRes] = await Promise.all([
-          fetch(`${baseUrl}/iptv/channels.m3u`),
-          fetch(`${baseUrl}/iptv/xmltv.xml`),
-        ]);
+    try {
+      const { channels: nextChannels, epg } = await fetchIptvData(activeConfig);
+      if (!isMountedRef.current) return;
 
-        const [m3uText, xmltvText] = await Promise.all([
-          m3uRes.text(),
-          xmltvRes.text(),
-        ]);
-
-        setChannels(parseM3U(m3uText, activeConfig.host, activeConfig.port));
-        setProgrammes(parseXMLTV(xmltvText, activeConfig.host, activeConfig.port).programmes);
-      } catch {
-        router.back();
-        return;
+      setChannels(nextChannels);
+      setProgrammes(epg.programmes);
+      setCurrentIndex((previous) => clampChannelIndex(previous, nextChannels.length));
+    } catch (error) {
+      if (isMountedRef.current) {
+        setDataError(error instanceof Error ? error.message : 'Failed to load channel data');
       }
-
-      setDataLoading(false);
-    })();
+    } finally {
+      if (isMountedRef.current) setDataLoading(false);
+    }
   }, [activeConfig]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    loadData();
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [loadData]);
 
   const currentChannel = channels[currentIndex];
 
-  // Build the HTML source for the WebView player.
-  // Memoized on streamUrl so it only regenerates on channel change.
-  const webViewSource = useMemo(() => {
-    if (!currentChannel) return undefined;
-    return { html: buildPlayerHTML(currentChannel.streamUrl) };
-  }, [currentChannel?.streamUrl]);
-
-  /** Handle messages from the WebView (error reports, status updates). */
-  const onWebViewMessage = useCallback((event: WebViewMessageEvent) => {
-    try {
-      const msg = JSON.parse(event.nativeEvent.data);
-      if (msg.type === 'error') {
-        console.error('[WebView player]', msg.payload);
-        setBuffering(false);
-      } else if (msg.type === 'status') {
-        setBuffering(msg.payload === 'buffering');
-      }
-    } catch {
-      console.warn('[WebView player] unparseable message:', event.nativeEvent.data);
-    }
+  // Tick wall clock so now-playing metadata can roll over without user interaction.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setClockNow(new Date());
+    }, PROGRAMME_CLOCK_TICK_MS);
+    return () => clearInterval(interval);
   }, []);
 
+  // Reset playback engine and errors when channel changes.
+  useEffect(() => {
+    if (!currentChannel) return;
+
+    setPlayerEngine(resolvePrimaryEngine(hasVlc));
+    setFallbackUsed(false);
+    setPlayerError(null);
+    setBuffering(true);
+    setShowBufferingOverlay(false);
+    setClockNow(new Date());
+    lastProgressAt.current = 0;
+    if (bufferingTimer.current) {
+      clearTimeout(bufferingTimer.current);
+      bufferingTimer.current = null;
+    }
+  }, [currentChannel?.streamUrl, hasVlc]);
+
   const nowPlaying = useMemo(
-    () => (currentChannel ? getNowPlaying(programmes, currentChannel.id) : undefined),
-    [currentChannel, programmes],
+    () => (currentChannel ? getNowPlaying(programmes, currentChannel.id, clockNow) : undefined),
+    [currentChannel, programmes, clockNow],
   );
 
   const progress = useMemo(() => {
     if (!nowPlaying) return 0;
-    const now = Date.now();
+    const now = clockNow.getTime();
     const start = nowPlaying.start.getTime();
     const stop = nowPlaying.stop.getTime();
     const duration = stop - start;
     if (duration <= 0) return 0;
     return Math.min(1, Math.max(0, (now - start) / duration));
-  }, [nowPlaying]);
+  }, [nowPlaying, clockNow]);
 
   const flashOverlay = useCallback(() => {
     if (overlayTimer.current) clearTimeout(overlayTimer.current);
@@ -244,24 +212,50 @@ export default function PlayerScreen() {
     }
   }, [currentIndex, dataLoading, currentChannel, flashOverlay]);
 
-  // Clean up overlay timer on unmount
+  // Clean up overlay timer on unmount.
   useEffect(() => {
     return () => {
       if (overlayTimer.current) clearTimeout(overlayTimer.current);
+      if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
     };
   }, []);
 
+  // Only show spinner when buffering persists and playback appears stalled.
+  useEffect(() => {
+    if (!buffering) {
+      if (bufferingTimer.current) {
+        clearTimeout(bufferingTimer.current);
+        bufferingTimer.current = null;
+      }
+      setShowBufferingOverlay(false);
+      return;
+    }
+
+    if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
+    bufferingTimer.current = setTimeout(() => {
+      const stalledForMs = Date.now() - lastProgressAt.current;
+      if (stalledForMs >= BUFFER_STALL_WINDOW_MS) {
+        setShowBufferingOverlay(true);
+      }
+    }, BUFFERING_OVERLAY_DELAY_MS);
+
+    return () => {
+      if (bufferingTimer.current) {
+        clearTimeout(bufferingTimer.current);
+        bufferingTimer.current = null;
+      }
+    };
+  }, [buffering]);
+
   const onGestureEvent = useCallback(
     ({ nativeEvent }: any) => {
-      if (nativeEvent.state === State.END) {
-        const { translationY } = nativeEvent;
-        if (translationY < -SWIPE_THRESHOLD && currentIndex < channels.length - 1) {
-          setCurrentIndex((i) => i + 1);
-          setBuffering(true);
-        } else if (translationY > SWIPE_THRESHOLD && currentIndex > 0) {
-          setCurrentIndex((i) => i - 1);
-          setBuffering(true);
-        }
+      if (nativeEvent.state !== State.END) return;
+
+      const { translationY } = nativeEvent;
+      if (translationY < -SWIPE_THRESHOLD && currentIndex < channels.length - 1) {
+        setCurrentIndex((index) => index + 1);
+      } else if (translationY > SWIPE_THRESHOLD && currentIndex > 0) {
+        setCurrentIndex((index) => index - 1);
       }
     },
     [currentIndex, channels.length],
@@ -280,10 +274,91 @@ export default function PlayerScreen() {
     }
   }, [showOverlay, overlayOpacity, flashOverlay]);
 
-  if (configLoading || dataLoading || !currentChannel) {
+  const handlePlaybackStarted = useCallback(() => {
+    lastProgressAt.current = Date.now();
+    setBuffering(false);
+    setShowBufferingOverlay(false);
+    setPlayerError(null);
+  }, []);
+
+  const handlePlaybackBuffering = useCallback(() => {
+    setBuffering(true);
+  }, []);
+
+  const handlePlaybackLoadStart = useCallback(() => {
+    setBuffering(true);
+  }, []);
+
+  const handlePlaybackProgress = useCallback(() => {
+    lastProgressAt.current = Date.now();
+    setBuffering(false);
+    setShowBufferingOverlay(false);
+  }, []);
+
+  const tryFallbackEngine = useCallback(
+    (reason: string) => {
+      if (fallbackUsed || !hasVlc) {
+        setPlayerError(reason);
+        setBuffering(false);
+        setShowBufferingOverlay(false);
+        return;
+      }
+
+      const nextEngine: PlayerEngine = playerEngine === 'vlc' ? 'native' : 'vlc';
+      setFallbackUsed(true);
+      setPlayerEngine(nextEngine);
+      setBuffering(true);
+      setPlayerError(`Playback failed on ${describeEngine(playerEngine)}. Retrying with ${describeEngine(nextEngine)}...`);
+      console.warn('[Player failover]', reason);
+    },
+    [fallbackUsed, hasVlc, playerEngine],
+  );
+
+  const handleNativeBuffer = useCallback((event: OnBufferData) => {
+    setBuffering(event.isBuffering);
+  }, []);
+
+  const handleNativeError = useCallback((event: OnVideoErrorData) => {
+    const message = formatVideoError(event);
+    tryFallbackEngine(`Native player error: ${message}`);
+  }, [tryFallbackEngine]);
+
+  const handleVlcError = useCallback((event: { target?: number } | undefined) => {
+    const targetInfo = typeof event?.target === 'number' ? ` (target ${event.target})` : '';
+    tryFallbackEngine(`VLC player error${targetInfo}`);
+  }, [tryFallbackEngine]);
+
+  if (configLoading || dataLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
+  if (dataError || !currentChannel) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{dataError ?? 'No channel available'}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={loadData}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={styles.secondaryAction}>Back to Channels</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (isExpoGo) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>
+          Playback requires a development build. Expo Go does not include the native player modules.
+        </Text>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={styles.secondaryAction}>Back to Channels</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -297,28 +372,54 @@ export default function PlayerScreen() {
         <View style={styles.container}>
           <TouchableWithoutFeedback onPress={handleTap}>
             <View style={styles.container}>
-              {/* WebView MPEG-TS player (behind overlay) */}
-              {webViewSource && (
-                <WebView
-                  key={currentChannel.streamUrl}
-                  source={webViewSource}
+              {playerEngine === 'vlc' && VLCPlayer ? (
+                <VLCPlayer
+                  key={`${playerEngine}:${currentChannel.streamUrl}`}
+                  source={{
+                    uri: currentChannel.streamUrl,
+                    initType: 2,
+                    initOptions: ['--network-caching=900', '--clock-jitter=0'],
+                  }}
+                  autoplay
+                  paused={false}
+                  playInBackground
+                  resizeMode="contain"
                   style={styles.video}
-                  originWhitelist={['*']}
-                  allowsInlineMediaPlayback
-                  mediaPlaybackRequiresUserAction={false}
-                  javaScriptEnabled
-                  scrollEnabled={false}
-                  bounces={false}
-                  onMessage={onWebViewMessage}
-                  allowsFullscreenVideo={false}
-                  mixedContentMode="always"
+                  onPlaying={handlePlaybackStarted}
+                  onBuffering={handlePlaybackBuffering}
+                  onProgress={handlePlaybackProgress}
+                  onLoad={handlePlaybackStarted}
+                  onError={handleVlcError}
+                />
+              ) : (
+                <Video
+                  key={`${playerEngine}:${currentChannel.streamUrl}`}
+                  source={{ uri: currentChannel.streamUrl }}
+                  style={styles.video}
+                  resizeMode="contain"
+                  paused={false}
+                  controls={false}
+                  ignoreSilentSwitch="ignore"
+                  automaticallyWaitsToMinimizeStalling={false}
+                  playInBackground
+                  playWhenInactive
+                  onLoadStart={handlePlaybackLoadStart}
+                  onLoad={handlePlaybackStarted}
+                  onBuffer={handleNativeBuffer}
+                  onProgress={handlePlaybackProgress}
+                  onError={handleNativeError}
                 />
               )}
 
-              {/* Buffering indicator */}
-              {buffering && (
+              {showBufferingOverlay && (
                 <View style={styles.bufferingOverlay}>
                   <ActivityIndicator size="large" color={colors.text} />
+                </View>
+              )}
+
+              {playerError && (
+                <View style={styles.playerErrorOverlay}>
+                  <Text style={styles.playerErrorText}>{playerError}</Text>
                 </View>
               )}
 
@@ -369,7 +470,9 @@ export default function PlayerScreen() {
                         </>
                       )}
 
-                      <Text style={styles.swipeHint}>Swipe up/down to change channels</Text>
+                      <Text style={styles.swipeHint}>
+                        Swipe up/down to change channels · {describeEngine(playerEngine)}
+                      </Text>
                     </View>
                   </LinearGradient>
                 </Animated.View>
@@ -393,15 +496,57 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  errorContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+    gap: spacing.lg,
+  },
+  errorText: {
+    color: colors.error,
+    fontSize: fontSize.md,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: 10,
+  },
+  retryText: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: '600',
+  },
+  secondaryAction: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+  },
   video: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
   },
   bufferingOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  playerErrorOverlay: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: 120,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    borderRadius: 8,
+    padding: spacing.md,
+  },
+  playerErrorText: {
+    color: colors.error,
+    fontSize: fontSize.sm,
+    textAlign: 'center',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,

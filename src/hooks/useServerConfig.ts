@@ -8,6 +8,68 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+/** Parse JSON safely and return null on malformed values. */
+function parseJson<T>(raw: string | null): T | null {
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse saved servers array, discarding malformed entries. */
+function parseSavedServers(raw: string | null): SavedServer[] {
+  const parsed = parseJson<unknown>(raw);
+  if (!Array.isArray(parsed)) return [];
+
+  const servers: SavedServer[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object') continue;
+    const value = entry as Partial<SavedServer>;
+    const port = typeof value.port === 'number'
+      ? value.port
+      : Number.parseInt(String(value.port ?? ''), 10);
+
+    if (
+      typeof value.id !== 'string'
+      || typeof value.name !== 'string'
+      || typeof value.host !== 'string'
+      || Number.isNaN(port)
+    ) {
+      continue;
+    }
+
+    servers.push({
+      id: value.id,
+      name: value.name,
+      host: value.host,
+      port,
+      lastUsed: typeof value.lastUsed === 'number' ? value.lastUsed : Date.now(),
+    });
+  }
+
+  return servers;
+}
+
+/** Parse legacy single-server config. */
+function parseLegacyConfig(raw: string | null): ServerConfig | null {
+  const parsed = parseJson<unknown>(raw);
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  const value = parsed as Partial<ServerConfig>;
+  const port = typeof value.port === 'number'
+    ? value.port
+    : Number.parseInt(String(value.port ?? ''), 10);
+
+  if (typeof value.host !== 'string' || Number.isNaN(port)) {
+    return null;
+  }
+
+  return { host: value.host, port };
+}
+
 /**
  * Hook to manage multiple saved server configurations with an active selection.
  *
@@ -52,14 +114,31 @@ export function useServerConfig() {
       const serversRaw = results[0][1];
       const idRaw = results[1][1];
       const legacyRaw = results[2][1];
+      const savedServers = parseSavedServers(serversRaw);
 
-      if (serversRaw) {
-        // New multi-server format already exists
-        setServers(JSON.parse(serversRaw));
-        setActiveId(idRaw);
-      } else if (legacyRaw) {
+      if (savedServers.length > 0) {
+        // Recover gracefully when active ID is missing or stale.
+        const activeIdFromStorage = typeof idRaw === 'string' ? idRaw : null;
+        const resolvedActiveId = activeIdFromStorage && savedServers.some((server) => server.id === activeIdFromStorage)
+          ? activeIdFromStorage
+          : savedServers[0].id;
+
+        setServers(savedServers);
+        setActiveId(resolvedActiveId);
+
+        if (idRaw !== resolvedActiveId) {
+          await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SERVER_ID, resolvedActiveId);
+        }
+      } else {
+        const legacy = parseLegacyConfig(legacyRaw);
+        if (!legacy) {
+          // No usable config found.
+          setServers([]);
+          setActiveId(null);
+          return;
+        }
+
         // Migrate from legacy single-server format
-        const legacy: ServerConfig = JSON.parse(legacyRaw);
         const migrated: SavedServer = {
           id: generateId(),
           name: `${legacy.host}:${legacy.port}`,
@@ -76,10 +155,6 @@ export function useServerConfig() {
 
         setServers([migrated]);
         setActiveId(migrated.id);
-      } else {
-        // No config at all
-        setServers([]);
-        setActiveId(null);
       }
     } finally {
       setLoading(false);

@@ -9,9 +9,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useNavigation } from 'expo-router';
-import { parseM3U } from '../src/parsers/m3u';
-import { parseXMLTV } from '../src/parsers/xmltv';
 import { useServerConfig } from '../src/hooks/useServerConfig';
+import { fetchIptvData } from '../src/services/iptv';
 import { GuideGrid } from '../src/components/GuideGrid';
 import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
 import { colors, spacing, fontSize } from '../src/constants/theme';
@@ -49,24 +48,9 @@ export default function GuideScreen() {
 
   /** Fetch and parse M3U + XMLTV from the active server. */
   const fetchData = useCallback(async (cfg: ServerConfig) => {
-    const baseUrl = `http://${cfg.host}:${cfg.port}`;
-
     try {
-      const [m3uRes, xmltvRes] = await Promise.all([
-        fetch(`${baseUrl}/iptv/channels.m3u`),
-        fetch(`${baseUrl}/iptv/xmltv.xml`),
-      ]);
-
-      if (!m3uRes.ok) throw new Error(`M3U: ${m3uRes.status}`);
-      if (!xmltvRes.ok) throw new Error(`XMLTV: ${xmltvRes.status}`);
-
-      const [m3uText, xmltvText] = await Promise.all([
-        m3uRes.text(),
-        xmltvRes.text(),
-      ]);
-
-      setChannels(parseM3U(m3uText, cfg.host, cfg.port));
-      const epg = parseXMLTV(xmltvText, cfg.host, cfg.port);
+      const { channels: nextChannels, epg } = await fetchIptvData(cfg);
+      setChannels(nextChannels);
       setProgrammes(epg.programmes);
       setError(null);
     } catch (err) {

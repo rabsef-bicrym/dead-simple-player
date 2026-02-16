@@ -28,14 +28,29 @@ export default function Index() {
       const idRaw = results[1][1];
       const legacyRaw = results[2][1];
 
-      // New format: has saved servers with an active selection
-      if (serversRaw && idRaw) {
-        const servers = JSON.parse(serversRaw);
-        setHasConfig(servers.length > 0);
-      } else if (legacyRaw) {
-        // Legacy format still present — migration runs on channels mount
-        setHasConfig(true);
+      // New format: any non-empty saved-server list is enough.
+      // Missing active ID is recovered by useServerConfig on next screen.
+      let nextHasConfig = false;
+      if (serversRaw) {
+        try {
+          const servers = JSON.parse(serversRaw);
+          nextHasConfig = Array.isArray(servers) && servers.length > 0;
+        } catch {
+          nextHasConfig = false;
+        }
       }
+
+      // Legacy format still present — migration runs in useServerConfig.
+      if (!nextHasConfig && legacyRaw) {
+        nextHasConfig = true;
+      }
+
+      if (!nextHasConfig && idRaw) {
+        // Stale active ID without servers should not count as configured.
+        nextHasConfig = false;
+      }
+
+      setHasConfig(nextHasConfig);
 
       setLoading(false);
     })();

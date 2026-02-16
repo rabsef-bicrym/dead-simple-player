@@ -1,4 +1,4 @@
-import { useRef, useMemo, useEffect } from 'react';
+import { useRef, useMemo, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -56,15 +56,23 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
   const channelLabelScrollRef = useRef<ScrollView>(null);
   const gridHScrollRef = useRef<ScrollView>(null);
   const initialScrollDone = useRef(false);
+  const initialTime = useRef(new Date()).current;
+  const [now, setNow] = useState(initialTime);
 
-  const now = useMemo(() => new Date(), []);
+  // Refresh the "now" marker and current-programme styling periodically.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Start the grid 30 min before the current half-hour for context
   const gridStart = useMemo(() => {
-    const d = new Date(now);
+    const d = new Date(initialTime);
     d.setMinutes(d.getMinutes() < 30 ? 0 : 30, 0, 0);
     return new Date(d.getTime() - 30 * 60 * 1000);
-  }, [now]);
+  }, [initialTime]);
 
   const gridEnd = useMemo(
     () => new Date(gridStart.getTime() + hoursToShow * 60 * 60 * 1000),
