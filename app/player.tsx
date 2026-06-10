@@ -29,6 +29,8 @@ const OVERLAY_DURATION = 4000;
 const BUFFERING_OVERLAY_DELAY_MS = 800;
 const BUFFER_STALL_WINDOW_MS = 1500;
 const PROGRAMME_CLOCK_TICK_MS = 15000;
+const STALL_RESTART_MS = 10000;
+const WATCHDOG_POLL_MS = 1000;
 
 type PlayerEngine = 'vlc' | 'native';
 
@@ -88,8 +90,10 @@ function describeEngine(engine: PlayerEngine): string {
  * Full-screen live player with automatic engine failover.
  *
  * Strategy:
- * - Primary engine: VLC (handles TS/HLS broadly on iOS + Android)
- * - Fallback engine: react-native-video native backend
+ * - HLS (.m3u8) streams: react-native-video native backend (real buffering,
+ *   PiP, Now Playing controls), with VLC as failover
+ * - Raw TS streams: VLC with a large network cache, native as failover
+ * - A watchdog remounts the player if playback stalls without erroring
  */
 export default function PlayerScreen() {
   const { channelIndex: indexParam } = useLocalSearchParams<{ channelIndex: string }>();
@@ -109,11 +113,13 @@ export default function PlayerScreen() {
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
+  const [restartNonce, setRestartNonce] = useState(0);
   const isMountedRef = useRef(true);
   const overlayOpacity = useRef(new Animated.Value(1)).current;
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bufferingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastProgressAt = useRef<number>(0);
+  const lastProgressAt = useRef<number>(Date.now());
+  const lastPositionRef = useRef<number>(-1);
 
   // Keep current channel index in sync with route updates.
   useEffect(() => {
@@ -179,7 +185,8 @@ export default function PlayerScreen() {
     setBuffering(true);
     setShowBufferingOverlay(false);
     setClockNow(new Date());
-    lastProgressAt.current = 0;
+    lastProgressAt.current = Date.now();
+    lastPositionRef.current = -1;
     if (bufferingTimer.current) {
       clearTimeout(bufferingTimer.current);
       bufferingTimer.current = null;
@@ -200,6 +207,17 @@ export default function PlayerScreen() {
     if (duration <= 0) return 0;
     return Math.min(1, Math.max(0, (now - start) / duration));
   }, [nowPlaying, clockNow]);
+
+  // Source identity must only change on channel switch. A metadata-only change
+  // (e.g. programme rollover from the clock tick) still reaches the native
+  // setSrc path and can force a full stream reload mid-programme.
+  const nativeSource = useMemo(
+    () => ({
+      uri: currentChannel?.streamUrl ?? '',
+      metadata: { title: currentChannel?.name },
+    }),
+    [currentChannel?.streamUrl, currentChannel?.name],
+  );
 
   const flashOverlay = useCallback(() => {
     if (overlayTimer.current) clearTimeout(overlayTimer.current);
@@ -255,6 +273,23 @@ export default function PlayerScreen() {
     };
   }, [buffering]);
 
+  // Watchdog: a stalled live stream never errors, it just stops making
+  // progress. If the playhead hasn't advanced in STALL_RESTART_MS, remount the
+  // player to rejoin the stream rather than sitting frozen. This also
+  // auto-recovers when the server goes away and comes back.
+  useEffect(() => {
+    if (!currentChannel) return;
+
+    const interval = setInterval(() => {
+      if (Date.now() - lastProgressAt.current < STALL_RESTART_MS) return;
+      lastProgressAt.current = Date.now();
+      console.warn('[Player watchdog] No playback progress, restarting stream');
+      setRestartNonce((nonce) => nonce + 1);
+    }, WATCHDOG_POLL_MS);
+
+    return () => clearInterval(interval);
+  }, [currentChannel]);
+
   const onGestureEvent = useCallback(
     ({ nativeEvent }: any) => {
       if (nativeEvent.state !== State.END) return;
@@ -297,7 +332,14 @@ export default function PlayerScreen() {
     setBuffering(true);
   }, []);
 
-  const handlePlaybackProgress = useCallback(() => {
+  const handlePlaybackProgress = useCallback((data?: { currentTime?: number }) => {
+    // Both engines keep emitting progress events while stalled; only a moving
+    // playhead counts as real progress for the watchdog.
+    const position = data?.currentTime;
+    if (typeof position === 'number') {
+      if (position === lastPositionRef.current) return;
+      lastPositionRef.current = position;
+    }
     lastProgressAt.current = Date.now();
     setBuffering(false);
     setShowBufferingOverlay(false);
@@ -316,6 +358,7 @@ export default function PlayerScreen() {
       setFallbackUsed(true);
       setPlayerEngine(nextEngine);
       setBuffering(true);
+      lastProgressAt.current = Date.now();
       setPlayerError(`Playback failed on ${describeEngine(playerEngine)}. Retrying with ${describeEngine(nextEngine)}...`);
       console.warn('[Player failover]', reason);
     },
@@ -382,11 +425,15 @@ export default function PlayerScreen() {
             <View style={styles.container}>
               {playerEngine === 'vlc' && VLCPlayer ? (
                 <VLCPlayer
-                  key={`${playerEngine}:${currentChannel.streamUrl}`}
+                  key={`${playerEngine}:${currentChannel.streamUrl}:${restartNonce}`}
                   source={{
                     uri: currentChannel.streamUrl,
                     initType: 2,
-                    initOptions: ['--network-caching=900', '--clock-jitter=0'],
+                    // A 1x-paced live TS stream can never refill its cache while
+                    // playing, so the cache must be large enough to absorb supply
+                    // jitter for a whole programme. Clock-jitter compensation is
+                    // left at VLC's default — disabling it makes live TS brittle.
+                    initOptions: ['--network-caching=5000'],
                   }}
                   autoplay
                   paused={false}
@@ -401,21 +448,19 @@ export default function PlayerScreen() {
                 />
               ) : (
                 <Video
-                  key={`${playerEngine}:${currentChannel.streamUrl}`}
-                  source={{
-                    uri: currentChannel.streamUrl,
-                    metadata: {
-                      title: currentChannel.name,
-                      subtitle: nowPlaying?.title,
-                      description: nowPlaying?.description,
-                    },
-                  }}
+                  key={`${playerEngine}:${currentChannel.streamUrl}:${restartNonce}`}
+                  source={nativeSource}
                   style={styles.video}
                   resizeMode="contain"
                   paused={false}
                   controls={false}
                   ignoreSilentSwitch="ignore"
-                  automaticallyWaitsToMinimizeStalling={false}
+                  bufferConfig={{
+                    minBufferMs: 15000,
+                    maxBufferMs: 60000,
+                    bufferForPlaybackMs: 2000,
+                    bufferForPlaybackAfterRebufferMs: 4000,
+                  }}
                   playInBackground
                   playWhenInactive
                   enterPictureInPictureOnLeave

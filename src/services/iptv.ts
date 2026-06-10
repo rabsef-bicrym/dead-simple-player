@@ -49,7 +49,12 @@ export async function verifyServerConnection(config: ServerConfig): Promise<void
 
 /** Fetch and parse both playlist and XMLTV guide data for a server. */
 export async function fetchIptvData(config: ServerConfig): Promise<IptvData> {
-  const m3uUrl = buildServerUrl(config, '/iptv/channels.m3u');
+  // Force HLS Segmenter mode for every channel. ETV's MPEG-TS mode delivers a
+  // continuous 1x-paced stream the client can never buffer ahead of, so any
+  // supply hiccup longer than the local cache pauses playback. Segmented HLS
+  // lets the player hold many seconds of real headroom. ETV servers that don't
+  // support the mode override simply ignore the query parameter.
+  const m3uUrl = buildServerUrl(config, '/iptv/channels.m3u?mode=segmenter');
   const xmltvUrl = buildServerUrl(config, '/iptv/xmltv.xml');
 
   const [m3uText, xmltvText] = await Promise.all([
