@@ -22,6 +22,7 @@ import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying } from '../src/parsers/xmltv';
 import { fetchIptvData } from '../src/services/iptv';
 import { colors, fontSize, spacing } from '../src/constants/theme';
+import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
 import type { Channel, Programme } from '../src/types';
 
 const SWIPE_THRESHOLD = 80;
@@ -109,6 +110,7 @@ export default function PlayerScreen() {
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
+  const [showDetail, setShowDetail] = useState(false);
   const isMountedRef = useRef(true);
   const overlayOpacity = useRef(new Animated.Value(1)).current;
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -282,6 +284,17 @@ export default function PlayerScreen() {
     }
   }, [showOverlay, overlayOpacity, flashOverlay]);
 
+  const openDetail = useCallback(() => {
+    if (!nowPlaying) return;
+    if (overlayTimer.current) clearTimeout(overlayTimer.current);
+    setShowDetail(true);
+  }, [nowPlaying]);
+
+  const closeDetail = useCallback(() => {
+    setShowDetail(false);
+    flashOverlay();
+  }, [flashOverlay]);
+
   const handlePlaybackStarted = useCallback(() => {
     lastProgressAt.current = Date.now();
     setBuffering(false);
@@ -378,7 +391,7 @@ export default function PlayerScreen() {
         activeOffsetY={[-20, 20]}
       >
         <View style={styles.container}>
-          <TouchableWithoutFeedback onPress={handleTap}>
+          <TouchableWithoutFeedback onPress={handleTap} onLongPress={openDetail}>
             <View style={styles.container}>
               {playerEngine === 'vlc' && VLCPlayer ? (
                 <VLCPlayer
@@ -471,12 +484,27 @@ export default function PlayerScreen() {
 
                       {nowPlaying && (
                         <>
-                          <Text style={styles.nowPlayingText} numberOfLines={2}>
-                            {nowPlaying.title}
-                            {nowPlaying.subtitle ? ` — ${nowPlaying.subtitle}` : ''}
-                          </Text>
+                          <View style={styles.nowPlayingRow}>
+                            <Text style={styles.nowPlayingText} numberOfLines={2}>
+                              {nowPlaying.title}
+                              {nowPlaying.subtitle ? ` — ${nowPlaying.subtitle}` : ''}
+                            </Text>
+                            {nowPlaying.description && (
+                              <TouchableOpacity
+                                onPress={openDetail}
+                                style={styles.infoButton}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                              >
+                                <Ionicons
+                                  name="information-circle-outline"
+                                  size={26}
+                                  color={colors.text}
+                                />
+                              </TouchableOpacity>
+                            )}
+                          </View>
                           {nowPlaying.description && (
-                            <Text style={styles.descriptionText} numberOfLines={2}>
+                            <Text style={styles.descriptionText} numberOfLines={3}>
                               {nowPlaying.description}
                             </Text>
                           )}
@@ -489,7 +517,7 @@ export default function PlayerScreen() {
                       )}
 
                       <Text style={styles.swipeHint}>
-                        Swipe up/down to change channels · {describeEngine(playerEngine)}
+                        Swipe to change channels · Hold for programme notes · {describeEngine(playerEngine)}
                       </Text>
                     </View>
                   </LinearGradient>
@@ -497,6 +525,12 @@ export default function PlayerScreen() {
               )}
             </View>
           </TouchableWithoutFeedback>
+
+          <ProgrammeDetailModal
+            programme={showDetail ? nowPlaying ?? null : null}
+            visible={showDetail}
+            onClose={closeDetail}
+          />
         </View>
       </PanGestureHandler>
     </GestureHandlerRootView>
@@ -615,10 +649,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
+  nowPlayingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    gap: spacing.md,
+  },
   nowPlayingText: {
+    flex: 1,
     fontSize: fontSize.md,
     color: 'rgba(255,255,255,0.8)',
-    marginTop: spacing.xs,
+  },
+  infoButton: {
+    opacity: 0.85,
   },
   descriptionText: {
     fontSize: fontSize.sm,
