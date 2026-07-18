@@ -11,6 +11,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { colors, spacing, fontSize, categoryColor } from '../constants/theme';
+import { EssayText } from './EssayText';
 import type { Programme } from '../types';
 
 interface ProgrammeDetailModalProps {
@@ -126,9 +127,11 @@ export function ProgrammeDetailModal({ programme, visible, onClose }: ProgrammeD
               </View>
             )}
 
-            {/* Description */}
+            {/* Description — the library's NFO essays, typeset as liner notes */}
             {programme.description && (
-              <Text style={styles.description}>{programme.description}</Text>
+              <View style={styles.description}>
+                <EssayText text={programme.description} />
+              </View>
             )}
           </ScrollView>
         </View>
@@ -270,9 +273,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   description: {
-    fontSize: fontSize.md,
-    color: colors.textSecondary,
-    lineHeight: 24,
-    marginTop: spacing.lg,
+    marginTop: spacing.sm,
   },
 });
