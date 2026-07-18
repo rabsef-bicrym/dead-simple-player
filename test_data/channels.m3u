@@ -1,11 +1,13 @@
 #EXTM3U url-tvg="http://localhost:8409/iptv/xmltv.xml" x-tvg-url="http://localhost:8409/iptv/xmltv.xml"
-#EXTINF:0 tvg-id="C1.145.ersatztv.org" channel-id="tgETcE8ac02lGwZk606VDQ" channel-number="1" CUID="tgETcE8ac02lGwZk606VDQ" tvg-chno="1" tvg-name="The Prisoner" tvg-logo="http://localhost:8409/iptv/logos/7B5C8FB8CF143B3D3CE966E9390DB9B7.jpg" group-title="The Prisoner" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", The Prisoner
-http://localhost:8409/iptv/channel/1.ts
-#EXTINF:0 tvg-id="C2.146.ersatztv.org" channel-id="jnreN3oFwU25f3-Ys0KuHw" channel-number="2" CUID="jnreN3oFwU25f3-Ys0KuHw" tvg-chno="2" tvg-name="Television" tvg-logo="http://localhost:8409/iptv/logos/1B84197341FE98AD6184A88900A776F4.jpg" group-title="Television" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Television
-http://localhost:8409/iptv/channel/2.ts
-#EXTINF:0 tvg-id="C3.147.ersatztv.org" channel-id="K54_rHmbQ0y_7Yydi_AG3w" channel-number="3" CUID="K54_rHmbQ0y_7Yydi_AG3w" tvg-chno="3" tvg-name="Oddities" tvg-logo="http://localhost:8409/iptv/logos/5CC847301B6F06C73E394F5B4E74BD80.jpg" group-title="Oddities" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Oddities
-http://localhost:8409/iptv/channel/3.ts
-#EXTINF:0 tvg-id="C5.149.ersatztv.org" channel-id="NWP4rfmrkUqsd6OShqBKmw" channel-number="5" CUID="NWP4rfmrkUqsd6OShqBKmw" tvg-chno="5" tvg-name="Music" tvg-logo="http://localhost:8409/iptv/logos/gen?text=Music" group-title="Music" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Music
-http://localhost:8409/iptv/channel/5.ts
-#EXTINF:0 tvg-id="C6.150.ersatztv.org" channel-id="kAX9l2hQEk6ByzXvZsr8lg" channel-number="6" CUID="kAX9l2hQEk6ByzXvZsr8lg" tvg-chno="6" tvg-name="Nana’s Picks" tvg-logo="http://localhost:8409/iptv/logos/gen?text=Nana%E2%80%99s+Picks" group-title="Nana’s Picks" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Nana’s Picks
-http://localhost:8409/iptv/channel/6.ts
+#EXTINF:0 tvg-id="C1.145.ersatztv.org" channel-id="YGfGZXrmuE2aH_6sN8ygKg" channel-number="1" CUID="YGfGZXrmuE2aH_6sN8ygKg" tvg-chno="1" tvg-name="The Prisoner" tvg-logo="http://localhost:8409/iptv/logos/gen?text=The+Prisoner" group-title="The Prisoner" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", The Prisoner
+http://localhost:8409/iptv/channel/1.m3u8?mode=segmenter
+#EXTINF:0 tvg-id="C2.146.ersatztv.org" channel-id="7cyuufQ3sUmBxC7HLh03fQ" channel-number="2" CUID="7cyuufQ3sUmBxC7HLh03fQ" tvg-chno="2" tvg-name="Nana's Picks" tvg-logo="http://localhost:8409/iptv/logos/gen?text=Nana%27s+Picks" group-title="Nana's Picks" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Nana's Picks
+http://localhost:8409/iptv/channel/2.m3u8?mode=segmenter
+#EXTINF:0 tvg-id="C3.147.ersatztv.org" channel-id="JsARlK2AqUOlegfm1I0fww" channel-number="3" CUID="JsARlK2AqUOlegfm1I0fww" tvg-chno="3" tvg-name="Television" tvg-logo="http://localhost:8409/iptv/logos/gen?text=Television" group-title="Television" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Television
+http://localhost:8409/iptv/channel/3.m3u8?mode=segmenter
+#EXTINF:0 tvg-id="C4.148.ersatztv.org" channel-id="kKcL8nalP0WlICkN_AyUdw" channel-number="4" CUID="kKcL8nalP0WlICkN_AyUdw" tvg-chno="4" tvg-name="Movies" tvg-logo="http://localhost:8409/iptv/logos/gen?text=Movies" group-title="Movies" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Movies
+http://localhost:8409/iptv/channel/4.m3u8?mode=segmenter
+#EXTINF:0 tvg-id="C5.149.ersatztv.org" channel-id="ouk0-j9vukmq3TUArNa7_Q" channel-number="5" CUID="ouk0-j9vukmq3TUArNa7_Q" tvg-chno="5" tvg-name="Oddities" tvg-logo="http://localhost:8409/iptv/logos/gen?text=Oddities" group-title="Oddities" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Oddities
+http://localhost:8409/iptv/channel/5.m3u8?mode=segmenter
+#EXTINF:0 tvg-id="C6.150.ersatztv.org" channel-id="p0dRLTIzck6eDbORf2GaIw" channel-number="6" CUID="p0dRLTIzck6eDbORf2GaIw" tvg-chno="6" tvg-name="Music" tvg-logo="http://localhost:8409/iptv/logos/gen?text=Music" group-title="Music" tvc-stream-vcodec="h264" tvc-stream-acodec="aac", Music
+http://localhost:8409/iptv/channel/6.m3u8?mode=segmenter

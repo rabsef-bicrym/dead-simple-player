@@ -16,7 +16,8 @@ A purpose-built IPTV player for ErsatzTV. Nothing else. No generality.
 ## ErsatzTV Specifics
 
 ### Server Access
-- **NUC (ErsatzTV host):** `ssh -i ~/.ssh/talwet rabsef-bicrym@192.168.50.150`
+- **ErsatzTV host (docker, current):** `192.168.50.188` (drive box; container `ersatztv`)
+- **Old NUC host (historical):** `ssh -i ~/.ssh/talwet rabsef-bicrym@192.168.50.150`
 - **Tailscale IP:** `100.85.152.35`
 - **ETV API port:** `8409`
 - **M3U URL:** `http://<host>:8409/iptv/channels.m3u`
@@ -32,19 +33,27 @@ ssh -i ~/.ssh/talwet rabsef-bicrym@192.168.50.150 "curl -s http://localhost:8409
 ssh -i ~/.ssh/talwet rabsef-bicrym@192.168.50.150 "curl -s http://localhost:8409/iptv/xmltv.xml" > test_data/xmltv.xml
 ```
 
-### Current channels:
+### Current channels (as of 2026-07-18):
 | Ch# | Name | Channel ID |
 |-----|------|-----------|
 | 1 | The Prisoner | C1.145.ersatztv.org |
-| 2 | Television | C2.146.ersatztv.org |
-| 3 | Oddities | C3.147.ersatztv.org |
-| 5 | Music | C5.149.ersatztv.org |
-| 6 | Nana's Picks | C6.150.ersatztv.org |
+| 2 | Nana's Picks | C2.146.ersatztv.org |
+| 3 | Television | C3.147.ersatztv.org |
+| 4 | Movies | C4.148.ersatztv.org |
+| 5 | Oddities | C5.149.ersatztv.org |
+| 6 | Music | C6.150.ersatztv.org |
+
+### Streaming mode (as of 2026-07-18)
+All channels serve **HLS Segmenter** — stream URLs in the M3U are
+`/iptv/channel/N.m3u8?mode=segmenter` (formerly `/iptv/channel/N.ts`).
+Parsers and the player must accept the `.m3u8` + query-string form.
+This change fixed the long-standing 10-20s stall problem (MPEG-TS gave
+clients zero buffer slack against encoder hiccups at item boundaries).
 
 ### XMLTV Format Issues (THE reason this app exists)
 Every other IPTV player fails at parsing ErsatzTV's XMLTV. Here's what you MUST handle:
 
-1. **Single-line XML:** The entire XMLTV is one enormous line (~540KB). No newlines between `<programme>` elements. Your parser MUST NOT assume line-delimited XML.
+1. **Single-line XML:** The entire XMLTV is one enormous line (~3MB as of 2026-07: every file now has a rich NFO). No newlines between `<programme>` elements. Your parser MUST NOT assume line-delimited XML.
 
 2. **Unicode in titles and descriptions:**
    - Fullwidth punctuation: ？(U+FF1F) ：(U+FF1A) ＂(U+FF02)

@@ -11,18 +11,19 @@ describe('XMLTV Parser', () => {
     raw = fs.readFileSync(TEST_DATA, 'utf-8');
   });
 
-  describe('parsing the real 540KB single-line XMLTV', () => {
+  describe('parsing the real ~3MB single-line XMLTV', () => {
     it('should parse without throwing', () => {
       expect(() => parseXMLTV(raw)).not.toThrow();
     });
 
-    it('should find all 5 channels', () => {
+    it('should find all 6 channels', () => {
       const { channels } = parseXMLTV(raw);
-      expect(channels).toHaveLength(5);
+      expect(channels).toHaveLength(6);
       const ids = channels.map((c) => c.id);
       expect(ids).toContain('C1.145.ersatztv.org');
       expect(ids).toContain('C2.146.ersatztv.org');
       expect(ids).toContain('C3.147.ersatztv.org');
+      expect(ids).toContain('C4.148.ersatztv.org');
       expect(ids).toContain('C5.149.ersatztv.org');
       expect(ids).toContain('C6.150.ersatztv.org');
     });
@@ -31,10 +32,11 @@ describe('XMLTV Parser', () => {
       const { channels } = parseXMLTV(raw);
       const names = channels.map((c) => c.displayName);
       expect(names).toContain('The Prisoner');
+      expect(names).toContain("Nana's Picks");
       expect(names).toContain('Television');
+      expect(names).toContain('Movies');
       expect(names).toContain('Oddities');
       expect(names).toContain('Music');
-      expect(names).toContain("Nana\u2019s Picks");
     });
 
     it('should parse 1000+ programmes', () => {
