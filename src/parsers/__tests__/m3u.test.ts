@@ -11,9 +11,9 @@ describe('M3U Parser', () => {
     raw = fs.readFileSync(TEST_DATA, 'utf-8');
   });
 
-  it('should parse all 5 channels from real data', () => {
+  it('should parse all 6 channels from real data', () => {
     const channels = parseM3U(raw, '192.168.50.150', 8409);
-    expect(channels).toHaveLength(5);
+    expect(channels).toHaveLength(6);
   });
 
   it('should extract channel IDs correctly', () => {
@@ -22,6 +22,7 @@ describe('M3U Parser', () => {
     expect(ids).toContain('C1.145.ersatztv.org');
     expect(ids).toContain('C2.146.ersatztv.org');
     expect(ids).toContain('C3.147.ersatztv.org');
+    expect(ids).toContain('C4.148.ersatztv.org');
     expect(ids).toContain('C5.149.ersatztv.org');
     expect(ids).toContain('C6.150.ersatztv.org');
   });
@@ -30,17 +31,24 @@ describe('M3U Parser', () => {
     const channels = parseM3U(raw, '192.168.50.150', 8409);
     const names = channels.map((c) => c.name);
     expect(names).toContain('The Prisoner');
+    expect(names).toContain("Nana's Picks");
     expect(names).toContain('Television');
+    expect(names).toContain('Movies');
     expect(names).toContain('Oddities');
     expect(names).toContain('Music');
-    // Smart apostrophe in "Nana\u2019s Picks"
-    expect(names).toContain("Nana\u2019s Picks");
   });
 
   it('should sort channels by number', () => {
     const channels = parseM3U(raw, '192.168.50.150', 8409);
     const numbers = channels.map((c) => c.number);
-    expect(numbers).toEqual([1, 2, 3, 5, 6]);
+    expect(numbers).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('should parse HLS segmenter stream URLs including query strings', () => {
+    const channels = parseM3U(raw, '192.168.50.150', 8409);
+    channels.forEach((ch) => {
+      expect(ch.streamUrl).toMatch(/\/iptv\/channel\/\d+\.m3u8\?mode=segmenter$/);
+    });
   });
 
   it('should rewrite localhost URLs to server address', () => {
@@ -60,8 +68,8 @@ describe('M3U Parser', () => {
 
   it('should handle URL-encoded logo paths', () => {
     const channels = parseM3U(raw, '192.168.50.150', 8409);
-    const nana = channels.find((c) => c.id === 'C6.150.ersatztv.org');
-    // Logo URL has percent-encoded smart apostrophe
+    const nana = channels.find((c) => c.id === 'C2.146.ersatztv.org');
+    // Logo URL has percent-encoded apostrophe (Nana%27s)
     expect(nana?.logo).toContain('gen?text=');
   });
 });
