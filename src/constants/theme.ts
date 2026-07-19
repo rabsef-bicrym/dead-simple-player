@@ -84,3 +84,29 @@ export function categoryColor(category: string): string {
   }
   return CATEGORY_COLORS[Math.abs(hash) % CATEGORY_COLORS.length];
 }
+
+/**
+ * Channel identity colors — each channel owns a hue, used as its spine
+ * in the channel cards, its badge in the player, and its rail in the
+ * guide. Hand-picked for the known lineup (The Prisoner gets Village
+ * canary; MST3K gets Gizmonic red), hash-fallback for anything new.
+ */
+const CHANNEL_IDENTITY: Record<number, string> = {
+  1: '#d9b310', // The Prisoner — Village canary yellow
+  2: '#e8a09a', // Nana's Picks — old-Hollywood rose
+  3: '#4a9eff', // Television — broadcast blue
+  4: '#9b72cf', // Movies — matinee purple
+  5: '#22c55e', // Oddities — curio green
+  6: '#f97316', // Music — jukebox orange
+  7: '#ef4444', // MST3K — Gizmonic red
+};
+
+export function channelColor(channelNumber: number): string {
+  return (
+    CHANNEL_IDENTITY[channelNumber]
+    ?? CATEGORY_COLORS[Math.abs(channelNumber * 2654435761) % CATEGORY_COLORS.length]
+  );
+}
+
+/** Serif face for essay text and display moments (liner-notes voice). */
+export const serifFamily = { ios: 'Georgia', default: 'serif' } as const;
