@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useNavigation } from 'expo-router';
 import { colors, spacing, fontSize } from '../src/constants/theme';
-import { getNowPlaying } from '../src/parsers/xmltv';
+import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
 import { useServerConfig } from '../src/hooks/useServerConfig';
 import { fetchIptvData } from '../src/services/iptv';
 import { ChannelRow } from '../src/components/ChannelRow';
@@ -89,16 +89,20 @@ export default function ChannelsScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  // Build a lookup map of channelId -> current programme
-  const nowPlayingMap = useMemo(() => {
-    if (!epg) return new Map<string, Programme>();
-    const map = new Map<string, Programme>();
+  // Build lookup maps of channelId -> current and next programme
+  const { nowPlayingMap, upNextMap } = useMemo(() => {
+    const nowMap = new Map<string, Programme>();
+    const nextMap = new Map<string, Programme>();
+    if (!epg) return { nowPlayingMap: nowMap, upNextMap: nextMap };
     const now = new Date();
     for (const ch of channels) {
       const prog = getNowPlaying(epg.programmes, ch.id, now);
-      if (prog) map.set(ch.id, prog);
+      if (prog) nowMap.set(ch.id, prog);
+      const upcoming = getUpcoming(epg.programmes, ch.id, 3, now);
+      const strictlyNext = upcoming.find((p) => p.start.getTime() > now.getTime());
+      if (strictlyNext) nextMap.set(ch.id, strictlyNext);
     }
-    return map;
+    return { nowPlayingMap: nowMap, upNextMap: nextMap };
     // tick forces periodic recalc for time-remaining updates
   }, [epg, channels, tick]);
 
@@ -153,7 +157,13 @@ export default function ChannelsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>(×▶×) DS,P</Text>
+        <View>
+          <Text style={styles.headerTitle}>(×▶×) DS,P</Text>
+          <Text style={styles.headerDate}>
+            {new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}
+            {'  ·  ON NOW'}
+          </Text>
+        </View>
         <View style={styles.headerActions}>
           <TouchableOpacity
             onPress={() => router.push('/guide')}
@@ -178,6 +188,7 @@ export default function ChannelsScreen() {
           <ChannelRow
             channel={item}
             nowPlaying={nowPlayingMap.get(item.id)}
+            upNext={upNextMap.get(item.id)}
             onPress={() => handleChannelPress(index)}
             onNowPlayingPress={setSelectedProgramme}
           />
@@ -189,7 +200,7 @@ export default function ChannelsScreen() {
             tintColor={colors.accent}
           />
         }
-        contentContainerStyle={channels.length === 0 ? styles.emptyContainer : undefined}
+        contentContainerStyle={channels.length === 0 ? styles.emptyContainer : styles.listContent}
         ListEmptyComponent={
           <Text style={styles.emptyText}>No channels found</Text>
         }
@@ -229,6 +240,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
     letterSpacing: -0.5,
+  },
+  headerDate: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  listContent: {
+    paddingBottom: spacing.xxl,
   },
   headerActions: {
     flexDirection: 'row',
