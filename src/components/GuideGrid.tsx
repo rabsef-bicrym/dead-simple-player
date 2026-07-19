@@ -6,14 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   useWindowDimensions,
-  Image,
 } from 'react-native';
 import {
   PinchGestureHandler,
   State,
   type PinchGestureHandlerStateChangeEvent,
 } from 'react-native-gesture-handler';
-import { colors, spacing, fontSize, categoryColor } from '../constants/theme';
+import { colors, spacing, fontSize, categoryColor, channelColor } from '../constants/theme';
 import type { Channel, Programme } from '../types';
 
 interface GuideGridProps {
@@ -268,32 +267,40 @@ export function GuideGrid({ channels, programmes, hoursToShow = 4, onProgrammePr
 
       {/* ── Body: channel labels + programme grid ── */}
       <View style={styles.bodyRow}>
-        {/* Fixed channel label column (synced vertically with grid) */}
-        <ScrollView
-          ref={channelLabelScrollRef}
-          scrollEnabled={false}
-          showsVerticalScrollIndicator={false}
-          style={[styles.channelLabelColumn, { width: channelLabelWidth }]}
-        >
-          {channelRows.map(({ channel }) => (
-            <View key={channel.id} style={styles.channelLabel}>
-              {channel.logo ? (
-                <Image
-                  source={{ uri: channel.logo }}
-                  style={styles.channelLogo}
-                  resizeMode="contain"
-                />
-              ) : (
-                <View style={styles.channelNumberBadge}>
-                  <Text style={styles.channelNumberText}>{channel.number}</Text>
+        {/* Fixed channel label column (synced vertically with grid).
+            Wrapped in a plain View because react-native-web drops width
+            set directly on a ScrollView's style, letting the rail
+            stretch across the grid (it covered half the screen). */}
+        <View style={[styles.channelLabelColumn, { width: channelLabelWidth }]}>
+          <ScrollView
+            ref={channelLabelScrollRef}
+            scrollEnabled={false}
+            showsVerticalScrollIndicator={false}
+          >
+            {channelRows.map(({ channel }) => (
+              <View key={channel.id} style={styles.channelLabel}>
+                <View
+                  style={[
+                    styles.channelNumberBadge,
+                    { borderColor: channelColor(channel.number) },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.channelNumberText,
+                      { color: channelColor(channel.number) },
+                    ]}
+                  >
+                    {channel.number}
+                  </Text>
                 </View>
-              )}
-              <Text style={styles.channelName} numberOfLines={1}>
-                {channel.name}
-              </Text>
-            </View>
-          ))}
-        </ScrollView>
+                <Text style={styles.channelName} numberOfLines={1}>
+                  {channel.name}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
 
         {/* Scrollable programme grid (master scroller) */}
         <PinchGestureHandler
@@ -514,6 +521,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 6,
+    borderWidth: 1.5,
     backgroundColor: colors.surfaceLight,
     justifyContent: 'center',
     alignItems: 'center',
