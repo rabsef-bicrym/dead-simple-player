@@ -13,7 +13,6 @@ import { router } from 'expo-router';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-video';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
@@ -59,6 +58,7 @@ const vlcModule = (() => {
 const VLCPlayer = (vlcModule?.VLCPlayer ?? null) as ComponentType<any> | null;
 
 const serif = Platform.select(serifFamily);
+const grotesk = Platform.select({ ios: 'Helvetica Neue', default: 'sans-serif' });
 
 /** Determine which engine should be tried first (native handles HLS + PiP). */
 function resolvePrimaryEngine(vlcAvailable: boolean, streamUrl?: string): PlayerEngine {
@@ -307,6 +307,40 @@ export default function WatchScreen() {
     if (nowPlaying) setDetailProgramme(nowPlaying);
   }, [nowPlaying]);
 
+  // ── Keyboard remote (web / desktop): a TV deserves a remote ──
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const onKey = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowUp':
+          if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1);
+          break;
+        case 'ArrowDown':
+          if (safeIndex > 0) tuneTo(safeIndex - 1);
+          break;
+        case 'Enter':
+        case 'i':
+          setWhatsOnVisible(false);
+          showHud();
+          break;
+        case 'l':
+        case 'g':
+          setWhatsOnVisible((v) => !v);
+          break;
+        case 'n':
+          openNotes();
+          break;
+        case 'Escape':
+          setWhatsOnVisible(false);
+          setDetailProgramme(null);
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [safeIndex, channels.length, tuneTo, showHud, openNotes]);
+
+
   // ── Playback plumbing (engine failover) ──
   const handlePlaybackStarted = useCallback(() => {
     lastProgressAt.current = Date.now();
@@ -471,10 +505,7 @@ export default function WatchScreen() {
             {/* ── HUD: the lower third ── */}
             {hudVisible && (
               <Animated.View style={[styles.hud, { opacity: hudOpacity }]}>
-                <LinearGradient
-                  colors={['transparent', 'rgba(0,0,0,0.88)']}
-                  style={styles.hudGradient}
-                >
+                <View style={[styles.hudBand, { borderTopColor: identity }]}>
                   <View style={styles.hudChannelLine}>
                     <View style={[styles.hudBadge, { borderColor: identity }]}>
                       <Text style={[styles.hudBadgeText, { color: identity }]}>
@@ -520,7 +551,7 @@ export default function WatchScreen() {
                       </TouchableOpacity>
                     )}
                   </View>
-                </LinearGradient>
+                </View>
               </Animated.View>
             )}
           </View>
@@ -618,8 +649,9 @@ const styles = StyleSheet.create({
     left: spacing.xl,
     right: spacing.xl,
     bottom: 110,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    borderLeftWidth: 3,
+    borderLeftColor: colors.error,
     padding: spacing.md,
   },
   playerErrorText: {
@@ -628,41 +660,43 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // ── Channel flash ──
+  // ── Channel flash: Swiss — flat black, hard edges, huge numeral ──
   flash: {
     position: 'absolute',
-    left: spacing.xl,
-    top: 56,
+    left: 0,
+    top: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.82)',
-    borderRadius: 14,
-    borderLeftWidth: 5,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.lg,
-    maxWidth: '80%',
+    backgroundColor: '#000',
+    borderLeftWidth: 6,
+    paddingVertical: spacing.lg,
+    paddingLeft: spacing.xl,
+    paddingRight: spacing.xxl,
+    gap: spacing.xl,
+    maxWidth: '85%',
   },
   flashNumber: {
-    fontSize: 56,
-    fontWeight: '800',
+    fontFamily: grotesk,
+    fontSize: 72,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
-    lineHeight: 60,
+    lineHeight: 74,
   },
   flashText: {
     flexShrink: 1,
   },
   flashName: {
     color: colors.text,
+    fontFamily: grotesk,
     fontSize: fontSize.sm,
-    fontWeight: '800',
-    letterSpacing: 2,
+    fontWeight: '700',
+    letterSpacing: 3,
   },
   flashTitle: {
     color: colors.textSecondary,
-    fontFamily: serif,
+    fontFamily: grotesk,
     fontSize: fontSize.md,
-    marginTop: 2,
+    marginTop: 4,
   },
 
   // ── HUD ──
@@ -672,8 +706,10 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  hudGradient: {
-    paddingTop: 72,
+  hudBand: {
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    borderTopWidth: 2,
+    paddingTop: spacing.xl,
     paddingHorizontal: spacing.xl,
     paddingBottom: 40,
   },
@@ -683,24 +719,25 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   hudBadge: {
-    minWidth: 34,
-    height: 34,
-    borderRadius: 8,
+    minWidth: 36,
+    height: 36,
     borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
   },
   hudBadgeText: {
-    fontSize: fontSize.md,
-    fontWeight: '800',
+    fontFamily: grotesk,
+    fontSize: fontSize.lg,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   hudChannelName: {
     flex: 1,
+    fontFamily: grotesk,
     fontSize: fontSize.sm,
-    fontWeight: '800',
-    letterSpacing: 2,
+    fontWeight: '700',
+    letterSpacing: 3,
   },
   hudTimeLeft: {
     color: colors.textSecondary,
@@ -709,24 +746,24 @@ const styles = StyleSheet.create({
   },
   hudTitle: {
     color: colors.text,
-    fontFamily: serif,
-    fontSize: fontSize.xl,
-    lineHeight: 32,
+    fontFamily: grotesk,
+    fontSize: fontSize.xxl,
+    fontWeight: '700',
+    lineHeight: 38,
+    letterSpacing: -0.5,
     marginTop: spacing.md,
   },
   hudSubtitle: {
     color: colors.textSecondary,
-    fontStyle: 'italic',
+    fontWeight: '400',
   },
   hudProgressTrack: {
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderRadius: 2,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     marginTop: spacing.lg,
   },
   hudProgressFill: {
-    height: 4,
-    borderRadius: 2,
+    height: 3,
   },
   hudActions: {
     flexDirection: 'row',
@@ -762,9 +799,10 @@ const styles = StyleSheet.create({
   whatsOnTitle: {
     flex: 1,
     color: colors.text,
+    fontFamily: grotesk,
     fontSize: fontSize.md,
-    fontWeight: '800',
-    letterSpacing: 3,
+    fontWeight: '700',
+    letterSpacing: 4,
   },
   whatsOnList: {
     paddingBottom: 48,
