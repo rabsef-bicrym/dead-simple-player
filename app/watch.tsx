@@ -120,6 +120,9 @@ export default function WatchScreen() {
   const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bufferingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retriedForUrl = useRef<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const lastProgressAt = useRef<number>(0);
 
   // ── Setup gate ──
@@ -249,6 +252,7 @@ export default function WatchScreen() {
     setShowBufferingOverlay(false);
     setClockNow(new Date());
     lastProgressAt.current = 0;
+    retriedForUrl.current = null;
     flashChannel();
   }, [currentChannel?.streamUrl, hasVlc]);
 
@@ -256,6 +260,7 @@ export default function WatchScreen() {
     if (hudTimer.current) clearTimeout(hudTimer.current);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
   }, []);
 
   // Show the spinner only when playback genuinely stalls.
@@ -356,6 +361,19 @@ export default function WatchScreen() {
   }, []);
 
   const tryFallbackEngine = useCallback((reason: string) => {
+    // A freshly tuned channel's server session may not be ready for a few
+    // seconds (cold start serves an empty playlist -> demuxer parse errors).
+    // Retry the same engine once after a short wait before anything drastic.
+    if (retriedForUrl.current !== currentChannel?.streamUrl) {
+      retriedForUrl.current = currentChannel?.streamUrl ?? null;
+      setBuffering(true);
+      console.warn('[Player retry after cold-start error]', reason);
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = setTimeout(() => {
+        if (isMountedRef.current) setReloadNonce((n) => n + 1);
+      }, 4000);
+      return;
+    }
     if (fallbackUsed || !hasVlc) {
       setPlayerError(reason);
       setBuffering(false);
@@ -367,7 +385,7 @@ export default function WatchScreen() {
     setPlayerEngine(nextEngine);
     setBuffering(true);
     console.warn('[Player failover]', reason);
-  }, [fallbackUsed, hasVlc, playerEngine]);
+  }, [fallbackUsed, hasVlc, playerEngine, currentChannel?.streamUrl]);
 
   const handleNativeBuffer = useCallback((event: OnBufferData) => {
     setBuffering(event.isBuffering);
@@ -424,7 +442,7 @@ export default function WatchScreen() {
               </View>
             ) : playerEngine === 'vlc' && VLCPlayer ? (
               <VLCPlayer
-                key={`vlc:${currentChannel.streamUrl}`}
+                key={`vlc:${reloadNonce}:${currentChannel.streamUrl}`}
                 source={{
                   uri: currentChannel.streamUrl,
                   initType: 2,
@@ -442,7 +460,7 @@ export default function WatchScreen() {
               />
             ) : (
               <Video
-                key={`native:${currentChannel.streamUrl}`}
+                key={`native:${reloadNonce}:${currentChannel.streamUrl}`}
                 source={{
                   uri: currentChannel.streamUrl,
                   metadata: {
