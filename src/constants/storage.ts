@@ -6,4 +6,6 @@ export const STORAGE_KEYS = {
   SAVED_SERVERS: '@ipswitch/saved-servers',
   /** ID string of the currently active server */
   ACTIVE_SERVER_ID: '@ipswitch/active-server-id',
+  /** Index of the last-watched channel — a TV remembers where it was */
+  LAST_CHANNEL_INDEX: '@ipswitch/last-channel-index',
 } as const;

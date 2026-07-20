@@ -1,0 +1,772 @@
+import { useEffect, useState, useCallback, useRef, useMemo, type ComponentType } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableWithoutFeedback,
+  TouchableOpacity,
+  Animated,
+  ActivityIndicator,
+  FlatList,
+} from 'react-native';
+import { router } from 'expo-router';
+import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-video';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import { useServerConfig } from '../src/hooks/useServerConfig';
+import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
+import { fetchIptvData } from '../src/services/iptv';
+import { colors, fontSize, spacing, channelColor, serifFamily } from '../src/constants/theme';
+import { STORAGE_KEYS } from '../src/constants/storage';
+import { ChannelRow } from '../src/components/ChannelRow';
+import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
+import { Platform } from 'react-native';
+import type { Channel, Programme } from '../src/types';
+
+/**
+ * The TV.
+ *
+ * This is the whole app: it opens playing the last-watched channel,
+ * full screen. Everything else is an overlay on the picture:
+ *
+ * - swipe up/down ... change channel (with a chunky identity flash)
+ * - tap ............ lower-third HUD: what you're watching, progress
+ * - swipe left ..... WHAT'S ON: every channel, one chunky row each
+ * - long-press ..... programme notes (the library's essays)
+ *
+ * No home screen. No list-first funnel. Turn it on and it's on.
+ */
+
+const SWIPE_THRESHOLD = 70;
+const HUD_HIDE_MS = 4000;
+const FLASH_HIDE_MS = 2500;
+const BUFFERING_OVERLAY_DELAY_MS = 800;
+const BUFFER_STALL_WINDOW_MS = 1500;
+const CLOCK_TICK_MS = 30000;
+
+type PlayerEngine = 'vlc' | 'native';
+
+const vlcModule = (() => {
+  try {
+    return require('react-native-vlc-media-player');
+  } catch {
+    return null;
+  }
+})();
+const VLCPlayer = (vlcModule?.VLCPlayer ?? null) as ComponentType<any> | null;
+
+const serif = Platform.select(serifFamily);
+
+/** Determine which engine should be tried first (native handles HLS + PiP). */
+function resolvePrimaryEngine(vlcAvailable: boolean, streamUrl?: string): PlayerEngine {
+  if (!vlcAvailable) return 'native';
+  if (!streamUrl) return 'vlc';
+  if (streamUrl.toLowerCase().includes('.m3u8')) return 'native';
+  return 'vlc';
+}
+
+/** Normalize react-native-video errors into readable text. */
+function formatVideoError(errorData: OnVideoErrorData): string {
+  const details = errorData.error;
+  return (
+    details.errorString
+    || details.localizedDescription
+    || details.errorException
+    || details.error
+    || 'Playback failed'
+  );
+}
+
+function formatTimeRemaining(stop: Date): string | null {
+  const diffMs = stop.getTime() - Date.now();
+  if (diffMs <= 0) return null;
+  const mins = Math.ceil(diffMs / 60000);
+  if (mins < 60) return `${mins} min left`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m left` : `${h}h left`;
+}
+
+export default function WatchScreen() {
+  const { activeConfig, loading: configLoading } = useServerConfig();
+  const isExpoGo = Constants.appOwnership === 'expo';
+  const hasVlc = VLCPlayer !== null;
+
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [indexRestored, setIndexRestored] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
+
+  const [hudVisible, setHudVisible] = useState(false);
+  const [flashVisible, setFlashVisible] = useState(false);
+  const [whatsOnVisible, setWhatsOnVisible] = useState(false);
+  const [detailProgramme, setDetailProgramme] = useState<Programme | null>(null);
+
+  const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
+  const [fallbackUsed, setFallbackUsed] = useState(false);
+  const [playerError, setPlayerError] = useState<string | null>(null);
+  const [buffering, setBuffering] = useState(true);
+  const [showBufferingOverlay, setShowBufferingOverlay] = useState(false);
+  const [clockNow, setClockNow] = useState(() => new Date());
+
+  const isMountedRef = useRef(true);
+  const hudOpacity = useRef(new Animated.Value(0)).current;
+  const flashOpacity = useRef(new Animated.Value(0)).current;
+  const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bufferingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastProgressAt = useRef<number>(0);
+
+  // ── Setup gate ──
+  useEffect(() => {
+    if (!configLoading && !activeConfig) router.replace('/setup');
+  }, [configLoading, activeConfig]);
+
+  // ── Data ──
+  const loadData = useCallback(async () => {
+    if (!activeConfig) return;
+    setDataLoading(true);
+    if (isMountedRef.current) setDataError(null);
+    try {
+      const { channels: nextChannels, epg } = await fetchIptvData(activeConfig);
+      if (!isMountedRef.current) return;
+      setChannels(nextChannels);
+      setProgrammes(epg.programmes);
+    } catch (error) {
+      if (isMountedRef.current) {
+        setDataError(error instanceof Error ? error.message : 'Failed to load channel data');
+      }
+    } finally {
+      if (isMountedRef.current) setDataLoading(false);
+    }
+  }, [activeConfig]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    loadData();
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [loadData]);
+
+  // ── Remember the channel like a TV does ──
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEYS.LAST_CHANNEL_INDEX);
+        const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
+        if (!Number.isNaN(parsed) && parsed >= 0) setCurrentIndex(parsed);
+      } finally {
+        setIndexRestored(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!indexRestored) return;
+    AsyncStorage.setItem(STORAGE_KEYS.LAST_CHANNEL_INDEX, String(currentIndex)).catch(() => {});
+  }, [currentIndex, indexRestored]);
+
+  const safeIndex = channels.length > 0 ? Math.min(currentIndex, channels.length - 1) : 0;
+  const currentChannel = channels[safeIndex];
+  const identity = currentChannel ? channelColor(currentChannel.number) : colors.accent;
+
+  // ── Clock + EPG lookups ──
+  useEffect(() => {
+    const interval = setInterval(() => setClockNow(new Date()), CLOCK_TICK_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  const nowPlaying = useMemo(
+    () => (currentChannel ? getNowPlaying(programmes, currentChannel.id, clockNow) : undefined),
+    [currentChannel, programmes, clockNow],
+  );
+
+  const { nowPlayingMap, upNextMap } = useMemo(() => {
+    const nowMap = new Map<string, Programme>();
+    const nextMap = new Map<string, Programme>();
+    for (const ch of channels) {
+      const prog = getNowPlaying(programmes, ch.id, clockNow);
+      if (prog) nowMap.set(ch.id, prog);
+      const upcoming = getUpcoming(programmes, ch.id, 3, clockNow);
+      const strictlyNext = upcoming.find((p) => p.start.getTime() > clockNow.getTime());
+      if (strictlyNext) nextMap.set(ch.id, strictlyNext);
+    }
+    return { nowPlayingMap: nowMap, upNextMap: nextMap };
+  }, [channels, programmes, clockNow]);
+
+  const progress = useMemo(() => {
+    if (!nowPlaying) return 0;
+    const now = clockNow.getTime();
+    const start = nowPlaying.start.getTime();
+    const stop = nowPlaying.stop.getTime();
+    if (stop <= start) return 0;
+    return Math.min(1, Math.max(0, (now - start) / (stop - start)));
+  }, [nowPlaying, clockNow]);
+
+  // ── Overlay choreography ──
+  const hideHud = useCallback(() => {
+    Animated.timing(hudOpacity, { toValue: 0, duration: 250, useNativeDriver: true })
+      .start(() => setHudVisible(false));
+  }, [hudOpacity]);
+
+  const showHud = useCallback(() => {
+    if (hudTimer.current) clearTimeout(hudTimer.current);
+    setHudVisible(true);
+    Animated.timing(hudOpacity, { toValue: 1, duration: 180, useNativeDriver: true }).start();
+    hudTimer.current = setTimeout(hideHud, HUD_HIDE_MS);
+  }, [hudOpacity, hideHud]);
+
+  const flashChannel = useCallback(() => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setFlashVisible(true);
+    flashOpacity.setValue(1);
+    flashTimer.current = setTimeout(() => {
+      Animated.timing(flashOpacity, { toValue: 0, duration: 400, useNativeDriver: true })
+        .start(() => setFlashVisible(false));
+    }, FLASH_HIDE_MS);
+  }, [flashOpacity]);
+
+  // ── Tuning ──
+  const tuneTo = useCallback((index: number) => {
+    setCurrentIndex(index);
+    setWhatsOnVisible(false);
+    flashChannel();
+  }, [flashChannel]);
+
+  // Reset playback state on channel change; flash the channel bug.
+  useEffect(() => {
+    if (!currentChannel) return;
+    setPlayerEngine(resolvePrimaryEngine(hasVlc, currentChannel.streamUrl));
+    setFallbackUsed(false);
+    setPlayerError(null);
+    setBuffering(true);
+    setShowBufferingOverlay(false);
+    setClockNow(new Date());
+    lastProgressAt.current = 0;
+    flashChannel();
+  }, [currentChannel?.streamUrl, hasVlc]);
+
+  useEffect(() => () => {
+    if (hudTimer.current) clearTimeout(hudTimer.current);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
+  }, []);
+
+  // Show the spinner only when playback genuinely stalls.
+  useEffect(() => {
+    if (!buffering) {
+      if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
+      bufferingTimer.current = null;
+      setShowBufferingOverlay(false);
+      return;
+    }
+    if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
+    bufferingTimer.current = setTimeout(() => {
+      if (Date.now() - lastProgressAt.current >= BUFFER_STALL_WINDOW_MS) {
+        setShowBufferingOverlay(true);
+      }
+    }, BUFFERING_OVERLAY_DELAY_MS);
+    return () => {
+      if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
+      bufferingTimer.current = null;
+    };
+  }, [buffering]);
+
+  // ── Gestures ──
+  const onGestureEvent = useCallback(({ nativeEvent }: any) => {
+    if (nativeEvent.state !== State.END) return;
+    const { translationX, translationY } = nativeEvent;
+
+    if (Math.abs(translationX) > Math.abs(translationY)) {
+      if (translationX < -SWIPE_THRESHOLD) setWhatsOnVisible(true);
+      return;
+    }
+    if (translationY < -SWIPE_THRESHOLD && safeIndex < channels.length - 1) {
+      tuneTo(safeIndex + 1);
+    } else if (translationY > SWIPE_THRESHOLD && safeIndex > 0) {
+      tuneTo(safeIndex - 1);
+    }
+  }, [safeIndex, channels.length, tuneTo]);
+
+  const handleTap = useCallback(() => {
+    if (hudVisible) {
+      if (hudTimer.current) clearTimeout(hudTimer.current);
+      hideHud();
+    } else {
+      showHud();
+    }
+  }, [hudVisible, hideHud, showHud]);
+
+  const openNotes = useCallback(() => {
+    if (nowPlaying) setDetailProgramme(nowPlaying);
+  }, [nowPlaying]);
+
+  // ── Playback plumbing (engine failover) ──
+  const handlePlaybackStarted = useCallback(() => {
+    lastProgressAt.current = Date.now();
+    setBuffering(false);
+    setShowBufferingOverlay(false);
+    setPlayerError(null);
+  }, []);
+
+  const handlePlaybackProgress = useCallback(() => {
+    lastProgressAt.current = Date.now();
+    setBuffering(false);
+    setShowBufferingOverlay(false);
+  }, []);
+
+  const tryFallbackEngine = useCallback((reason: string) => {
+    if (fallbackUsed || !hasVlc) {
+      setPlayerError(reason);
+      setBuffering(false);
+      setShowBufferingOverlay(false);
+      return;
+    }
+    const nextEngine: PlayerEngine = playerEngine === 'vlc' ? 'native' : 'vlc';
+    setFallbackUsed(true);
+    setPlayerEngine(nextEngine);
+    setBuffering(true);
+    console.warn('[Player failover]', reason);
+  }, [fallbackUsed, hasVlc, playerEngine]);
+
+  const handleNativeBuffer = useCallback((event: OnBufferData) => {
+    setBuffering(event.isBuffering);
+  }, []);
+
+  const handleNativeError = useCallback((event: OnVideoErrorData) => {
+    tryFallbackEngine(`Native player error: ${formatVideoError(event)}`);
+  }, [tryFallbackEngine]);
+
+  const handleVlcError = useCallback(() => {
+    tryFallbackEngine('VLC player error');
+  }, [tryFallbackEngine]);
+
+  // ── Render ──
+  if (configLoading || dataLoading || !indexRestored) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
+  if (dataError || !currentChannel) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>{dataError ?? 'No channels found'}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={loadData}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push('/settings')}>
+          <Text style={styles.secondaryAction}>Settings</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const timeLeft = nowPlaying ? formatTimeRemaining(nowPlaying.stop) : null;
+
+  return (
+    <PanGestureHandler
+      onHandlerStateChange={onGestureEvent}
+      activeOffsetY={[-20, 20]}
+      activeOffsetX={[-20, 20]}
+    >
+      <View style={styles.container}>
+        <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
+          <View style={styles.container}>
+            {/* ── The picture ── */}
+            {isExpoGo ? (
+              <View style={styles.center}>
+                <Text style={styles.errorText}>
+                  Playback requires a development build (Expo Go lacks the native player).
+                </Text>
+              </View>
+            ) : playerEngine === 'vlc' && VLCPlayer ? (
+              <VLCPlayer
+                key={`vlc:${currentChannel.streamUrl}`}
+                source={{
+                  uri: currentChannel.streamUrl,
+                  initType: 2,
+                  initOptions: ['--network-caching=900', '--clock-jitter=0'],
+                }}
+                autoplay
+                paused={false}
+                playInBackground
+                resizeMode="contain"
+                style={styles.video}
+                onPlaying={handlePlaybackStarted}
+                onProgress={handlePlaybackProgress}
+                onLoad={handlePlaybackStarted}
+                onError={handleVlcError}
+              />
+            ) : (
+              <Video
+                key={`native:${currentChannel.streamUrl}`}
+                source={{
+                  uri: currentChannel.streamUrl,
+                  metadata: {
+                    title: currentChannel.name,
+                    subtitle: nowPlaying?.title,
+                    description: nowPlaying?.description,
+                  },
+                }}
+                style={styles.video}
+                resizeMode="contain"
+                paused={false}
+                controls={false}
+                ignoreSilentSwitch="ignore"
+                automaticallyWaitsToMinimizeStalling={false}
+                playInBackground
+                playWhenInactive
+                enterPictureInPictureOnLeave
+                allowsExternalPlayback
+                showNotificationControls
+                onLoadStart={() => setBuffering(true)}
+                onLoad={handlePlaybackStarted}
+                onBuffer={handleNativeBuffer}
+                onProgress={handlePlaybackProgress}
+                onError={handleNativeError}
+              />
+            )}
+
+            {showBufferingOverlay && (
+              <View style={styles.bufferingOverlay}>
+                <ActivityIndicator size="large" color={colors.text} />
+              </View>
+            )}
+
+            {playerError && (
+              <View style={styles.playerErrorPill}>
+                <Text style={styles.playerErrorText}>{playerError}</Text>
+              </View>
+            )}
+
+            {/* ── Channel flash: the chunky channel bug ── */}
+            {flashVisible && (
+              <Animated.View
+                style={[styles.flash, { opacity: flashOpacity, borderLeftColor: identity }]}
+                pointerEvents="none"
+              >
+                <Text style={[styles.flashNumber, { color: identity }]}>
+                  {currentChannel.number}
+                </Text>
+                <View style={styles.flashText}>
+                  <Text style={styles.flashName}>{currentChannel.name.toUpperCase()}</Text>
+                  {nowPlaying && (
+                    <Text style={styles.flashTitle} numberOfLines={1}>
+                      {nowPlaying.title}
+                    </Text>
+                  )}
+                </View>
+              </Animated.View>
+            )}
+
+            {/* ── HUD: the lower third ── */}
+            {hudVisible && (
+              <Animated.View style={[styles.hud, { opacity: hudOpacity }]}>
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.88)']}
+                  style={styles.hudGradient}
+                >
+                  <View style={styles.hudChannelLine}>
+                    <View style={[styles.hudBadge, { borderColor: identity }]}>
+                      <Text style={[styles.hudBadgeText, { color: identity }]}>
+                        {currentChannel.number}
+                      </Text>
+                    </View>
+                    <Text style={[styles.hudChannelName, { color: identity }]}>
+                      {currentChannel.name.toUpperCase()}
+                    </Text>
+                    {timeLeft && <Text style={styles.hudTimeLeft}>{timeLeft}</Text>}
+                  </View>
+
+                  {nowPlaying ? (
+                    <>
+                      <Text style={styles.hudTitle} numberOfLines={2}>
+                        {nowPlaying.title}
+                        {nowPlaying.subtitle ? (
+                          <Text style={styles.hudSubtitle}> — {nowPlaying.subtitle}</Text>
+                        ) : null}
+                      </Text>
+                      <View style={styles.hudProgressTrack}>
+                        <View
+                          style={[
+                            styles.hudProgressFill,
+                            { width: `${progress * 100}%`, backgroundColor: identity },
+                          ]}
+                        />
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={styles.hudTitle}>No listing</Text>
+                  )}
+
+                  <View style={styles.hudActions}>
+                    <TouchableOpacity style={styles.hudAction} onPress={() => setWhatsOnVisible(true)}>
+                      <Ionicons name="list" size={18} color={colors.text} />
+                      <Text style={styles.hudActionText}>What's On</Text>
+                    </TouchableOpacity>
+                    {nowPlaying?.description && (
+                      <TouchableOpacity style={styles.hudAction} onPress={openNotes}>
+                        <Ionicons name="reader-outline" size={18} color={colors.text} />
+                        <Text style={styles.hudActionText}>Notes</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </LinearGradient>
+              </Animated.View>
+            )}
+          </View>
+        </TouchableWithoutFeedback>
+
+        {/* ── WHAT'S ON: the one overlay that replaces everything ── */}
+        {whatsOnVisible && (
+          <View style={styles.whatsOn}>
+            <View style={styles.whatsOnHeader}>
+              <Text style={styles.whatsOnTitle}>WHAT'S ON</Text>
+              <TouchableOpacity
+                onPress={() => router.push('/settings')}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="settings-outline" size={20} color={colors.textMuted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setWhatsOnVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={channels}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item, index }) => (
+                <ChannelRow
+                  channel={item}
+                  nowPlaying={nowPlayingMap.get(item.id)}
+                  upNext={upNextMap.get(item.id)}
+                  onPress={() => tuneTo(index)}
+                  onNowPlayingPress={setDetailProgramme}
+                />
+              )}
+              contentContainerStyle={styles.whatsOnList}
+            />
+          </View>
+        )}
+
+        <ProgrammeDetailModal
+          programme={detailProgramme}
+          visible={detailProgramme !== null}
+          onClose={() => setDetailProgramme(null)}
+        />
+      </View>
+    </PanGestureHandler>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  center: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xxl,
+    gap: spacing.lg,
+  },
+  video: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+  },
+  errorText: {
+    color: colors.error,
+    fontSize: fontSize.md,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: 10,
+  },
+  retryText: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: '600',
+  },
+  secondaryAction: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+  },
+  bufferingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playerErrorPill: {
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: 110,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    borderRadius: 10,
+    padding: spacing.md,
+  },
+  playerErrorText: {
+    color: colors.error,
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+  },
+
+  // ── Channel flash ──
+  flash: {
+    position: 'absolute',
+    left: spacing.xl,
+    top: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.82)',
+    borderRadius: 14,
+    borderLeftWidth: 5,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.lg,
+    maxWidth: '80%',
+  },
+  flashNumber: {
+    fontSize: 56,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    lineHeight: 60,
+  },
+  flashText: {
+    flexShrink: 1,
+  },
+  flashName: {
+    color: colors.text,
+    fontSize: fontSize.sm,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  flashTitle: {
+    color: colors.textSecondary,
+    fontFamily: serif,
+    fontSize: fontSize.md,
+    marginTop: 2,
+  },
+
+  // ── HUD ──
+  hud: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  hudGradient: {
+    paddingTop: 72,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: 40,
+  },
+  hudChannelLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  hudBadge: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  hudBadgeText: {
+    fontSize: fontSize.md,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  hudChannelName: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  hudTimeLeft: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontVariant: ['tabular-nums'],
+  },
+  hudTitle: {
+    color: colors.text,
+    fontFamily: serif,
+    fontSize: fontSize.xl,
+    lineHeight: 32,
+    marginTop: spacing.md,
+  },
+  hudSubtitle: {
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  hudProgressTrack: {
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 2,
+    marginTop: spacing.lg,
+  },
+  hudProgressFill: {
+    height: 4,
+    borderRadius: 2,
+  },
+  hudActions: {
+    flexDirection: 'row',
+    gap: spacing.xl,
+    marginTop: spacing.lg,
+  },
+  hudAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  hudActionText: {
+    color: colors.text,
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+  },
+
+  // ── WHAT'S ON overlay ──
+  whatsOn: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(6,6,9,0.96)',
+  },
+  whatsOnHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 56,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.md,
+    gap: spacing.xl,
+  },
+  whatsOnTitle: {
+    flex: 1,
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: '800',
+    letterSpacing: 3,
+  },
+  whatsOnList: {
+    paddingBottom: 48,
+  },
+});

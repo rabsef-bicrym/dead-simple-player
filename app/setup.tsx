@@ -65,7 +65,7 @@ export default function SetupScreen() {
     try {
       await verifyServerConnection(nextConfig);
       await addServer(serverName, trimmedHost, portNum);
-      router.replace('/channels');
+      router.replace('/watch');
     } catch (error) {
       const message = error instanceof Error
         ? error.message
@@ -83,7 +83,7 @@ export default function SetupScreen() {
   const handleSelectServer = useCallback(
     async (server: SavedServer) => {
       await setActiveServer(server.id);
-      router.replace('/channels');
+      router.replace('/watch');
     },
     [setActiveServer],
   );

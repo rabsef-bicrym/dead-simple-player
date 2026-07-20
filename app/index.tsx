@@ -7,7 +7,7 @@ import { colors } from '../src/constants/theme';
 
 /**
  * Entry point — checks for a saved active server config.
- * Redirects to setup if none found, otherwise to the channel list.
+ * Redirects to setup if none found, otherwise straight to the TV.
  *
  * Checks both the new multi-server format and the legacy single-server
  * format (migration happens on the channels screen via useServerConfig).
@@ -64,5 +64,5 @@ export default function Index() {
     );
   }
 
-  return <Redirect href={hasConfig ? '/channels' : '/setup'} />;
+  return <Redirect href={hasConfig ? '/watch' : '/setup'} />;
 }
