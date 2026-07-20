@@ -126,19 +126,16 @@ function formatStartTime(d: Date): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-const serif = Platform.select({ ios: 'Georgia', default: 'serif' });
+const grotesk = Platform.select({ ios: 'Helvetica Neue', default: 'sans-serif' });
 
 const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    overflow: 'hidden',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.16)',
   },
   spine: {
-    width: 4,
+    width: 3,
   },
   body: {
     flex: 1,
@@ -151,24 +148,25 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   numberBadge: {
-    minWidth: 28,
-    height: 28,
-    borderRadius: 6,
+    minWidth: 32,
+    height: 32,
     borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 6,
   },
   numberText: {
-    fontSize: fontSize.sm,
-    fontWeight: '800',
+    fontFamily: grotesk,
+    fontSize: fontSize.md,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   channelName: {
     flex: 1,
+    fontFamily: grotesk,
     fontSize: fontSize.xs,
-    fontWeight: '800',
-    letterSpacing: 2,
+    fontWeight: '700',
+    letterSpacing: 3,
   },
   timeRemaining: {
     fontSize: fontSize.xs,
@@ -176,15 +174,17 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   programmeTitle: {
-    fontFamily: serif,
+    fontFamily: grotesk,
     fontSize: fontSize.lg,
+    fontWeight: '700',
+    letterSpacing: -0.3,
     lineHeight: 26,
     color: colors.text,
     marginTop: spacing.md,
   },
   programmeSubtitle: {
     color: colors.textSecondary,
-    fontStyle: 'italic',
+    fontWeight: '400',
   },
   episodeNum: {
     fontSize: fontSize.xs,
@@ -194,18 +194,15 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     height: 3,
-    backgroundColor: colors.surfaceLight,
-    borderRadius: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     marginTop: spacing.md,
   },
   progressFill: {
     height: 3,
-    borderRadius: 1.5,
   },
   offAir: {
-    fontFamily: serif,
+    fontFamily: grotesk,
     fontSize: fontSize.md,
-    fontStyle: 'italic',
     color: colors.textMuted,
     marginTop: spacing.md,
   },
@@ -216,7 +213,8 @@ const styles = StyleSheet.create({
   },
   upNextLabel: {
     color: colors.textMuted,
-    fontWeight: '800',
-    letterSpacing: 1.5,
+    fontFamily: grotesk,
+    fontWeight: '700',
+    letterSpacing: 2,
   },
 });
