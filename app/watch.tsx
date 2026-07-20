@@ -437,13 +437,13 @@ export default function WatchScreen() {
             )}
 
             {showBufferingOverlay && (
-              <View style={styles.bufferingOverlay}>
+              <View style={styles.bufferingOverlay} pointerEvents="none">
                 <ActivityIndicator size="large" color={colors.text} />
               </View>
             )}
 
             {playerError && (
-              <View style={styles.playerErrorPill}>
+              <View style={styles.playerErrorPill} pointerEvents="none">
                 <Text style={styles.playerErrorText}>{playerError}</Text>
               </View>
             )}
