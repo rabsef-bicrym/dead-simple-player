@@ -57,6 +57,16 @@ const vlcModule = (() => {
 })();
 const VLCPlayer = (vlcModule?.VLCPlayer ?? null) as ComponentType<any> | null;
 
+// Web browsers need hls.js for HLS; loaded only on web so native bundles skip it.
+const WebVideo = (() => {
+  if (Platform.OS !== 'web') return null;
+  try {
+    return require('../src/components/WebVideo').WebVideo;
+  } catch {
+    return null;
+  }
+})() as ComponentType<any> | null;
+
 const serif = Platform.select(serifFamily);
 const grotesk = Platform.select({ ios: 'Helvetica Neue', default: 'sans-serif' });
 
@@ -434,7 +444,15 @@ export default function WatchScreen() {
         <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
           <View style={styles.container}>
             {/* ── The picture ── */}
-            {isExpoGo ? (
+            {WebVideo ? (
+              <WebVideo
+                key={`web:${reloadNonce}:${currentChannel.streamUrl}`}
+                streamUrl={currentChannel.streamUrl}
+                onStarted={handlePlaybackStarted}
+                onProgress={handlePlaybackProgress}
+                onError={tryFallbackEngine}
+              />
+            ) : isExpoGo ? (
               <View style={styles.center}>
                 <Text style={styles.errorText}>
                   Playback requires a development build (Expo Go lacks the native player).
