@@ -136,9 +136,21 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
   const channel = channels[boardIndex];
   // Interstitials are connective tissue, not programmes — the board
   // lists the evening, not the glue between its parts.
-  const progs = programmes
+  const scheduled = programmes
     .filter((p) => channel && p.channelId === channel.id && !/interstitial/i.test(p.title))
     .sort((a, b) => a.start.getTime() - b.start.getTime());
+  // A short that plays three times running is one engagement, not three
+  // listings — conjoin back-to-back repeats of a title into a single row
+  // spanning the run. A reprise later in the evening stays its own row.
+  const progs: Programme[] = [];
+  for (const p of scheduled) {
+    const last = progs[progs.length - 1];
+    if (last && last.title === p.title && p.start.getTime() - last.stop.getTime() < 15 * 60_000) {
+      progs[progs.length - 1] = { ...last, stop: p.stop };
+    } else {
+      progs.push(p);
+    }
+  }
   const liveIdx = progs.findIndex((p) => p.start.getTime() <= clockNow.getTime() && p.stop.getTime() > clockNow.getTime());
   const target = rowsFor(progs, liveIdx, scroll);
   const targetKey = rowsKey(target);
