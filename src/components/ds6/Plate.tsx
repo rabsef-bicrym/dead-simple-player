@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
-import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, G, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, fonts, plateTracking } from '../../constants/ds6';
 
@@ -23,7 +23,18 @@ interface PlateProps {
   labelSize?: number;
 }
 
-function Screw({ size = 7 }: { size?: number }) {
+/**
+ * A slotted brass screw. Broadcast-console labels were engraved phenolic
+ * tags mounted with small slotted screws (rivets were for permanent data
+ * plates), so the DS-6 uses screws with a clear conscience.
+ *
+ * The slot angle comes from `seed` and is deliberately unclocked —
+ * aligned slots are the tell of a fake panel. Same seed, same angle, so
+ * plates don't shimmer on re-render.
+ */
+function Screw({ size = 7, seed = 0 }: { size?: number; seed?: number }) {
+  // Cheap stable hash → angle in [0, 180).
+  const angle = ((seed * 137.508) % 180 + 180) % 180;
   return (
     <Svg width={size} height={size} viewBox="0 0 10 10">
       <Defs>
@@ -34,11 +45,22 @@ function Screw({ size = 7 }: { size?: number }) {
         </RadialGradient>
       </Defs>
       <Circle cx="5" cy="5" r="5" fill="url(#screw)" />
+      <G rotation={angle} origin="5, 5">
+        {/* groove, with a catch-light on its lower lip */}
+        <Rect x="1.1" y="4.35" width="7.8" height="1.3" rx="0.6" fill="rgba(12,7,2,0.85)" />
+        <Rect x="1.4" y="5.55" width="7.2" height="0.5" rx="0.25" fill="rgba(241,229,207,0.28)" />
+      </G>
     </Svg>
   );
 }
 
 export function Plate({ kicker, label, lit = false, compact = false, kickerSize = 10, labelSize = 15 }: PlateProps) {
+  // Each plate's screws sit at their own angles, stable per label —
+  // the panel was assembled by a human, once.
+  let seedBase = 0;
+  for (let i = 0; i < label.length; i++) seedBase = (seedBase * 31 + label.charCodeAt(i)) | 0;
+  seedBase = Math.abs(seedBase);
+
   const face: [string, string, string] = lit
     ? [amber.glow, amber.jewel, amber.deep]
     : [walnut.grain, walnut.raised, walnut.panel];
@@ -50,10 +72,10 @@ export function Plate({ kicker, label, lit = false, compact = false, kickerSize 
       <LinearGradient colors={face} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={[styles.face, compact && styles.faceCompact]}>
         {!compact && (
           <>
-            <View style={[styles.screw, styles.screwTL]}><Screw /></View>
-            <View style={[styles.screw, styles.screwTR]}><Screw /></View>
-            <View style={[styles.screw, styles.screwBL]}><Screw /></View>
-            <View style={[styles.screw, styles.screwBR]}><Screw /></View>
+            <View style={[styles.screw, styles.screwTL]}><Screw seed={seedBase + 1} /></View>
+            <View style={[styles.screw, styles.screwTR]}><Screw seed={seedBase + 2} /></View>
+            <View style={[styles.screw, styles.screwBL]}><Screw seed={seedBase + 3} /></View>
+            <View style={[styles.screw, styles.screwBR]}><Screw seed={seedBase + 4} /></View>
           </>
         )}
         {kicker != null && (
