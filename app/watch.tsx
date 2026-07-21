@@ -231,6 +231,14 @@ export default function WatchScreen() {
     hudTimer.current = setTimeout(hideHud, HUD_HIDE_MS);
   }, [hudOpacity, hideHud]);
 
+  // The service panel's TUNE-IN PLATE card: brief, or a full six seconds.
+  const flashDwellMs = useRef(FLASH_HIDE_MS);
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.FLASH_STYLE)
+      .then((v) => { flashDwellMs.current = v === 'six' ? 6000 : FLASH_HIDE_MS; })
+      .catch(() => {});
+  }, []);
+
   const flashChannel = useCallback(() => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
     setFlashVisible(true);
@@ -238,7 +246,7 @@ export default function WatchScreen() {
     flashTimer.current = setTimeout(() => {
       Animated.timing(flashOpacity, { toValue: 0, duration: 400, useNativeDriver: true })
         .start(() => setFlashVisible(false));
-    }, FLASH_HIDE_MS);
+    }, flashDwellMs.current);
   }, [flashOpacity]);
 
   // ── Tuning ──

@@ -1,70 +1,64 @@
-import { useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  TextInput,
-  ActivityIndicator,
-  ScrollView,
-} from 'react-native';
+import { useState, useCallback, useEffect } from 'react';
+import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useServerConfig } from '../src/hooks/useServerConfig';
-import { colors, spacing, fontSize } from '../src/constants/theme';
+import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
+import { STORAGE_KEYS } from '../src/constants/storage';
+import { ServiceLabel, TerminalInput, PlateButton, Lamp } from '../src/components/ds6/Service';
+import { setSoundMuted, isSoundMuted } from '../src/utils/sound';
+import { timeToProse } from '../src/utils/prose';
 import type { SavedServer } from '../src/types';
 
 /**
- * Settings screen — manage saved ErsatzTV server configurations.
+ * Settings — the service panel (8b).
  *
- * Shows all saved servers with the active one highlighted. Allows:
- * - Tapping a server row to set it as active
- * - Editing server details inline (pencil icon)
- * - Deleting servers with confirmation (trash icon)
- * - Adding new servers (navigates to setup)
+ * The little door on the back of the set. The set remembers every
+ * aerial it has known; one carries the signal at a time, under the lit
+ * jewel. Standbys wait below, and a dashed bay stands ready to wire a
+ * new aerial. THE SET ITSELF holds the owner's few adjustments.
  */
 export default function SettingsScreen() {
-  const {
-    activeServer,
-    servers,
-    loading,
-    setActiveServer,
-    updateServer,
-    deleteServer,
-  } = useServerConfig();
+  const { activeServer, servers, loading, setActiveServer, updateServer, deleteServer } = useServerConfig();
 
-  // Inline editing state — only one server can be edited at a time
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editHost, setEditHost] = useState('');
   const [editPort, setEditPort] = useState('');
+  const [editDifficulty, setEditDifficulty] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [flashStyle, setFlashStyle] = useState<'brief' | 'six'>('brief');
+  const [silent, setSilent] = useState(isSoundMuted());
 
-  /** Populate the inline form with a server's current values. */
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.FLASH_STYLE)
+      .then((v) => { if (v === 'six') setFlashStyle('six'); })
+      .catch(() => {});
+  }, []);
+
   const startEditing = useCallback((server: SavedServer) => {
     setEditingId(server.id);
     setEditName(server.name);
     setEditHost(server.host);
     setEditPort(server.port.toString());
+    setEditDifficulty(null);
+    setConfirmRemoveId(null);
   }, []);
 
-  /** Validate and persist inline edits. */
   const saveEditing = useCallback(async () => {
     if (!editingId) return;
-
     const trimmedHost = editHost.trim();
     if (!trimmedHost) {
-      Alert.alert('Missing host', 'Server address is required.');
+      setEditDifficulty('The aerial needs an address.');
       return;
     }
-
     const portNum = parseInt(editPort.trim(), 10);
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-      Alert.alert('Invalid port', 'Enter a valid port (1-65535).');
+      setEditDifficulty('That port is not one the set recognises (1–65535).');
       return;
     }
-
     await updateServer(editingId, {
       name: editName.trim() || `${trimmedHost}:${portNum}`,
       host: trimmedHost,
@@ -73,38 +67,21 @@ export default function SettingsScreen() {
     setEditingId(null);
   }, [editingId, editName, editHost, editPort, updateServer]);
 
-  /** Discard inline edits. */
-  const cancelEditing = useCallback(() => {
-    setEditingId(null);
-  }, []);
-
-  /** Confirm and delete a server. Navigates to setup if none remain. */
-  const handleDelete = useCallback(
-    (server: SavedServer) => {
-      Alert.alert(
-        'Delete Server',
-        `Remove "${server.name}"? This cannot be undone.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Delete',
-            style: 'destructive',
-            onPress: async () => {
-              await deleteServer(server.id);
-              // If this was the last server, send user to setup
-              if (servers.length <= 1) {
-                router.replace('/setup');
-              }
-            },
-          },
-        ],
-      );
+  /** Removal takes two presses — the first asks if you're certain. */
+  const handleRemove = useCallback(
+    async (server: SavedServer) => {
+      if (confirmRemoveId !== server.id) {
+        setConfirmRemoveId(server.id);
+        return;
+      }
+      setConfirmRemoveId(null);
+      await deleteServer(server.id);
+      if (servers.length <= 1) router.replace('/setup');
     },
-    [deleteServer, servers.length],
+    [confirmRemoveId, deleteServer, servers.length],
   );
 
-  /** Tap a non-editing server row to make it active. */
-  const handleSelect = useCallback(
+  const handleSwitchOver = useCallback(
     async (server: SavedServer) => {
       if (server.id === activeServer?.id) return;
       await setActiveServer(server.id);
@@ -112,329 +89,374 @@ export default function SettingsScreen() {
     [activeServer?.id, setActiveServer],
   );
 
-  /** Navigate to setup screen to add a new server. */
-  const handleAddServer = useCallback(() => {
-    router.push('/setup');
-  }, []);
+  const toggleFlashStyle = useCallback(() => {
+    const next = flashStyle === 'brief' ? 'six' : 'brief';
+    setFlashStyle(next);
+    AsyncStorage.setItem(STORAGE_KEYS.FLASH_STYLE, next).catch(() => {});
+  }, [flashStyle]);
+
+  const toggleSilent = useCallback(() => {
+    const next = !silent;
+    setSilent(next);
+    setSoundMuted(next);
+  }, [silent]);
 
   if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
-    );
+    return <View style={styles.cabinet} />;
   }
 
+  const ordered = [...servers].sort((a, b) =>
+    a.id === activeServer?.id ? -1 : b.id === activeServer?.id ? 1 : 0,
+  );
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.accent} />
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <SafeAreaView style={styles.cabinet} edges={['top']}>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <View style={styles.column}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Pressable onPress={() => router.back()} style={styles.backRow}>
+              <Text style={styles.backKey}>◀</Text>
+              <Text style={styles.backText}>BACK TO THE DIAL</Text>
+            </Pressable>
+            <View style={styles.titleShell}>
+              <LinearGradient colors={[walnut.grain, '#231507']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.titleFace}>
+                <Text style={styles.titleText}>SERVICE PANEL</Text>
+              </LinearGradient>
+            </View>
+          </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.sectionTitle}>Servers</Text>
+          <Text style={styles.lede}>
+            The set remembers every aerial it has known. One carries the signal at a time.
+          </Text>
 
-        {servers.map((server) => {
-          const isActive = server.id === activeServer?.id;
-          const isEditing = server.id === editingId;
+          {/* Signal sources */}
+          <Text style={styles.sectionHead}>SIGNAL SOURCES</Text>
+          {ordered.map((server) => {
+            const active = server.id === activeServer?.id;
+            const editing = server.id === editingId;
 
-          // Inline edit form for this server
-          if (isEditing) {
+            if (editing) {
+              return (
+                <LinearGradient key={server.id} colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.sourceCard}>
+                  <ServiceLabel>NAME OF SET</ServiceLabel>
+                  <TerminalInput value={editName} onChangeText={setEditName} placeholder="Living Room" autoCapitalize="words" />
+                  <View style={{ marginTop: 12 }}>
+                    <ServiceLabel>SIGNAL ORIGIN — ADDRESS</ServiceLabel>
+                    <TerminalInput mono value={editHost} onChangeText={setEditHost} autoCapitalize="none" keyboardType="url" />
+                  </View>
+                  <View style={{ marginTop: 12, width: 150 }}>
+                    <ServiceLabel>PORT</ServiceLabel>
+                    <TerminalInput mono value={editPort} onChangeText={setEditPort} keyboardType="number-pad" />
+                  </View>
+                  {editDifficulty && <Text style={styles.difficulty}>{editDifficulty}</Text>}
+                  <View style={styles.editActions}>
+                    <PlateButton label="SAVE" onPress={saveEditing} lit compact />
+                    <PlateButton label="LEAVE IT" onPress={() => setEditingId(null)} compact />
+                  </View>
+                </LinearGradient>
+              );
+            }
+
             return (
-              <View key={server.id} style={[styles.serverRow, styles.serverRowEditing]}>
-                <Text style={styles.editLabel}>Name</Text>
-                <TextInput
-                  style={styles.editInput}
-                  value={editName}
-                  onChangeText={setEditName}
-                  placeholder="Server name"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="words"
-                />
-                <Text style={styles.editLabel}>Host</Text>
-                <TextInput
-                  style={styles.editInput}
-                  value={editHost}
-                  onChangeText={setEditHost}
-                  placeholder="Host address"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="none"
-                  keyboardType="url"
-                />
-                <Text style={styles.editLabel}>Port</Text>
-                <TextInput
-                  style={styles.editInput}
-                  value={editPort}
-                  onChangeText={setEditPort}
-                  placeholder="Port"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="number-pad"
-                />
-                <View style={styles.editActions}>
-                  <TouchableOpacity style={styles.editSave} onPress={saveEditing}>
-                    <Text style={styles.editSaveText}>Save</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.editCancel} onPress={cancelEditing}>
-                    <Text style={styles.editCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            );
-          }
-
-          // Normal server row — tap to select, icons to edit/delete
-          return (
-            <TouchableOpacity
-              key={server.id}
-              style={[styles.serverRow, isActive && styles.serverRowActive]}
-              onPress={() => handleSelect(server)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.serverInfo}>
-                <View style={styles.serverNameRow}>
-                  {isActive && (
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={18}
-                      color={colors.nowPlaying}
-                      style={styles.activeIcon}
-                    />
-                  )}
-                  <Text style={[styles.serverName, isActive && styles.serverNameActive]}>
-                    {server.name}
+              <LinearGradient
+                key={server.id}
+                colors={active ? ['#2b1d10', '#1c1108'] : ['#241708', '#180f07']}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={styles.sourceCard}
+              >
+                <Pressable onPress={() => handleSwitchOver(server)} disabled={active}>
+                  <View style={styles.sourceRow}>
+                    <Lamp lit={active} size={10} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.sourceName, !active && { color: brass.muted }]}>
+                        {server.name.toUpperCase()}
+                      </Text>
+                      <Text style={[styles.sourceHost, !active && { color: '#6e5f4b' }]}>
+                        {server.host}:{server.port}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      {active ? (
+                        <>
+                          <Text style={styles.onAir}>ON THE AIR</Text>
+                          <Text style={styles.since}>since {timeToProse(new Date(server.lastUsed))}</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={styles.standby}>STANDBY</Text>
+                          <Text style={styles.switchOver}>⏎ SWITCH OVER</Text>
+                        </>
+                      )}
+                    </View>
+                  </View>
+                </Pressable>
+                <View style={styles.sourceActions}>
+                  <Pressable onPress={() => startEditing(server)}>
+                    <Text style={styles.actionText}>RELABEL</Text>
+                  </Pressable>
+                  <Pressable onPress={() => handleRemove(server)}>
+                    <Text style={[styles.actionText, styles.actionDim, confirmRemoveId === server.id && styles.actionWarn]}>
+                      {confirmRemoveId === server.id ? 'REMOVE — CERTAIN?' : 'REMOVE'}
+                    </Text>
+                  </Pressable>
+                  <Text style={[styles.actionText, styles.actionDim, { marginLeft: 'auto' }]}>
+                    {active ? 'IN SERVICE' : ''}
                   </Text>
                 </View>
-                <Text style={styles.serverHost}>
-                  {server.host}:{server.port}
-                </Text>
-              </View>
-              <View style={styles.serverActions}>
-                <TouchableOpacity
-                  onPress={() => startEditing(server)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  style={styles.actionButton}
-                >
-                  <Ionicons name="pencil-outline" size={16} color={colors.textSecondary} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => handleDelete(server)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  style={styles.actionButton}
-                >
-                  <Ionicons name="trash-outline" size={16} color={colors.error} />
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+              </LinearGradient>
+            );
+          })}
 
-        {servers.length === 0 && (
-          <Text style={styles.emptyText}>No saved servers</Text>
-        )}
+          {/* Wire a new aerial */}
+          <Pressable onPress={() => router.push('/setup')} style={styles.wireBay}>
+            <Text style={styles.wireKey}>+</Text>
+            <Text style={styles.wireText}>WIRE A NEW AERIAL</Text>
+          </Pressable>
 
-        {/* Add server button */}
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={handleAddServer}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="add-circle-outline" size={20} color={colors.accent} />
-          <Text style={styles.addButtonText}>Add Server</Text>
-        </TouchableOpacity>
+          {/* The set itself */}
+          <Text style={styles.sectionHead}>THE SET ITSELF</Text>
+          <View style={styles.setRow}>
+            <Pressable style={{ flex: 1 }} onPress={toggleFlashStyle}>
+              <LinearGradient colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.setCard}>
+                <Text style={styles.setLabel}>TUNE-IN PLATE</Text>
+                <Text style={styles.setValue}>{flashStyle === 'six' ? 'shows for six seconds' : 'shows briefly'}</Text>
+              </LinearGradient>
+            </Pressable>
+            <Pressable style={{ flex: 1 }} onPress={toggleSilent}>
+              <LinearGradient colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.setCard}>
+                <Text style={styles.setLabel}>SOUND</Text>
+                <Text style={styles.setValue}>{silent ? 'the set is silent' : 'detent & clatter, under the room'}</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+
+          <Text style={styles.foot}>MODEL DS-6 · SERIAL № 000001 · SERVICED BY ITS OWNER</Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  cabinet: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: walnut.deep,
   },
-  center: {
-    flex: 1,
-    backgroundColor: colors.background,
-    justifyContent: 'center',
+  scroll: {
+    flexGrow: 1,
     alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 24,
   },
-
-  // Header
+  column: {
+    width: '100%',
+    maxWidth: 560,
+  },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    gap: 14,
   },
-  backButton: {
+  backRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minWidth: 80,
+    gap: 10,
+  },
+  backKey: {
+    fontFamily: fonts.plate,
+    fontWeight: '700',
+    fontSize: 11,
+    color: brass.bright,
+    backgroundColor: walnut.raised,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    borderRadius: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    overflow: 'hidden',
   },
   backText: {
-    fontSize: fontSize.sm,
-    color: colors.accent,
-    marginLeft: 2,
+    fontFamily: fonts.plate,
+    fontSize: 9.5,
+    letterSpacing: 2.6,
+    color: brass.mid,
   },
-  headerTitle: {
-    fontSize: fontSize.lg,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  headerSpacer: {
-    minWidth: 80,
-  },
-
-  // Scroll content
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: spacing.xl,
-    paddingBottom: 48,
-  },
-  sectionTitle: {
-    fontSize: fontSize.xs,
-    fontWeight: '600',
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: spacing.md,
-  },
-
-  // Server rows
-  serverRow: {
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    padding: spacing.lg,
-    marginBottom: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
+  titleShell: {
+    marginLeft: 'auto',
+    borderRadius: 3,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: walnut.void,
   },
-  serverRowActive: {
-    borderColor: colors.nowPlaying + '55',
-    backgroundColor: colors.nowPlayingDim,
+  titleFace: {
+    borderRadius: 2,
+    paddingVertical: 7,
+    paddingHorizontal: 22,
   },
-  serverRowEditing: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-    borderColor: colors.accent + '55',
+  titleText: {
+    fontFamily: fonts.plate,
+    fontSize: 10,
+    letterSpacing: 2.8,
+    color: brass.bright,
   },
-  serverInfo: {
-    flex: 1,
+  lede: {
+    fontFamily: fonts.speech,
+    fontSize: 14.5,
+    color: brass.muted,
+    marginTop: 20,
   },
-  serverNameRow: {
+  sectionHead: {
+    fontFamily: fonts.plate,
+    fontSize: 9,
+    letterSpacing: 3,
+    color: brass.mid,
+    marginTop: 26,
+    marginBottom: 12,
+  },
+  sourceCard: {
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  sourceRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 14,
   },
-  activeIcon: {
-    marginRight: spacing.xs,
+  sourceName: {
+    fontFamily: fonts.plate,
+    fontWeight: '700',
+    fontSize: 15,
+    letterSpacing: 1.8,
+    color: cream,
   },
-  serverName: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
-    color: colors.text,
+  sourceHost: {
+    fontFamily: fonts.flapBold,
+    fontSize: 12,
+    color: brass.muted,
+    marginTop: 3,
   },
-  serverNameActive: {
-    color: colors.nowPlaying,
+  onAir: {
+    fontFamily: fonts.plate,
+    fontSize: 8,
+    letterSpacing: 2,
+    color: amber.needle,
   },
-  serverHost: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
+  since: {
+    fontFamily: fonts.speech,
+    fontSize: 12,
+    color: '#6e5f4b',
     marginTop: 2,
   },
-  serverActions: {
+  standby: {
+    fontFamily: fonts.plate,
+    fontSize: 8,
+    letterSpacing: 2,
+    color: '#6e5f4b',
+    textAlign: 'right',
+  },
+  switchOver: {
+    fontFamily: fonts.plate,
+    fontSize: 8,
+    letterSpacing: 1.6,
+    color: '#6e5f4b',
+    marginTop: 3,
+  },
+  sourceActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginLeft: spacing.md,
+    gap: 18,
+    marginTop: 12,
+    paddingTop: 11,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.6)',
   },
-  actionButton: {
-    padding: spacing.xs,
+  actionText: {
+    fontFamily: fonts.plate,
+    fontSize: 8.5,
+    letterSpacing: 2,
+    color: brass.mid,
   },
-
-  // Inline editing
-  editLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: '500',
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
+  actionDim: {
+    color: '#6e5f4b',
   },
-  editInput: {
-    backgroundColor: colors.surfaceLight,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-    borderRadius: 8,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    fontSize: fontSize.sm,
-    color: colors.text,
+  actionWarn: {
+    color: amber.needle,
   },
   editActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.md,
-    marginTop: spacing.lg,
+    gap: 12,
+    marginTop: 16,
   },
-  editSave: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: 8,
+  difficulty: {
+    fontFamily: fonts.speech,
+    fontSize: 13,
+    color: '#cbba99',
+    marginTop: 12,
   },
-  editSaveText: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  editCancel: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  editCancelText: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-  },
-
-  // Empty state
-  emptyText: {
-    fontSize: fontSize.md,
-    color: colors.textMuted,
-    textAlign: 'center',
-    paddingVertical: spacing.xxl,
-  },
-
-  // Add button
-  addButton: {
+  wireBay: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: 14,
-    marginTop: spacing.md,
-    borderRadius: 10,
+    gap: 10,
     borderWidth: 1,
-    borderColor: colors.accent + '44',
     borderStyle: 'dashed',
+    borderColor: 'rgba(223,161,79,0.4)',
+    borderRadius: 5,
+    paddingVertical: 14,
   },
-  addButtonText: {
-    fontSize: fontSize.md,
-    fontWeight: '500',
-    color: colors.accent,
+  wireKey: {
+    fontFamily: fonts.plate,
+    fontWeight: '700',
+    fontSize: 12,
+    color: amber.needle,
+    backgroundColor: walnut.raised,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    borderRadius: 4,
+    width: 20,
+    height: 20,
+    textAlign: 'center',
+    overflow: 'hidden',
+  },
+  wireText: {
+    fontFamily: fonts.plate,
+    fontSize: 9.5,
+    letterSpacing: 2.6,
+    color: amber.needle,
+  },
+  setRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  setCard: {
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
+  setLabel: {
+    fontFamily: fonts.plate,
+    fontSize: 8,
+    letterSpacing: 2,
+    color: brass.mid,
+  },
+  setValue: {
+    fontFamily: fonts.speech,
+    fontSize: 13.5,
+    color: cream,
+    marginTop: 5,
+  },
+  foot: {
+    fontFamily: fonts.plate,
+    fontSize: 8.5,
+    letterSpacing: 2.4,
+    color: '#6e5f4b',
+    marginTop: 36,
+    textAlign: 'center',
   },
 });

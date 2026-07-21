@@ -1,4 +1,6 @@
 import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '../constants/storage';
 
 /**
  * The DS-6's two voices, chosen at the sound bench:
@@ -26,6 +28,21 @@ type SoundName = keyof typeof ASSETS;
 
 const loaded = new Map<SoundName, Audio.Sound>();
 
+// The service panel's SOUND card — the set can be made silent.
+let muted = false;
+AsyncStorage.getItem(STORAGE_KEYS.SOUND_MUTED)
+  .then((v) => { muted = v === '1'; })
+  .catch(() => {});
+
+export function setSoundMuted(next: boolean): void {
+  muted = next;
+  AsyncStorage.setItem(STORAGE_KEYS.SOUND_MUTED, next ? '1' : '0').catch(() => {});
+}
+
+export function isSoundMuted(): boolean {
+  return muted;
+}
+
 async function get(name: SoundName): Promise<Audio.Sound> {
   const existing = loaded.get(name);
   if (existing) return existing;
@@ -36,6 +53,7 @@ async function get(name: SoundName): Promise<Audio.Sound> {
 
 /** Fire and forget — a sound that fails to play fails silently. */
 export function playSound(name: SoundName): void {
+  if (muted) return;
   get(name)
     .then((sound) => sound.replayAsync({ volume: VOLUMES[name] }))
     .catch(() => {});
