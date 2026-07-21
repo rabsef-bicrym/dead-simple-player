@@ -2,8 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts } from 'expo-font';
-import { colors } from '../src/constants/theme';
-import { FONT_ASSETS } from '../src/constants/ds6';
+import { walnut, FONT_ASSETS } from '../src/constants/ds6';
 
 /** Root layout — dark theme, no headers by default. */
 export default function RootLayout() {
@@ -15,7 +14,7 @@ export default function RootLayout() {
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: colors.background },
+          contentStyle: { backgroundColor: walnut.void },
           animation: 'fade',
         }}
       />

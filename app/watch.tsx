@@ -6,40 +6,38 @@ import {
   TouchableWithoutFeedback,
   TouchableOpacity,
   Animated,
-  ActivityIndicator,
-  FlatList,
 } from 'react-native';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-video';
-import { Ionicons } from '@expo/vector-icons';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
 import { fetchIptvData } from '../src/services/iptv';
-import { colors, fontSize, spacing, channelColor, serifFamily } from '../src/constants/theme';
 import { STORAGE_KEYS } from '../src/constants/storage';
-import { ChannelRow } from '../src/components/ChannelRow';
-import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
+import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { Apron } from '../src/components/ds6/Apron';
 import { Home } from '../src/components/ds6/Home';
 import { Board } from '../src/components/ds6/Board';
+import { Flash } from '../src/components/ds6/Flash';
+import { Notes } from '../src/components/ds6/Notes';
 import { Platform } from 'react-native';
 import type { Channel, Programme } from '../src/types';
 
 /**
- * The TV.
+ * The TV — a DS-6 receiver in walnut and brass.
  *
  * This is the whole app: it opens playing the last-watched channel,
- * full screen. Everything else is an overlay on the picture:
+ * full screen. Everything else is DS-6 furniture over the picture:
  *
- * - swipe up/down ... change channel (with a chunky identity flash)
- * - tap ............ lower-third HUD: what you're watching, progress
- * - swipe left ..... WHAT'S ON: every channel, one chunky row each
- * - long-press ..... programme notes (the library's essays)
+ * - swipe up/down ... change channel (the stamped plate flashes)
+ * - tap / i ........ the resting apron: what's on, until when
+ * - Esc / h ........ the receiver: the dial (kills the stream)
+ * - g .............. This Evening: the split-flap board (sound carries on)
+ * - n / long-press . programme notes, projected on the dimmed picture
  *
- * No home screen. No list-first funnel. Turn it on and it's on.
+ * No home-screen funnel. Turn it on and it's on.
  */
 
 const SWIPE_THRESHOLD = 70;
@@ -70,9 +68,6 @@ const WebVideo = (() => {
   }
 })() as ComponentType<any> | null;
 
-const serif = Platform.select(serifFamily);
-const grotesk = Platform.select({ ios: 'Helvetica Neue', default: 'sans-serif' });
-
 /** Determine which engine should be tried first (native handles HLS + PiP). */
 function resolvePrimaryEngine(vlcAvailable: boolean, streamUrl?: string): PlayerEngine {
   if (!vlcAvailable) return 'native';
@@ -91,16 +86,6 @@ function formatVideoError(errorData: OnVideoErrorData): string {
     || details.error
     || 'Playback failed'
   );
-}
-
-function formatTimeRemaining(stop: Date): string | null {
-  const diffMs = stop.getTime() - Date.now();
-  if (diffMs <= 0) return null;
-  const mins = Math.ceil(diffMs / 60000);
-  if (mins < 60) return `${mins} min left`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m > 0 ? `${h}h ${m}m left` : `${h}h left`;
 }
 
 export default function WatchScreen() {
@@ -196,7 +181,6 @@ export default function WatchScreen() {
 
   const safeIndex = channels.length > 0 ? Math.min(currentIndex, channels.length - 1) : 0;
   const currentChannel = channels[safeIndex];
-  const identity = currentChannel ? channelColor(currentChannel.number) : colors.accent;
 
   // ── Clock + EPG lookups ──
   useEffect(() => {
@@ -379,7 +363,8 @@ export default function WatchScreen() {
             else setBoardScroll((s) => Math.max(s - 1, -8));
             break;
           case 'n':
-            if (boardCursorProg.current) setDetailProgramme(boardCursorProg.current);
+            if (detailProgramme) setDetailProgramme(null);
+            else if (boardCursorProg.current) setDetailProgramme(boardCursorProg.current);
             break;
           case 'Enter':
             tuneTo(boardIndex);
@@ -438,7 +423,9 @@ export default function WatchScreen() {
           openHome(safeIndex);
           break;
         case 'n':
-          openNotes();
+          // N returns to the picture, as the projection promises.
+          if (detailProgramme) setDetailProgramme(null);
+          else openNotes();
           break;
         case 'Escape':
           if (detailProgramme) setDetailProgramme(null);
@@ -508,7 +495,8 @@ export default function WatchScreen() {
   if (configLoading || dataLoading || !indexRestored) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.accent} />
+        <View style={styles.momentJewel} />
+        <Text style={styles.momentText}>WARMING UP</Text>
       </View>
     );
   }
@@ -516,18 +504,19 @@ export default function WatchScreen() {
   if (dataError || !currentChannel) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>{dataError ?? 'No channels found'}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={loadData}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/settings')}>
-          <Text style={styles.secondaryAction}>Settings</Text>
-        </TouchableOpacity>
+        <Text style={styles.difficultyKicker}>THE RECEIVER CANNOT FIND ITS STATIONS</Text>
+        <Text style={styles.difficultyDetail}>{dataError ?? 'No channels found'}</Text>
+        <View style={styles.serviceRow}>
+          <TouchableOpacity style={styles.servicePlate} onPress={loadData}>
+            <Text style={styles.servicePlateText}>TRY AGAIN</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.servicePlate} onPress={() => router.push('/settings')}>
+            <Text style={styles.servicePlateText}>SERVICE PANEL</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
-
-  const timeLeft = nowPlaying ? formatTimeRemaining(nowPlaying.stop) : null;
 
   return (
     <PanGestureHandler
@@ -549,7 +538,7 @@ export default function WatchScreen() {
               />
             ) : isExpoGo ? (
               <View style={styles.center}>
-                <Text style={styles.errorText}>
+                <Text style={styles.difficultyDetail}>
                   Playback requires a development build (Expo Go lacks the native player).
                 </Text>
               </View>
@@ -602,34 +591,23 @@ export default function WatchScreen() {
             )}
 
             {showBufferingOverlay && (
-              <View style={styles.bufferingOverlay} pointerEvents="none">
-                <ActivityIndicator size="large" color={colors.text} />
+              <View style={styles.moment} pointerEvents="none">
+                <View style={styles.momentJewel} />
+                <Text style={styles.momentText}>A MOMENT, PLEASE</Text>
               </View>
             )}
 
             {playerError && (
-              <View style={styles.playerErrorPill} pointerEvents="none">
-                <Text style={styles.playerErrorText}>{playerError}</Text>
+              <View style={styles.difficulty} pointerEvents="none">
+                <Text style={styles.difficultyKicker}>THE PICTURE IS HAVING DIFFICULTY</Text>
+                <Text style={styles.difficultyDetail} numberOfLines={2}>{playerError}</Text>
               </View>
             )}
 
-            {/* ── Channel flash: the chunky channel bug ── */}
+            {/* ── Tune-in: the stamped channel plate flashes, then fades ── */}
             {flashVisible && (
-              <Animated.View
-                style={[styles.flash, { opacity: flashOpacity, borderLeftColor: identity }]}
-                pointerEvents="none"
-              >
-                <Text style={[styles.flashNumber, { color: identity }]}>
-                  {currentChannel.number}
-                </Text>
-                <View style={styles.flashText}>
-                  <Text style={styles.flashName}>{currentChannel.name.toUpperCase()}</Text>
-                  {nowPlaying && (
-                    <Text style={styles.flashTitle} numberOfLines={1}>
-                      {nowPlaying.title}
-                    </Text>
-                  )}
-                </View>
+              <Animated.View style={[StyleSheet.absoluteFill, { opacity: flashOpacity }]} pointerEvents="none">
+                <Flash channel={currentChannel} nowPlaying={nowPlaying} />
               </Animated.View>
             )}
 
@@ -677,11 +655,15 @@ export default function WatchScreen() {
           />
         )}
 
-        <ProgrammeDetailModal
-          programme={detailProgramme}
-          visible={detailProgramme !== null}
-          onClose={() => setDetailProgramme(null)}
-        />
+        {/* ── PROGRAMME NOTES: the NFO, projected on the dimmed picture ── */}
+        {detailProgramme && (
+          <Notes
+            programme={detailProgramme}
+            channel={channels.find((c) => c.id === detailProgramme.channelId)}
+            clockNow={clockNow}
+            onClose={() => setDetailProgramme(null)}
+          />
+        )}
       </View>
     </PanGestureHandler>
   );
@@ -694,202 +676,89 @@ const styles = StyleSheet.create({
   },
   center: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: walnut.deep,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.xxl,
-    gap: spacing.lg,
+    padding: 40,
+    gap: 16,
   },
   video: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
   },
-  errorText: {
-    color: colors.error,
-    fontSize: fontSize.md,
-    textAlign: 'center',
-  },
-  retryButton: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: 10,
-  },
-  retryText: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '600',
-  },
-  secondaryAction: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-  },
-  bufferingOverlay: {
+
+  // ── A moment, please — the receiver gathering itself ──
+  moment: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 12,
   },
-  playerErrorPill: {
+  momentJewel: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: amber.jewel,
+    shadowColor: amber.glow,
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+  momentText: {
+    fontFamily: fonts.plate,
+    fontSize: 10,
+    letterSpacing: 4,
+    color: brass.mid,
+  },
+
+  // ── Difficulty — spoken plainly, in the house voice ──
+  difficulty: {
     position: 'absolute',
-    left: spacing.xl,
-    right: spacing.xl,
-    bottom: 110,
-    backgroundColor: 'rgba(0,0,0,0.9)',
-    borderLeftWidth: 3,
-    borderLeftColor: colors.error,
-    padding: spacing.md,
+    left: 40,
+    right: 40,
+    bottom: 60,
+    alignItems: 'center',
+    gap: 8,
   },
-  playerErrorText: {
-    color: colors.error,
-    fontSize: fontSize.sm,
+  difficultyKicker: {
+    fontFamily: fonts.plate,
+    fontSize: 10,
+    letterSpacing: 3.2,
+    color: brass.light,
     textAlign: 'center',
   },
-
-  // ── Channel flash: Swiss — flat black, hard edges, huge numeral ──
-  flash: {
-    position: 'absolute',
-    left: 0,
-    top: 48,
+  difficultyDetail: {
+    fontFamily: fonts.speech,
+    fontSize: 13,
+    color: brass.muted,
+    textAlign: 'center',
+  },
+  serviceRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#000',
-    borderLeftWidth: 6,
-    paddingVertical: spacing.lg,
-    paddingLeft: spacing.xl,
-    paddingRight: spacing.xxl,
-    gap: spacing.xl,
-    maxWidth: '85%',
+    gap: 16,
+    marginTop: 10,
   },
-  flashNumber: {
-    fontFamily: grotesk,
-    fontSize: 72,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-    lineHeight: 74,
+  servicePlate: {
+    backgroundColor: walnut.raised,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    borderRadius: 3,
+    paddingVertical: 9,
+    paddingHorizontal: 22,
   },
-  flashText: {
-    flexShrink: 1,
-  },
-  flashName: {
-    color: colors.text,
-    fontFamily: grotesk,
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-    letterSpacing: 3,
-  },
-  flashTitle: {
-    color: colors.textSecondary,
-    fontFamily: grotesk,
-    fontSize: fontSize.md,
-    marginTop: 4,
+  servicePlateText: {
+    fontFamily: fonts.plate,
+    fontSize: 10,
+    letterSpacing: 2.6,
+    color: cream,
   },
 
-  // ── HUD ──
+  // ── HUD anchor — the apron rides the bottom edge ──
   hud: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-  },
-  hudBand: {
-    backgroundColor: 'rgba(0,0,0,0.92)',
-    borderTopWidth: 2,
-    paddingTop: spacing.xl,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: 40,
-  },
-  hudChannelLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  hudBadge: {
-    minWidth: 36,
-    height: 36,
-    borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-  },
-  hudBadgeText: {
-    fontFamily: grotesk,
-    fontSize: fontSize.lg,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  hudChannelName: {
-    flex: 1,
-    fontFamily: grotesk,
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-    letterSpacing: 3,
-  },
-  hudTimeLeft: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    fontVariant: ['tabular-nums'],
-  },
-  hudTitle: {
-    color: colors.text,
-    fontFamily: grotesk,
-    fontSize: fontSize.xxl,
-    fontWeight: '700',
-    lineHeight: 38,
-    letterSpacing: -0.5,
-    marginTop: spacing.md,
-  },
-  hudSubtitle: {
-    color: colors.textSecondary,
-    fontWeight: '400',
-  },
-  hudProgressTrack: {
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    marginTop: spacing.lg,
-  },
-  hudProgressFill: {
-    height: 3,
-  },
-  hudActions: {
-    flexDirection: 'row',
-    gap: spacing.xl,
-    marginTop: spacing.lg,
-  },
-  hudAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  hudActionText: {
-    color: colors.text,
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-  },
-
-  // ── WHAT'S ON overlay ──
-  whatsOn: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(6,6,9,0.96)',
-  },
-  whatsOnHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 56,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.md,
-    gap: spacing.xl,
-  },
-  whatsOnTitle: {
-    flex: 1,
-    color: colors.text,
-    fontFamily: grotesk,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-    letterSpacing: 4,
-  },
-  whatsOnList: {
-    paddingBottom: 48,
   },
 });

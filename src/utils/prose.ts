@@ -72,3 +72,31 @@ const ORDINALS: Record<number, string> = {
 export function dateProse(d: Date): string {
   return `${DAYS[d.getDay()]}, the ${ORDINALS[d.getDate()] ?? String(d.getDate())} of ${MONTHS[d.getMonth()]}`;
 }
+
+const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+              'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+              'seventeen', 'eighteen', 'nineteen'];
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+/** 0–99 in words; beyond that, digits keep their dignity. */
+export function numberWords(n: number): string {
+  if (n < 0 || n > 99 || !Number.isInteger(n)) return String(n);
+  if (n < 20) return ONES[n];
+  const t = TENS[Math.floor(n / 10)];
+  return n % 10 ? `${t}-${ONES[n % 10]}` : t;
+}
+
+/** "fourteen minutes", "two hours", "one hour and ten minutes" */
+export function durationProse(startOrMins: Date | number, stop?: Date): string {
+  const mins = typeof startOrMins === 'number'
+    ? startOrMins
+    : Math.round((stop!.getTime() - startOrMins.getTime()) / 60000);
+  if (mins < 1) return 'under a minute';
+  if (mins === 1) return 'one minute';
+  if (mins < 60) return `${numberWords(mins)} minutes`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const hours = h === 1 ? 'one hour' : `${numberWords(h)} hours`;
+  if (m === 0) return hours;
+  return `${hours} and ${m === 1 ? 'one minute' : `${numberWords(m)} minutes`}`;
+}

@@ -4,6 +4,7 @@ import { walnut, brass, cream, fonts } from '../../constants/ds6';
 import { Plate } from './Plate';
 import { FlipClock } from './FlipClock';
 import { Needle } from './Needle';
+import { timeToProse } from '../../utils/prose';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -23,11 +24,10 @@ interface ApronProps {
 function metaLine(p?: Programme): string | null {
   if (!p) return null;
   const bits: string[] = [];
+  if (p.year) bits.push(p.year);
   if (p.subtitle) bits.push(p.subtitle);
-  const stop = p.stop;
-  let h = stop.getHours() % 12 || 12;
-  const mm = stop.getMinutes();
-  bits.push(`until ${h}:${String(mm).padStart(2, '0')}`);
+  // The apron tells time the way the announcer would.
+  bits.push(`until ${timeToProse(p.stop)}`);
   return bits.join(' · ').toUpperCase();
 }
 
@@ -99,9 +99,13 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontFamily: fonts.speech,
-    fontSize: 26,
+    fontFamily: fonts.plate,
+    fontWeight: '600',
+    fontSize: 24,
     color: cream,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowRadius: 2,
+    textShadowOffset: { width: 0, height: 2 },
   },
   meta: {
     fontFamily: fonts.plate,
