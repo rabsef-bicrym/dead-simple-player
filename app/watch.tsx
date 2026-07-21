@@ -22,6 +22,7 @@ import { colors, fontSize, spacing, channelColor, serifFamily } from '../src/con
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { ChannelRow } from '../src/components/ChannelRow';
 import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
+import { Apron } from '../src/components/ds6/Apron';
 import { Platform } from 'react-native';
 import type { Channel, Programme } from '../src/types';
 
@@ -538,56 +539,10 @@ export default function WatchScreen() {
               </Animated.View>
             )}
 
-            {/* ── HUD: the lower third ── */}
+            {/* ── HUD: the resting apron — the walnut shelf under the picture ── */}
             {hudVisible && (
               <Animated.View style={[styles.hud, { opacity: hudOpacity }]}>
-                <View style={[styles.hudBand, { borderTopColor: identity }]}>
-                  <View style={styles.hudChannelLine}>
-                    <View style={[styles.hudBadge, { borderColor: identity }]}>
-                      <Text style={[styles.hudBadgeText, { color: identity }]}>
-                        {currentChannel.number}
-                      </Text>
-                    </View>
-                    <Text style={[styles.hudChannelName, { color: identity }]}>
-                      {currentChannel.name.toUpperCase()}
-                    </Text>
-                    {timeLeft && <Text style={styles.hudTimeLeft}>{timeLeft}</Text>}
-                  </View>
-
-                  {nowPlaying ? (
-                    <>
-                      <Text style={styles.hudTitle} numberOfLines={2}>
-                        {nowPlaying.title}
-                        {nowPlaying.subtitle ? (
-                          <Text style={styles.hudSubtitle}> — {nowPlaying.subtitle}</Text>
-                        ) : null}
-                      </Text>
-                      <View style={styles.hudProgressTrack}>
-                        <View
-                          style={[
-                            styles.hudProgressFill,
-                            { width: `${progress * 100}%`, backgroundColor: identity },
-                          ]}
-                        />
-                      </View>
-                    </>
-                  ) : (
-                    <Text style={styles.hudTitle}>No listing</Text>
-                  )}
-
-                  <View style={styles.hudActions}>
-                    <TouchableOpacity style={styles.hudAction} onPress={() => setWhatsOnVisible(true)}>
-                      <Ionicons name="list" size={18} color={colors.text} />
-                      <Text style={styles.hudActionText}>What's On</Text>
-                    </TouchableOpacity>
-                    {nowPlaying?.description && (
-                      <TouchableOpacity style={styles.hudAction} onPress={openNotes}>
-                        <Ionicons name="reader-outline" size={18} color={colors.text} />
-                        <Text style={styles.hudActionText}>Notes</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
+                <Apron channel={currentChannel} nowPlaying={nowPlaying} clockNow={clockNow} />
               </Animated.View>
             )}
           </View>
