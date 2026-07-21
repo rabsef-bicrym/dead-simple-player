@@ -23,6 +23,7 @@ import { STORAGE_KEYS } from '../src/constants/storage';
 import { ChannelRow } from '../src/components/ChannelRow';
 import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
 import { Apron } from '../src/components/ds6/Apron';
+import { Home } from '../src/components/ds6/Home';
 import { Platform } from 'react-native';
 import type { Channel, Programme } from '../src/types';
 
@@ -115,7 +116,8 @@ export default function WatchScreen() {
 
   const [hudVisible, setHudVisible] = useState(false);
   const [flashVisible, setFlashVisible] = useState(false);
-  const [whatsOnVisible, setWhatsOnVisible] = useState(false);
+  const [homeVisible, setHomeVisible] = useState(false);
+  const [dialIndex, setDialIndex] = useState(0);
   const [detailProgramme, setDetailProgramme] = useState<Programme | null>(null);
 
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
@@ -249,9 +251,15 @@ export default function WatchScreen() {
   // ── Tuning ──
   const tuneTo = useCallback((index: number) => {
     setCurrentIndex(index);
-    setWhatsOnVisible(false);
+    setHomeVisible(false);
     flashChannel();
   }, [flashChannel]);
+
+  /** Open the receiver home with the dial resting on the given station. */
+  const openHome = useCallback((atIndex: number) => {
+    setDialIndex(atIndex);
+    setHomeVisible(true);
+  }, []);
 
   // Reset playback state on channel change; flash the channel bug.
   useEffect(() => {
@@ -300,7 +308,7 @@ export default function WatchScreen() {
     const { translationX, translationY } = nativeEvent;
 
     if (Math.abs(translationX) > Math.abs(translationY)) {
-      if (translationX < -SWIPE_THRESHOLD) setWhatsOnVisible(true);
+      if (translationX < -SWIPE_THRESHOLD) openHome(safeIndex);
       return;
     }
     if (translationY < -SWIPE_THRESHOLD && safeIndex < channels.length - 1) {
@@ -327,6 +335,26 @@ export default function WatchScreen() {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const onKey = (e: KeyboardEvent) => {
+      if (homeVisible) {
+        // At the receiver: arrows wind the dial, Enter tunes, Escape returns.
+        switch (e.key) {
+          case 'ArrowRight':
+          case 'ArrowDown':
+            setDialIndex((i) => (i + 1) % channels.length);
+            break;
+          case 'ArrowLeft':
+          case 'ArrowUp':
+            setDialIndex((i) => (i - 1 + channels.length) % channels.length);
+            break;
+          case 'Enter':
+            tuneTo(dialIndex);
+            break;
+          case 'Escape':
+            setHomeVisible(false);
+            break;
+        }
+        return;
+      }
       switch (e.key) {
         case 'ArrowUp':
           if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1);
@@ -336,25 +364,27 @@ export default function WatchScreen() {
           break;
         case 'Enter':
         case 'i':
-          setWhatsOnVisible(false);
           showHud();
           break;
+        // G's true destination is This Evening (the board); until it is
+        // built, G brings the receiver so nothing dead-ends.
         case 'l':
         case 'g':
-          setWhatsOnVisible((v) => !v);
+        case 'h':
+          openHome(safeIndex);
           break;
         case 'n':
           openNotes();
           break;
         case 'Escape':
-          setWhatsOnVisible(false);
-          setDetailProgramme(null);
+          if (detailProgramme) setDetailProgramme(null);
+          else openHome(safeIndex);
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [safeIndex, channels.length, tuneTo, showHud, openNotes]);
+  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme]);
 
 
   // ── Playback plumbing (engine failover) ──
@@ -444,8 +474,8 @@ export default function WatchScreen() {
       <View style={styles.container}>
         <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
           <View style={styles.container}>
-            {/* ── The picture ── */}
-            {WebVideo ? (
+            {/* ── The picture (dark while the receiver is showing) ── */}
+            {homeVisible ? null : WebVideo ? (
               <WebVideo
                 key={`web:${reloadNonce}:${currentChannel.streamUrl}`}
                 streamUrl={currentChannel.streamUrl}
@@ -548,39 +578,18 @@ export default function WatchScreen() {
           </View>
         </TouchableWithoutFeedback>
 
-        {/* ── WHAT'S ON: the one overlay that replaces everything ── */}
-        {whatsOnVisible && (
-          <View style={styles.whatsOn}>
-            <View style={styles.whatsOnHeader}>
-              <Text style={styles.whatsOnTitle}>WHAT'S ON</Text>
-              <TouchableOpacity
-                onPress={() => router.push('/settings')}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="settings-outline" size={20} color={colors.textMuted} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setWhatsOnVisible(false)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close" size={24} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={channels}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item, index }) => (
-                <ChannelRow
-                  channel={item}
-                  nowPlaying={nowPlayingMap.get(item.id)}
-                  upNext={upNextMap.get(item.id)}
-                  onPress={() => tuneTo(index)}
-                  onNowPlayingPress={setDetailProgramme}
-                />
-              )}
-              contentContainerStyle={styles.whatsOnList}
-            />
-          </View>
+        {/* ── HOME: the receiver — dial, plates, service rail ── */}
+        {homeVisible && (
+          <Home
+            channels={channels}
+            selectedIndex={dialIndex}
+            onSelect={setDialIndex}
+            onTune={(i) => {
+              tuneTo(i);
+              setHomeVisible(false);
+            }}
+            clockNow={clockNow}
+          />
         )}
 
         <ProgrammeDetailModal
