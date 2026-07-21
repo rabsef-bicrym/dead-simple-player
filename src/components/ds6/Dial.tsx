@@ -3,6 +3,7 @@ import { View, StyleSheet, Animated, Easing, Pressable } from 'react-native';
 import Svg, { Circle, Defs, G, Line, Rect, RadialGradient, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { walnut, amber } from '../../constants/ds6';
 import { Plate } from './Plate';
+import { playSound } from '../../utils/sound';
 import type { Channel } from '../../types';
 
 /**
@@ -40,6 +41,8 @@ export function Dial({ channels, selectedIndex, onSelect, onTune, size }: DialPr
   // round the dial — 1 to 7 is one click back, not a full revolution.
   const angleRef = useRef(angleFor(selectedIndex, channels.length) + 90);
 
+  const mounted = useRef(false);
+
   useEffect(() => {
     const target = angleFor(selectedIndex, channels.length) + 90;
     const currentMod = ((angleRef.current % 360) + 360) % 360;
@@ -53,6 +56,9 @@ export function Dial({ channels, selectedIndex, onSelect, onTune, size }: DialPr
       easing: Easing.out(Easing.back(1.2)),
       useNativeDriver: true,
     }).start();
+    // The detent speaks on every wind, not on arrival at the page.
+    if (mounted.current) playSound('detent');
+    mounted.current = true;
   }, [selectedIndex, channels.length, pointer]);
 
   const rotation = pointer.interpolate({

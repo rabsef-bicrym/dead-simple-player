@@ -4,6 +4,7 @@ import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { Plate } from './Plate';
+import { playSound } from '../../utils/sound';
 import { dateProse } from '../../utils/prose';
 import type { Channel, Programme } from '../../types';
 
@@ -192,6 +193,7 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
       prevRef.current = curRef.current;
       curRef.current = target;
       needRef.current = maxDrumNeed(prevRef.current, target);
+      playSound('clatter');
       setTicks(0);
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
