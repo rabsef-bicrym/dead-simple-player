@@ -122,6 +122,8 @@ export default function WatchScreen() {
   const [boardVisible, setBoardVisible] = useState(false);
   const [boardIndex, setBoardIndex] = useState(0);
   const [boardScroll, setBoardScroll] = useState(0);
+  const [boardCursor, setBoardCursor] = useState(2);
+  const boardCursorProg = useRef<Programme | null>(null);
   const [detailProgramme, setDetailProgramme] = useState<Programme | null>(null);
 
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
@@ -274,6 +276,7 @@ export default function WatchScreen() {
   const openBoard = useCallback((atIndex: number) => {
     setBoardIndex(atIndex);
     setBoardScroll(0);
+    setBoardCursor(2);
     setHomeVisible(false);
     setBoardVisible(true);
   }, []);
@@ -354,28 +357,37 @@ export default function WatchScreen() {
     const onKey = (e: KeyboardEvent) => {
       if (boardVisible) {
         // At the board: left/right change the channel (the drums roll),
-        // up/down page through the evening, Enter tunes, G returns.
+        // up/down walk the cursor through the evening (paging at the
+        // edges), N reads the cursor's notes, Enter tunes, G returns.
         switch (e.key) {
           case 'ArrowRight':
             setBoardIndex((i) => (i + 1) % channels.length);
             setBoardScroll(0);
+            setBoardCursor(2);
             break;
           case 'ArrowLeft':
             setBoardIndex((i) => (i - 1 + channels.length) % channels.length);
             setBoardScroll(0);
+            setBoardCursor(2);
             break;
           case 'ArrowDown':
-            setBoardScroll((s) => Math.min(s + 1, 30));
+            if (boardCursor < 7) setBoardCursor(boardCursor + 1);
+            else setBoardScroll((s) => Math.min(s + 1, 30));
             break;
           case 'ArrowUp':
-            setBoardScroll((s) => Math.max(s - 1, -8));
+            if (boardCursor > 0) setBoardCursor(boardCursor - 1);
+            else setBoardScroll((s) => Math.max(s - 1, -8));
+            break;
+          case 'n':
+            if (boardCursorProg.current) setDetailProgramme(boardCursorProg.current);
             break;
           case 'Enter':
             tuneTo(boardIndex);
             break;
           case 'g':
           case 'Escape':
-            setBoardVisible(false);
+            if (detailProgramme) setDetailProgramme(null);
+            else setBoardVisible(false);
             break;
           case 'h':
           case 'l':
@@ -436,7 +448,7 @@ export default function WatchScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard]);
+  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor]);
 
 
   // ── Playback plumbing (engine failover) ──
@@ -654,9 +666,13 @@ export default function WatchScreen() {
             onSelectChannel={(i) => {
               setBoardIndex(i);
               setBoardScroll(0);
+              setBoardCursor(2);
             }}
             programmes={programmes}
             scroll={boardScroll}
+            cursor={boardCursor}
+            cursorProgRef={boardCursorProg}
+            onNotes={setDetailProgramme}
             clockNow={clockNow}
           />
         )}

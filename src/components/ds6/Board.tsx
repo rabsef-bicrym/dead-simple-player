@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { View, Text, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -37,6 +37,7 @@ interface BoardRow {
   live: boolean;
   past: boolean;
   next: boolean;
+  prog?: Programme;
 }
 
 const BLANK_ROW: BoardRow = { time: '', title: '', year: '', note: '', live: false, past: false, next: false };
@@ -101,6 +102,7 @@ function rowsFor(progs: Programme[], liveIdx: number, scroll: number): BoardRow[
       live: idx === liveIdx,
       past: liveIdx >= 0 && idx < liveIdx,
       next: idx === liveIdx + 1,
+      prog: p,
     };
   });
 }
@@ -127,10 +129,15 @@ interface BoardProps {
   onSelectChannel: (index: number) => void;
   programmes: Programme[];
   scroll: number;
+  /** Which of the eight rows carries the reading cursor. */
+  cursor: number;
+  /** The receiver reads the cursor's programme from here when N is pressed. */
+  cursorProgRef: MutableRefObject<Programme | null>;
+  onNotes: (p: Programme) => void;
   clockNow: Date;
 }
 
-export function Board({ channels, boardIndex, onSelectChannel, programmes, scroll, clockNow }: BoardProps) {
+export function Board({ channels, boardIndex, onSelectChannel, programmes, scroll, cursor, cursorProgRef, onNotes, clockNow }: BoardProps) {
   const { width, height } = useWindowDimensions();
 
   const channel = channels[boardIndex];
@@ -203,6 +210,10 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
   const prev = prevRef.current;
   const cur = curRef.current;
 
+  // Keep the receiver's view of the cursor row current — target rows,
+  // not whatever the drums happen to be showing mid-cascade.
+  cursorProgRef.current = target[cursor]?.prog ?? null;
+
   const short = height < 700;
   const rowH = short ? 36 : 46;
   const meridiem = clockNow.getHours() < 12 ? 'A.M.' : 'P.M.';
@@ -267,11 +278,13 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
           const noteColor = row.past ? '#6e5f4b' : row.live ? '#cbba99' : brass.muted;
           const jiggle = moving ? (ticks % 2 ? '-2deg' : '1.4deg') : '0deg';
           return (
-            <View
+            <Pressable
               key={r}
+              onPress={() => row.prog && onNotes(row.prog)}
               style={[
                 styles.row,
                 { height: rowH, opacity: row.past ? 0.5 : 1 },
+                r === cursor && styles.rowCursor,
                 { transform: [{ perspective: 800 }, { rotateX: jiggle }] } as never,
               ]}
             >
@@ -315,7 +328,7 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
                   {row.live ? 'ON THE AIR' : row.next ? 'NEXT' : ''}
                 </Text>
               </LinearGradient>
-            </View>
+            </Pressable>
           );
         })}
       </View>
@@ -329,6 +342,10 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
         <View style={styles.hint}>
           <Plate label="⏎" compact labelSize={10} />
           <Text style={styles.hintText}>TUNE</Text>
+        </View>
+        <View style={styles.hint}>
+          <Plate label="N" compact labelSize={10} />
+          <Text style={styles.hintText}>NOTES</Text>
         </View>
         <View style={styles.hint}>
           <Plate label="G" compact labelSize={10} />
@@ -422,6 +439,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     gap: 8,
+    borderRadius: 4,
+  },
+  // The reading cursor — a brass hairline around the row under study.
+  rowCursor: {
+    borderWidth: 1,
+    borderColor: 'rgba(201,180,140,0.5)',
+    marginHorizontal: -5,
+    paddingHorizontal: 4,
+    shadowColor: amber.jewel,
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
   },
   timeBox: {
     width: 78,
