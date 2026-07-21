@@ -19,6 +19,8 @@ interface PlateProps {
   lit?: boolean;
   /** Compact plates drop the screws (key hints, small controls). */
   compact?: boolean;
+  /** A live amber jewel ahead of the text — "this lamp means it's real". */
+  jewel?: boolean;
   kickerSize?: number;
   labelSize?: number;
 }
@@ -54,7 +56,7 @@ function Screw({ size = 7, seed = 0 }: { size?: number; seed?: number }) {
   );
 }
 
-export function Plate({ kicker, label, lit = false, compact = false, kickerSize = 10, labelSize = 15 }: PlateProps) {
+export function Plate({ kicker, label, lit = false, compact = false, jewel = false, kickerSize = 10, labelSize = 15 }: PlateProps) {
   // Each plate's screws sit at their own angles, stable per label —
   // the panel was assembled by a human, once.
   let seedBase = 0;
@@ -83,9 +85,12 @@ export function Plate({ kicker, label, lit = false, compact = false, kickerSize 
             {kicker}
           </Text>
         )}
-        <Text style={[styles.label, { color: textColor, fontSize: labelSize, letterSpacing: plateTracking(labelSize) * 0.55 }]}>
-          {label}
-        </Text>
+        <View style={styles.labelRow}>
+          {jewel && <View style={styles.jewel} />}
+          <Text style={[styles.label, { color: textColor, fontSize: labelSize, letterSpacing: plateTracking(labelSize) * 0.55 }]}>
+            {label}
+          </Text>
+        </View>
       </LinearGradient>
     </View>
   );
@@ -122,6 +127,22 @@ const styles = StyleSheet.create({
   kicker: {
     fontFamily: fonts.plate,
     marginBottom: 2,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  jewel: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: amber.jewel,
+    shadowColor: amber.glow,
+    shadowOpacity: 0.95,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
   },
   label: {
     fontFamily: fonts.plate,

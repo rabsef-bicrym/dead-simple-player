@@ -588,6 +588,8 @@ export default function WatchScreen() {
               tuneTo(i);
               setHomeVisible(false);
             }}
+            nowPlayingMap={nowPlayingMap}
+            upNextMap={upNextMap}
             clockNow={clockNow}
           />
         )}
