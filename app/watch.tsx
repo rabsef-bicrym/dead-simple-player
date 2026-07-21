@@ -339,6 +339,9 @@ export default function WatchScreen() {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const onKey = (e: KeyboardEvent) => {
+      // While the notes are projected, the arrows belong to them —
+      // nothing should tune or wander beneath the reading.
+      if (detailProgramme && e.key.startsWith('Arrow')) return;
       if (boardVisible) {
         // At the board: left/right change the channel (the drums roll),
         // up/down walk the cursor through the evening (paging at the

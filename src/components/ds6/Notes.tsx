@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, useWindowDimensions } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, useWindowDimensions } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
@@ -50,6 +51,21 @@ function clockShort(d: Date): string {
 
 export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
   const { width, height } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
+  const offsetRef = useRef(0);
+
+  // ↓ READ ON, as the hint says — the arrows page the projection.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const onKey = (e: KeyboardEvent) => {
+      const step = e.key === 'ArrowDown' ? 160 : e.key === 'ArrowUp' ? -160 : 0;
+      if (!step) return;
+      offsetRef.current = Math.max(0, offsetRef.current + step);
+      scrollRef.current?.scrollTo({ y: offsetRef.current, animated: true });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const paragraphs = (programme.description ?? '')
     .split(/\n+/)
@@ -86,9 +102,14 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        onScroll={(e) => {
+          offsetRef.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={32}
       >
         <View style={styles.column} pointerEvents="box-none">
           {/* Header plate */}
@@ -115,7 +136,7 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
             <Text style={styles.body}>The library offers no notes for this programme.</Text>
           )}
 
-          <Text style={styles.hint}>N RETURNS TO THE PICTURE</Text>
+          <Text style={styles.hint}>↕ READ ON · N RETURNS TO THE PICTURE</Text>
         </View>
       </ScrollView>
 

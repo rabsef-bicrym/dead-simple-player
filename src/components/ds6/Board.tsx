@@ -172,31 +172,37 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
   const [ticks, setTicks] = useState(Number.MAX_SAFE_INTEGER);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Paging through the evening repositions the window plainly — and it
+  // must happen DURING render, not in an effect: an effect that only
+  // touches refs never re-paints, and the new row would wait for the
+  // next unrelated render to appear.
+  if (targetKey !== keyRef.current) {
+    const scrolled = scroll !== causeRef.current.scroll && boardIndex === causeRef.current.boardIndex;
+    if (scrolled) {
+      prevRef.current = target;
+      curRef.current = target;
+      keyRef.current = targetKey;
+      causeRef.current = { boardIndex, scroll };
+    }
+  }
+
   useEffect(() => {
     if (targetKey !== keyRef.current) {
-      const scrolled = scroll !== causeRef.current.scroll && boardIndex === causeRef.current.boardIndex;
-      if (scrolled) {
-        // Paging through the evening repositions the window plainly —
-        // the full cascade is saved for channel changes and the hour.
-        prevRef.current = target;
-        curRef.current = target;
-        setTicks(Number.MAX_SAFE_INTEGER);
-      } else {
-        prevRef.current = curRef.current;
-        curRef.current = target;
-        needRef.current = maxDrumNeed(prevRef.current, target);
-        setTicks(0);
-        if (timerRef.current) clearInterval(timerRef.current);
-        timerRef.current = setInterval(() => {
-          setTicks((t) => {
-            if (t + 1 >= needRef.current && timerRef.current) {
-              clearInterval(timerRef.current);
-              timerRef.current = null;
-            }
-            return t + 1;
-          });
-        }, STEP);
-      }
+      // The full cascade — saved for channel changes and the hour.
+      prevRef.current = curRef.current;
+      curRef.current = target;
+      needRef.current = maxDrumNeed(prevRef.current, target);
+      setTicks(0);
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        setTicks((t) => {
+          if (t + 1 >= needRef.current && timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          return t + 1;
+        });
+      }, STEP);
       keyRef.current = targetKey;
     }
     causeRef.current = { boardIndex, scroll };
