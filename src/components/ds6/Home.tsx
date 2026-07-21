@@ -272,9 +272,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.plate,
     fontWeight: '600',
     fontSize: 48,
-    // Roomy against the clamp — Besley's descenders reach below a tight
-    // line box and numberOfLines clips whatever hangs over.
+    // Besley's descenders reach below the last line box, and the clamp
+    // clips at the padding edge — so the padding is where they live.
     lineHeight: 62,
+    paddingBottom: 12,
     color: cream,
     marginTop: 16,
     textShadowColor: 'rgba(0,0,0,0.55)',

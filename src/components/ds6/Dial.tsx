@@ -36,10 +36,19 @@ export function Dial({ channels, selectedIndex, onSelect, onTune, size }: DialPr
   const s = size / REF;
   const c = size / 2;
   const pointer = useRef(new Animated.Value(angleFor(selectedIndex, channels.length) + 90)).current;
+  // Continuous pointer angle, so the needle always takes the short way
+  // round the dial — 1 to 7 is one click back, not a full revolution.
+  const angleRef = useRef(angleFor(selectedIndex, channels.length) + 90);
 
   useEffect(() => {
+    const target = angleFor(selectedIndex, channels.length) + 90;
+    const currentMod = ((angleRef.current % 360) + 360) % 360;
+    let delta = target - currentMod;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    angleRef.current += delta;
     Animated.timing(pointer, {
-      toValue: angleFor(selectedIndex, channels.length) + 90,
+      toValue: angleRef.current,
       duration: 320,
       easing: Easing.out(Easing.back(1.2)),
       useNativeDriver: true,

@@ -24,6 +24,7 @@ import { ChannelRow } from '../src/components/ChannelRow';
 import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
 import { Apron } from '../src/components/ds6/Apron';
 import { Home } from '../src/components/ds6/Home';
+import { Board } from '../src/components/ds6/Board';
 import { Platform } from 'react-native';
 import type { Channel, Programme } from '../src/types';
 
@@ -118,6 +119,9 @@ export default function WatchScreen() {
   const [flashVisible, setFlashVisible] = useState(false);
   const [homeVisible, setHomeVisible] = useState(false);
   const [dialIndex, setDialIndex] = useState(0);
+  const [boardVisible, setBoardVisible] = useState(false);
+  const [boardIndex, setBoardIndex] = useState(0);
+  const [boardScroll, setBoardScroll] = useState(0);
   const [detailProgramme, setDetailProgramme] = useState<Programme | null>(null);
 
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
@@ -209,8 +213,11 @@ export default function WatchScreen() {
     for (const ch of channels) {
       const prog = getNowPlaying(programmes, ch.id, clockNow);
       if (prog) nowMap.set(ch.id, prog);
-      const upcoming = getUpcoming(programmes, ch.id, 3, clockNow);
-      const strictlyNext = upcoming.find((p) => p.start.getTime() > clockNow.getTime());
+      const upcoming = getUpcoming(programmes, ch.id, 6, clockNow);
+      // "Then comes" should name the next real programme, not the glue.
+      const strictlyNext = upcoming.find(
+        (p) => p.start.getTime() > clockNow.getTime() && !/interstitial/i.test(p.title),
+      );
       if (strictlyNext) nextMap.set(ch.id, strictlyNext);
     }
     return { nowPlayingMap: nowMap, upNextMap: nextMap };
@@ -252,13 +259,23 @@ export default function WatchScreen() {
   const tuneTo = useCallback((index: number) => {
     setCurrentIndex(index);
     setHomeVisible(false);
+    setBoardVisible(false);
     flashChannel();
   }, [flashChannel]);
 
   /** Open the receiver home with the dial resting on the given station. */
   const openHome = useCallback((atIndex: number) => {
     setDialIndex(atIndex);
+    setBoardVisible(false);
     setHomeVisible(true);
+  }, []);
+
+  /** Open This Evening — the board — showing the given channel. */
+  const openBoard = useCallback((atIndex: number) => {
+    setBoardIndex(atIndex);
+    setBoardScroll(0);
+    setHomeVisible(false);
+    setBoardVisible(true);
   }, []);
 
   // Reset playback state on channel change; flash the channel bug.
@@ -335,6 +352,38 @@ export default function WatchScreen() {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const onKey = (e: KeyboardEvent) => {
+      if (boardVisible) {
+        // At the board: left/right change the channel (the drums roll),
+        // up/down page through the evening, Enter tunes, G returns.
+        switch (e.key) {
+          case 'ArrowRight':
+            setBoardIndex((i) => (i + 1) % channels.length);
+            setBoardScroll(0);
+            break;
+          case 'ArrowLeft':
+            setBoardIndex((i) => (i - 1 + channels.length) % channels.length);
+            setBoardScroll(0);
+            break;
+          case 'ArrowDown':
+            setBoardScroll((s) => Math.min(s + 1, 30));
+            break;
+          case 'ArrowUp':
+            setBoardScroll((s) => Math.max(s - 1, -8));
+            break;
+          case 'Enter':
+            tuneTo(boardIndex);
+            break;
+          case 'g':
+          case 'Escape':
+            setBoardVisible(false);
+            break;
+          case 'h':
+          case 'l':
+            openHome(boardIndex);
+            break;
+        }
+        return;
+      }
       if (homeVisible) {
         // At the receiver: arrows wind the dial, Enter tunes, Escape returns.
         switch (e.key) {
@@ -348,6 +397,9 @@ export default function WatchScreen() {
             break;
           case 'Enter':
             tuneTo(dialIndex);
+            break;
+          case 'g':
+            openBoard(dialIndex);
             break;
           case 'Escape':
             setHomeVisible(false);
@@ -366,10 +418,10 @@ export default function WatchScreen() {
         case 'i':
           showHud();
           break;
-        // G's true destination is This Evening (the board); until it is
-        // built, G brings the receiver so nothing dead-ends.
-        case 'l':
         case 'g':
+          openBoard(safeIndex);
+          break;
+        case 'l':
         case 'h':
           openHome(safeIndex);
           break;
@@ -384,7 +436,7 @@ export default function WatchScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme]);
+  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard]);
 
 
   // ── Playback plumbing (engine failover) ──
@@ -590,6 +642,21 @@ export default function WatchScreen() {
             }}
             nowPlayingMap={nowPlayingMap}
             upNextMap={upNextMap}
+            clockNow={clockNow}
+          />
+        )}
+
+        {/* ── THIS EVENING: the departure board — the picture's sound carries on beneath ── */}
+        {boardVisible && (
+          <Board
+            channels={channels}
+            boardIndex={boardIndex}
+            onSelectChannel={(i) => {
+              setBoardIndex(i);
+              setBoardScroll(0);
+            }}
+            programmes={programmes}
+            scroll={boardScroll}
             clockNow={clockNow}
           />
         )}
