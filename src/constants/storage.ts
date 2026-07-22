@@ -8,4 +8,8 @@ export const STORAGE_KEYS = {
   ACTIVE_SERVER_ID: '@ipswitch/active-server-id',
   /** Index of the last-watched channel — a TV remembers where it was */
   LAST_CHANNEL_INDEX: '@ipswitch/last-channel-index',
+  /** Tune-in plate dwell: 'brief' | 'six' (seconds on screen) */
+  FLASH_STYLE: '@ipswitch/flash-style',
+  /** '1' when the set is silent (no detent, no clatter) */
+  SOUND_MUTED: '@ipswitch/sound-muted',
 } as const;

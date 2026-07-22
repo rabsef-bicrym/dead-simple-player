@@ -3,7 +3,7 @@ import { Redirect } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../src/constants/storage';
-import { colors } from '../src/constants/theme';
+import { walnut, amber } from '../src/constants/ds6';
 
 /**
  * Entry point — checks for a saved active server config.
@@ -58,8 +58,8 @@ export default function Index() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
-        <ActivityIndicator size="large" color={colors.accent} />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: walnut.deep }}>
+        <ActivityIndicator size="large" color={amber.needle} />
       </View>
     );
   }

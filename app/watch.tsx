@@ -6,37 +6,42 @@ import {
   TouchableWithoutFeedback,
   TouchableOpacity,
   Animated,
-  ActivityIndicator,
-  FlatList,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-video';
-import { Ionicons } from '@expo/vector-icons';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
 import { fetchIptvData } from '../src/services/iptv';
-import { colors, fontSize, spacing, channelColor, serifFamily } from '../src/constants/theme';
 import { STORAGE_KEYS } from '../src/constants/storage';
-import { ChannelRow } from '../src/components/ChannelRow';
-import { ProgrammeDetailModal } from '../src/components/ProgrammeDetailModal';
+import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
+import { Apron } from '../src/components/ds6/Apron';
+import { Home } from '../src/components/ds6/Home';
+import { Board } from '../src/components/ds6/Board';
+import { Flash } from '../src/components/ds6/Flash';
+import { Notes } from '../src/components/ds6/Notes';
 import { Platform } from 'react-native';
 import type { Channel, Programme } from '../src/types';
 
 /**
- * The TV.
+ * The TV — a DS-6 receiver in walnut and brass.
  *
  * This is the whole app: it opens playing the last-watched channel,
- * full screen. Everything else is an overlay on the picture:
+ * full screen. Everything else is DS-6 furniture over the picture:
  *
- * - swipe up/down ... change channel (with a chunky identity flash)
- * - tap ............ lower-third HUD: what you're watching, progress
- * - swipe left ..... WHAT'S ON: every channel, one chunky row each
- * - long-press ..... programme notes (the library's essays)
+ * - swipe up/down ....... change channel (the stamped plate flashes)
+ * - tap / i ............. the resting apron: what's on, until when
+ * - Esc / h / swipe ◀ ... the receiver: the dial (kills the stream)
+ * - g / swipe ▶ ......... This Evening: the board (sound carries on)
+ * - n / long-press ...... programme notes, projected on the dimmed picture
  *
- * No home screen. No list-first funnel. Turn it on and it's on.
+ * On glass (phone, tablet) each surface's printed key legend doubles as
+ * its buttons: the ⏎ and G plates are tappable, the dial dots tune, the
+ * board's arrows roll the drums.
+ *
+ * No home-screen funnel. Turn it on and it's on.
  */
 
 const SWIPE_THRESHOLD = 70;
@@ -67,9 +72,6 @@ const WebVideo = (() => {
   }
 })() as ComponentType<any> | null;
 
-const serif = Platform.select(serifFamily);
-const grotesk = Platform.select({ ios: 'Helvetica Neue', default: 'sans-serif' });
-
 /** Determine which engine should be tried first (native handles HLS + PiP). */
 function resolvePrimaryEngine(vlcAvailable: boolean, streamUrl?: string): PlayerEngine {
   if (!vlcAvailable) return 'native';
@@ -90,18 +92,9 @@ function formatVideoError(errorData: OnVideoErrorData): string {
   );
 }
 
-function formatTimeRemaining(stop: Date): string | null {
-  const diffMs = stop.getTime() - Date.now();
-  if (diffMs <= 0) return null;
-  const mins = Math.ceil(diffMs / 60000);
-  if (mins < 60) return `${mins} min left`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m > 0 ? `${h}h ${m}m left` : `${h}h left`;
-}
-
 export default function WatchScreen() {
   const { activeConfig, loading: configLoading } = useServerConfig();
+  const { welcome } = useLocalSearchParams<{ welcome?: string }>();
   const isExpoGo = Constants.appOwnership === 'expo';
   const hasVlc = VLCPlayer !== null;
 
@@ -114,7 +107,13 @@ export default function WatchScreen() {
 
   const [hudVisible, setHudVisible] = useState(false);
   const [flashVisible, setFlashVisible] = useState(false);
-  const [whatsOnVisible, setWhatsOnVisible] = useState(false);
+  const [homeVisible, setHomeVisible] = useState(false);
+  const [dialIndex, setDialIndex] = useState(0);
+  const [boardVisible, setBoardVisible] = useState(false);
+  const [boardIndex, setBoardIndex] = useState(0);
+  const [boardScroll, setBoardScroll] = useState(0);
+  const [boardCursor, setBoardCursor] = useState(2);
+  const boardCursorProg = useRef<Programme | null>(null);
   const [detailProgramme, setDetailProgramme] = useState<Programme | null>(null);
 
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
@@ -187,7 +186,6 @@ export default function WatchScreen() {
 
   const safeIndex = channels.length > 0 ? Math.min(currentIndex, channels.length - 1) : 0;
   const currentChannel = channels[safeIndex];
-  const identity = currentChannel ? channelColor(currentChannel.number) : colors.accent;
 
   // ── Clock + EPG lookups ──
   useEffect(() => {
@@ -206,8 +204,11 @@ export default function WatchScreen() {
     for (const ch of channels) {
       const prog = getNowPlaying(programmes, ch.id, clockNow);
       if (prog) nowMap.set(ch.id, prog);
-      const upcoming = getUpcoming(programmes, ch.id, 3, clockNow);
-      const strictlyNext = upcoming.find((p) => p.start.getTime() > clockNow.getTime());
+      const upcoming = getUpcoming(programmes, ch.id, 6, clockNow);
+      // "Then comes" should name the next real programme, not the glue.
+      const strictlyNext = upcoming.find(
+        (p) => p.start.getTime() > clockNow.getTime() && !/interstitial/i.test(p.title),
+      );
       if (strictlyNext) nextMap.set(ch.id, strictlyNext);
     }
     return { nowPlayingMap: nowMap, upNextMap: nextMap };
@@ -235,6 +236,14 @@ export default function WatchScreen() {
     hudTimer.current = setTimeout(hideHud, HUD_HIDE_MS);
   }, [hudOpacity, hideHud]);
 
+  // The service panel's TUNE-IN PLATE card: brief, or a full six seconds.
+  const flashDwellMs = useRef(FLASH_HIDE_MS);
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.FLASH_STYLE)
+      .then((v) => { flashDwellMs.current = v === 'six' ? 6000 : FLASH_HIDE_MS; })
+      .catch(() => {});
+  }, []);
+
   const flashChannel = useCallback(() => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
     setFlashVisible(true);
@@ -242,15 +251,50 @@ export default function WatchScreen() {
     flashTimer.current = setTimeout(() => {
       Animated.timing(flashOpacity, { toValue: 0, duration: 400, useNativeDriver: true })
         .start(() => setFlashVisible(false));
-    }, FLASH_HIDE_MS);
+    }, flashDwellMs.current);
   }, [flashOpacity]);
 
   // ── Tuning ──
+  // Changing surface always dismisses the notes projection — otherwise
+  // it lingers over the new surface and every key looks dead beneath it.
   const tuneTo = useCallback((index: number) => {
     setCurrentIndex(index);
-    setWhatsOnVisible(false);
+    setHomeVisible(false);
+    setBoardVisible(false);
+    setDetailProgramme(null);
     flashChannel();
   }, [flashChannel]);
+
+  /** Open the receiver home with the dial resting on the given station. */
+  const openHome = useCallback((atIndex: number) => {
+    setDialIndex(atIndex);
+    setBoardVisible(false);
+    setDetailProgramme(null);
+    setHomeVisible(true);
+  }, []);
+
+  /** Open This Evening — the board — showing the given channel. */
+  const openBoard = useCallback((atIndex: number) => {
+    setBoardIndex(atIndex);
+    setBoardScroll(0);
+    setBoardCursor(2);
+    setHomeVisible(false);
+    setDetailProgramme(null);
+    setBoardVisible(true);
+  }, []);
+
+  // Arriving from the antenna terminals, the set presents its stations —
+  // the receiver, dial resting on the remembered channel — rather than
+  // blasting straight into a picture nobody chose. On the web the set
+  // always wakes this way: browsers refuse un-asked-for sound, and the
+  // first tap of the dial is exactly the asking.
+  const welcomed = useRef(false);
+  useEffect(() => {
+    if ((welcome === '1' || Platform.OS === 'web') && !welcomed.current && indexRestored && channels.length > 0) {
+      welcomed.current = true;
+      openHome(safeIndex);
+    }
+  }, [welcome, indexRestored, channels.length, safeIndex, openHome]);
 
   // Reset playback state on channel change; flash the channel bug.
   useEffect(() => {
@@ -294,12 +338,47 @@ export default function WatchScreen() {
   }, [buffering]);
 
   // ── Gestures ──
+  // Each surface owns the fingers on it — a swipe over the board must
+  // never tune the picture hiding underneath.
   const onGestureEvent = useCallback(({ nativeEvent }: any) => {
     if (nativeEvent.state !== State.END) return;
     const { translationX, translationY } = nativeEvent;
+    const horizontal = Math.abs(translationX) > Math.abs(translationY);
 
-    if (Math.abs(translationX) > Math.abs(translationY)) {
-      if (translationX < -SWIPE_THRESHOLD) setWhatsOnVisible(true);
+    // While the notes are projected, fingers belong to the reading.
+    if (detailProgramme) return;
+
+    if (boardVisible) {
+      // Sideways rolls the channel drums; vertical walks the cursor
+      // through the evening, paging at the edges — same as the arrows.
+      if (horizontal) {
+        if (Math.abs(translationX) < SWIPE_THRESHOLD) return;
+        const dir = translationX < 0 ? 1 : -1;
+        setBoardIndex((i) => (i + dir + channels.length) % channels.length);
+        setBoardScroll(0);
+        setBoardCursor(2);
+      } else if (translationY < -SWIPE_THRESHOLD) {
+        if (boardCursor < 7) setBoardCursor(boardCursor + 1);
+        else setBoardScroll((s) => Math.min(s + 1, 30));
+      } else if (translationY > SWIPE_THRESHOLD) {
+        if (boardCursor > 0) setBoardCursor(boardCursor - 1);
+        else setBoardScroll((s) => Math.max(s - 1, -8));
+      }
+      return;
+    }
+
+    if (homeVisible) {
+      // At the receiver: sideways winds the dial.
+      if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
+        const dir = translationX < 0 ? 1 : -1;
+        setDialIndex((i) => (i + dir + channels.length) % channels.length);
+      }
+      return;
+    }
+
+    if (horizontal) {
+      if (translationX < -SWIPE_THRESHOLD) openHome(safeIndex);
+      else if (translationX > SWIPE_THRESHOLD) openBoard(safeIndex);
       return;
     }
     if (translationY < -SWIPE_THRESHOLD && safeIndex < channels.length - 1) {
@@ -307,7 +386,7 @@ export default function WatchScreen() {
     } else if (translationY > SWIPE_THRESHOLD && safeIndex > 0) {
       tuneTo(safeIndex - 1);
     }
-  }, [safeIndex, channels.length, tuneTo]);
+  }, [safeIndex, channels.length, tuneTo, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard]);
 
   const handleTap = useCallback(() => {
     if (hudVisible) {
@@ -326,6 +405,74 @@ export default function WatchScreen() {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const onKey = (e: KeyboardEvent) => {
+      // While the notes are projected, the arrows belong to them —
+      // nothing should tune or wander beneath the reading.
+      if (detailProgramme && e.key.startsWith('Arrow')) return;
+      if (boardVisible) {
+        // At the board: left/right change the channel (the drums roll),
+        // up/down walk the cursor through the evening (paging at the
+        // edges), N reads the cursor's notes, Enter tunes, G returns.
+        switch (e.key) {
+          case 'ArrowRight':
+            setBoardIndex((i) => (i + 1) % channels.length);
+            setBoardScroll(0);
+            setBoardCursor(2);
+            break;
+          case 'ArrowLeft':
+            setBoardIndex((i) => (i - 1 + channels.length) % channels.length);
+            setBoardScroll(0);
+            setBoardCursor(2);
+            break;
+          case 'ArrowDown':
+            if (boardCursor < 7) setBoardCursor(boardCursor + 1);
+            else setBoardScroll((s) => Math.min(s + 1, 30));
+            break;
+          case 'ArrowUp':
+            if (boardCursor > 0) setBoardCursor(boardCursor - 1);
+            else setBoardScroll((s) => Math.max(s - 1, -8));
+            break;
+          case 'n':
+            if (detailProgramme) setDetailProgramme(null);
+            else if (boardCursorProg.current) setDetailProgramme(boardCursorProg.current);
+            break;
+          case 'Enter':
+            tuneTo(boardIndex);
+            break;
+          case 'g':
+          case 'Escape':
+            if (detailProgramme) setDetailProgramme(null);
+            else setBoardVisible(false);
+            break;
+          case 'h':
+          case 'l':
+            openHome(boardIndex);
+            break;
+        }
+        return;
+      }
+      if (homeVisible) {
+        // At the receiver: arrows wind the dial, Enter tunes, Escape returns.
+        switch (e.key) {
+          case 'ArrowRight':
+          case 'ArrowDown':
+            setDialIndex((i) => (i + 1) % channels.length);
+            break;
+          case 'ArrowLeft':
+          case 'ArrowUp':
+            setDialIndex((i) => (i - 1 + channels.length) % channels.length);
+            break;
+          case 'Enter':
+            tuneTo(dialIndex);
+            break;
+          case 'g':
+            openBoard(dialIndex);
+            break;
+          case 'Escape':
+            setHomeVisible(false);
+            break;
+        }
+        return;
+      }
       switch (e.key) {
         case 'ArrowUp':
           if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1);
@@ -335,25 +482,29 @@ export default function WatchScreen() {
           break;
         case 'Enter':
         case 'i':
-          setWhatsOnVisible(false);
           showHud();
           break;
-        case 'l':
         case 'g':
-          setWhatsOnVisible((v) => !v);
+          openBoard(safeIndex);
+          break;
+        case 'l':
+        case 'h':
+          openHome(safeIndex);
           break;
         case 'n':
-          openNotes();
+          // N returns to the picture, as the projection promises.
+          if (detailProgramme) setDetailProgramme(null);
+          else openNotes();
           break;
         case 'Escape':
-          setWhatsOnVisible(false);
-          setDetailProgramme(null);
+          if (detailProgramme) setDetailProgramme(null);
+          else openHome(safeIndex);
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [safeIndex, channels.length, tuneTo, showHud, openNotes]);
+  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor]);
 
 
   // ── Playback plumbing (engine failover) ──
@@ -413,7 +564,8 @@ export default function WatchScreen() {
   if (configLoading || dataLoading || !indexRestored) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.accent} />
+        <View style={styles.momentJewel} />
+        <Text style={styles.momentText}>WARMING UP</Text>
       </View>
     );
   }
@@ -421,18 +573,19 @@ export default function WatchScreen() {
   if (dataError || !currentChannel) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>{dataError ?? 'No channels found'}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={loadData}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/settings')}>
-          <Text style={styles.secondaryAction}>Settings</Text>
-        </TouchableOpacity>
+        <Text style={styles.difficultyKicker}>THE RECEIVER CANNOT FIND ITS STATIONS</Text>
+        <Text style={styles.difficultyDetail}>{dataError ?? 'No channels found'}</Text>
+        <View style={styles.serviceRow}>
+          <TouchableOpacity style={styles.servicePlate} onPress={loadData}>
+            <Text style={styles.servicePlateText}>TRY AGAIN</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.servicePlate} onPress={() => router.push('/settings')}>
+            <Text style={styles.servicePlateText}>SERVICE PANEL</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
-
-  const timeLeft = nowPlaying ? formatTimeRemaining(nowPlaying.stop) : null;
 
   return (
     <PanGestureHandler
@@ -443,8 +596,8 @@ export default function WatchScreen() {
       <View style={styles.container}>
         <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
           <View style={styles.container}>
-            {/* ── The picture ── */}
-            {WebVideo ? (
+            {/* ── The picture (dark while the receiver is showing) ── */}
+            {homeVisible ? null : WebVideo ? (
               <WebVideo
                 key={`web:${reloadNonce}:${currentChannel.streamUrl}`}
                 streamUrl={currentChannel.streamUrl}
@@ -454,7 +607,7 @@ export default function WatchScreen() {
               />
             ) : isExpoGo ? (
               <View style={styles.center}>
-                <Text style={styles.errorText}>
+                <Text style={styles.difficultyDetail}>
                   Playback requires a development build (Expo Go lacks the native player).
                 </Text>
               </View>
@@ -507,132 +660,84 @@ export default function WatchScreen() {
             )}
 
             {showBufferingOverlay && (
-              <View style={styles.bufferingOverlay} pointerEvents="none">
-                <ActivityIndicator size="large" color={colors.text} />
+              <View style={styles.moment} pointerEvents="none">
+                <View style={styles.momentJewel} />
+                <Text style={styles.momentText}>A MOMENT, PLEASE</Text>
               </View>
             )}
 
             {playerError && (
-              <View style={styles.playerErrorPill} pointerEvents="none">
-                <Text style={styles.playerErrorText}>{playerError}</Text>
+              <View style={styles.difficulty} pointerEvents="none">
+                <Text style={styles.difficultyKicker}>THE PICTURE IS HAVING DIFFICULTY</Text>
+                <Text style={styles.difficultyDetail} numberOfLines={2}>{playerError}</Text>
               </View>
             )}
 
-            {/* ── Channel flash: the chunky channel bug ── */}
+            {/* ── Tune-in: the stamped channel plate flashes, then fades ── */}
             {flashVisible && (
-              <Animated.View
-                style={[styles.flash, { opacity: flashOpacity, borderLeftColor: identity }]}
-                pointerEvents="none"
-              >
-                <Text style={[styles.flashNumber, { color: identity }]}>
-                  {currentChannel.number}
-                </Text>
-                <View style={styles.flashText}>
-                  <Text style={styles.flashName}>{currentChannel.name.toUpperCase()}</Text>
-                  {nowPlaying && (
-                    <Text style={styles.flashTitle} numberOfLines={1}>
-                      {nowPlaying.title}
-                    </Text>
-                  )}
-                </View>
+              <Animated.View style={[StyleSheet.absoluteFill, { opacity: flashOpacity }]} pointerEvents="none">
+                <Flash channel={currentChannel} nowPlaying={nowPlaying} />
               </Animated.View>
             )}
 
-            {/* ── HUD: the lower third ── */}
+            {/* ── HUD: the resting apron — the walnut shelf under the picture ── */}
             {hudVisible && (
               <Animated.View style={[styles.hud, { opacity: hudOpacity }]}>
-                <View style={[styles.hudBand, { borderTopColor: identity }]}>
-                  <View style={styles.hudChannelLine}>
-                    <View style={[styles.hudBadge, { borderColor: identity }]}>
-                      <Text style={[styles.hudBadgeText, { color: identity }]}>
-                        {currentChannel.number}
-                      </Text>
-                    </View>
-                    <Text style={[styles.hudChannelName, { color: identity }]}>
-                      {currentChannel.name.toUpperCase()}
-                    </Text>
-                    {timeLeft && <Text style={styles.hudTimeLeft}>{timeLeft}</Text>}
-                  </View>
-
-                  {nowPlaying ? (
-                    <>
-                      <Text style={styles.hudTitle} numberOfLines={2}>
-                        {nowPlaying.title}
-                        {nowPlaying.subtitle ? (
-                          <Text style={styles.hudSubtitle}> — {nowPlaying.subtitle}</Text>
-                        ) : null}
-                      </Text>
-                      <View style={styles.hudProgressTrack}>
-                        <View
-                          style={[
-                            styles.hudProgressFill,
-                            { width: `${progress * 100}%`, backgroundColor: identity },
-                          ]}
-                        />
-                      </View>
-                    </>
-                  ) : (
-                    <Text style={styles.hudTitle}>No listing</Text>
-                  )}
-
-                  <View style={styles.hudActions}>
-                    <TouchableOpacity style={styles.hudAction} onPress={() => setWhatsOnVisible(true)}>
-                      <Ionicons name="list" size={18} color={colors.text} />
-                      <Text style={styles.hudActionText}>What's On</Text>
-                    </TouchableOpacity>
-                    {nowPlaying?.description && (
-                      <TouchableOpacity style={styles.hudAction} onPress={openNotes}>
-                        <Ionicons name="reader-outline" size={18} color={colors.text} />
-                        <Text style={styles.hudActionText}>Notes</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
+                <Apron channel={currentChannel} nowPlaying={nowPlaying} clockNow={clockNow} />
               </Animated.View>
             )}
           </View>
         </TouchableWithoutFeedback>
 
-        {/* ── WHAT'S ON: the one overlay that replaces everything ── */}
-        {whatsOnVisible && (
-          <View style={styles.whatsOn}>
-            <View style={styles.whatsOnHeader}>
-              <Text style={styles.whatsOnTitle}>WHAT'S ON</Text>
-              <TouchableOpacity
-                onPress={() => router.push('/settings')}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="settings-outline" size={20} color={colors.textMuted} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setWhatsOnVisible(false)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close" size={24} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={channels}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item, index }) => (
-                <ChannelRow
-                  channel={item}
-                  nowPlaying={nowPlayingMap.get(item.id)}
-                  upNext={upNextMap.get(item.id)}
-                  onPress={() => tuneTo(index)}
-                  onNowPlayingPress={setDetailProgramme}
-                />
-              )}
-              contentContainerStyle={styles.whatsOnList}
-            />
-          </View>
+        {/* ── HOME: the receiver — dial, plates, service rail ── */}
+        {homeVisible && (
+          <Home
+            channels={channels}
+            selectedIndex={dialIndex}
+            onSelect={setDialIndex}
+            onTune={(i) => {
+              tuneTo(i);
+              setHomeVisible(false);
+            }}
+            onBoard={() => openBoard(dialIndex)}
+            onPower={() => setHomeVisible(false)}
+            onNotes={setDetailProgramme}
+            nowPlayingMap={nowPlayingMap}
+            upNextMap={upNextMap}
+            clockNow={clockNow}
+          />
         )}
 
-        <ProgrammeDetailModal
-          programme={detailProgramme}
-          visible={detailProgramme !== null}
-          onClose={() => setDetailProgramme(null)}
-        />
+        {/* ── THIS EVENING: the departure board — the picture's sound carries on beneath ── */}
+        {boardVisible && (
+          <Board
+            channels={channels}
+            boardIndex={boardIndex}
+            onSelectChannel={(i) => {
+              setBoardIndex(i);
+              setBoardScroll(0);
+              setBoardCursor(2);
+            }}
+            programmes={programmes}
+            scroll={boardScroll}
+            cursor={boardCursor}
+            cursorProgRef={boardCursorProg}
+            onNotes={setDetailProgramme}
+            onTune={() => tuneTo(boardIndex)}
+            onClose={() => setBoardVisible(false)}
+            clockNow={clockNow}
+          />
+        )}
+
+        {/* ── PROGRAMME NOTES: the NFO, projected on the dimmed picture ── */}
+        {detailProgramme && (
+          <Notes
+            programme={detailProgramme}
+            channel={channels.find((c) => c.id === detailProgramme.channelId)}
+            clockNow={clockNow}
+            onClose={() => setDetailProgramme(null)}
+          />
+        )}
       </View>
     </PanGestureHandler>
   );
@@ -645,202 +750,89 @@ const styles = StyleSheet.create({
   },
   center: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: walnut.deep,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.xxl,
-    gap: spacing.lg,
+    padding: 40,
+    gap: 16,
   },
   video: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
   },
-  errorText: {
-    color: colors.error,
-    fontSize: fontSize.md,
-    textAlign: 'center',
-  },
-  retryButton: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: 10,
-  },
-  retryText: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '600',
-  },
-  secondaryAction: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-  },
-  bufferingOverlay: {
+
+  // ── A moment, please — the receiver gathering itself ──
+  moment: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 12,
   },
-  playerErrorPill: {
+  momentJewel: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: amber.jewel,
+    shadowColor: amber.glow,
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+  momentText: {
+    fontFamily: fonts.plate,
+    fontSize: 10,
+    letterSpacing: 4,
+    color: brass.mid,
+  },
+
+  // ── Difficulty — spoken plainly, in the house voice ──
+  difficulty: {
     position: 'absolute',
-    left: spacing.xl,
-    right: spacing.xl,
-    bottom: 110,
-    backgroundColor: 'rgba(0,0,0,0.9)',
-    borderLeftWidth: 3,
-    borderLeftColor: colors.error,
-    padding: spacing.md,
+    left: 40,
+    right: 40,
+    bottom: 60,
+    alignItems: 'center',
+    gap: 8,
   },
-  playerErrorText: {
-    color: colors.error,
-    fontSize: fontSize.sm,
+  difficultyKicker: {
+    fontFamily: fonts.plate,
+    fontSize: 10,
+    letterSpacing: 3.2,
+    color: brass.light,
     textAlign: 'center',
   },
-
-  // ── Channel flash: Swiss — flat black, hard edges, huge numeral ──
-  flash: {
-    position: 'absolute',
-    left: 0,
-    top: 48,
+  difficultyDetail: {
+    fontFamily: fonts.speech,
+    fontSize: 13,
+    color: brass.muted,
+    textAlign: 'center',
+  },
+  serviceRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#000',
-    borderLeftWidth: 6,
-    paddingVertical: spacing.lg,
-    paddingLeft: spacing.xl,
-    paddingRight: spacing.xxl,
-    gap: spacing.xl,
-    maxWidth: '85%',
+    gap: 16,
+    marginTop: 10,
   },
-  flashNumber: {
-    fontFamily: grotesk,
-    fontSize: 72,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-    lineHeight: 74,
+  servicePlate: {
+    backgroundColor: walnut.raised,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    borderRadius: 3,
+    paddingVertical: 9,
+    paddingHorizontal: 22,
   },
-  flashText: {
-    flexShrink: 1,
-  },
-  flashName: {
-    color: colors.text,
-    fontFamily: grotesk,
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-    letterSpacing: 3,
-  },
-  flashTitle: {
-    color: colors.textSecondary,
-    fontFamily: grotesk,
-    fontSize: fontSize.md,
-    marginTop: 4,
+  servicePlateText: {
+    fontFamily: fonts.plate,
+    fontSize: 10,
+    letterSpacing: 2.6,
+    color: cream,
   },
 
-  // ── HUD ──
+  // ── HUD anchor — the apron rides the bottom edge ──
   hud: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-  },
-  hudBand: {
-    backgroundColor: 'rgba(0,0,0,0.92)',
-    borderTopWidth: 2,
-    paddingTop: spacing.xl,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: 40,
-  },
-  hudChannelLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  hudBadge: {
-    minWidth: 36,
-    height: 36,
-    borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-  },
-  hudBadgeText: {
-    fontFamily: grotesk,
-    fontSize: fontSize.lg,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  hudChannelName: {
-    flex: 1,
-    fontFamily: grotesk,
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-    letterSpacing: 3,
-  },
-  hudTimeLeft: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    fontVariant: ['tabular-nums'],
-  },
-  hudTitle: {
-    color: colors.text,
-    fontFamily: grotesk,
-    fontSize: fontSize.xxl,
-    fontWeight: '700',
-    lineHeight: 38,
-    letterSpacing: -0.5,
-    marginTop: spacing.md,
-  },
-  hudSubtitle: {
-    color: colors.textSecondary,
-    fontWeight: '400',
-  },
-  hudProgressTrack: {
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    marginTop: spacing.lg,
-  },
-  hudProgressFill: {
-    height: 3,
-  },
-  hudActions: {
-    flexDirection: 'row',
-    gap: spacing.xl,
-    marginTop: spacing.lg,
-  },
-  hudAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  hudActionText: {
-    color: colors.text,
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-  },
-
-  // ── WHAT'S ON overlay ──
-  whatsOn: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(6,6,9,0.96)',
-  },
-  whatsOnHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 56,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.md,
-    gap: spacing.xl,
-  },
-  whatsOnTitle: {
-    flex: 1,
-    color: colors.text,
-    fontFamily: grotesk,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-    letterSpacing: 4,
-  },
-  whatsOnList: {
-    paddingBottom: 48,
   },
 });

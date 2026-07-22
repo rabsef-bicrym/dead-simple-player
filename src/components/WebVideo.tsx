@@ -141,7 +141,7 @@ export function WebVideo({ streamUrl, onStarted, onProgress, onError }: WebVideo
             pointerEvents: 'none',
           }}
         >
-          CLICK FOR SOUND
+          {typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? 'TAP FOR SOUND' : 'CLICK FOR SOUND'}
         </div>
       )}
     </>
