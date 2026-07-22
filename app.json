@@ -39,7 +39,12 @@
       "package": "com.anonymous.ipswitch"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "name": "DS,P",
+      "shortName": "DS,P",
+      "themeColor": "#120a05",
+      "backgroundColor": "#120a05"
     },
     "plugins": [
       "expo-router",

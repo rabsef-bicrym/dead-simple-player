@@ -31,11 +31,15 @@ import type { Channel, Programme } from '../src/types';
  * This is the whole app: it opens playing the last-watched channel,
  * full screen. Everything else is DS-6 furniture over the picture:
  *
- * - swipe up/down ... change channel (the stamped plate flashes)
- * - tap / i ........ the resting apron: what's on, until when
- * - Esc / h ........ the receiver: the dial (kills the stream)
- * - g .............. This Evening: the split-flap board (sound carries on)
- * - n / long-press . programme notes, projected on the dimmed picture
+ * - swipe up/down ....... change channel (the stamped plate flashes)
+ * - tap / i ............. the resting apron: what's on, until when
+ * - Esc / h / swipe ◀ ... the receiver: the dial (kills the stream)
+ * - g / swipe ▶ ......... This Evening: the board (sound carries on)
+ * - n / long-press ...... programme notes, projected on the dimmed picture
+ *
+ * On glass (phone, tablet) each surface's printed key legend doubles as
+ * its buttons: the ⏎ and G plates are tappable, the dial dots tune, the
+ * board's arrows roll the drums.
  *
  * No home-screen funnel. Turn it on and it's on.
  */
@@ -281,10 +285,12 @@ export default function WatchScreen() {
 
   // Arriving from the antenna terminals, the set presents its stations —
   // the receiver, dial resting on the remembered channel — rather than
-  // blasting straight into a picture nobody chose.
+  // blasting straight into a picture nobody chose. On the web the set
+  // always wakes this way: browsers refuse un-asked-for sound, and the
+  // first tap of the dial is exactly the asking.
   const welcomed = useRef(false);
   useEffect(() => {
-    if (welcome === '1' && !welcomed.current && indexRestored && channels.length > 0) {
+    if ((welcome === '1' || Platform.OS === 'web') && !welcomed.current && indexRestored && channels.length > 0) {
       welcomed.current = true;
       openHome(safeIndex);
     }
@@ -332,12 +338,47 @@ export default function WatchScreen() {
   }, [buffering]);
 
   // ── Gestures ──
+  // Each surface owns the fingers on it — a swipe over the board must
+  // never tune the picture hiding underneath.
   const onGestureEvent = useCallback(({ nativeEvent }: any) => {
     if (nativeEvent.state !== State.END) return;
     const { translationX, translationY } = nativeEvent;
+    const horizontal = Math.abs(translationX) > Math.abs(translationY);
 
-    if (Math.abs(translationX) > Math.abs(translationY)) {
+    // While the notes are projected, fingers belong to the reading.
+    if (detailProgramme) return;
+
+    if (boardVisible) {
+      // Sideways rolls the channel drums; vertical walks the cursor
+      // through the evening, paging at the edges — same as the arrows.
+      if (horizontal) {
+        if (Math.abs(translationX) < SWIPE_THRESHOLD) return;
+        const dir = translationX < 0 ? 1 : -1;
+        setBoardIndex((i) => (i + dir + channels.length) % channels.length);
+        setBoardScroll(0);
+        setBoardCursor(2);
+      } else if (translationY < -SWIPE_THRESHOLD) {
+        if (boardCursor < 7) setBoardCursor(boardCursor + 1);
+        else setBoardScroll((s) => Math.min(s + 1, 30));
+      } else if (translationY > SWIPE_THRESHOLD) {
+        if (boardCursor > 0) setBoardCursor(boardCursor - 1);
+        else setBoardScroll((s) => Math.max(s - 1, -8));
+      }
+      return;
+    }
+
+    if (homeVisible) {
+      // At the receiver: sideways winds the dial.
+      if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
+        const dir = translationX < 0 ? 1 : -1;
+        setDialIndex((i) => (i + dir + channels.length) % channels.length);
+      }
+      return;
+    }
+
+    if (horizontal) {
       if (translationX < -SWIPE_THRESHOLD) openHome(safeIndex);
+      else if (translationX > SWIPE_THRESHOLD) openBoard(safeIndex);
       return;
     }
     if (translationY < -SWIPE_THRESHOLD && safeIndex < channels.length - 1) {
@@ -345,7 +386,7 @@ export default function WatchScreen() {
     } else if (translationY > SWIPE_THRESHOLD && safeIndex > 0) {
       tuneTo(safeIndex - 1);
     }
-  }, [safeIndex, channels.length, tuneTo]);
+  }, [safeIndex, channels.length, tuneTo, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard]);
 
   const handleTap = useCallback(() => {
     if (hudVisible) {
@@ -658,6 +699,9 @@ export default function WatchScreen() {
               tuneTo(i);
               setHomeVisible(false);
             }}
+            onBoard={() => openBoard(dialIndex)}
+            onPower={() => setHomeVisible(false)}
+            onNotes={setDetailProgramme}
             nowPlayingMap={nowPlayingMap}
             upNextMap={upNextMap}
             clockNow={clockNow}
@@ -679,6 +723,8 @@ export default function WatchScreen() {
             cursor={boardCursor}
             cursorProgRef={boardCursorProg}
             onNotes={setDetailProgramme}
+            onTune={() => tuneTo(boardIndex)}
+            onClose={() => setBoardVisible(false)}
             clockNow={clockNow}
           />
         )}

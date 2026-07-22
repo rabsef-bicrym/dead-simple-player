@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, Image, StyleSheet, Animated, useWindowDimensions } from 'react-native';
+import { View, Text, Image, StyleSheet, Animated, Pressable, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Defs, Line, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { walnut, brass, amber, cream, fonts, plateTracking } from '../../constants/ds6';
 import { Plate } from './Plate';
@@ -23,6 +23,12 @@ interface HomeProps {
   selectedIndex: number;
   onSelect: (index: number) => void;
   onTune: (index: number) => void;
+  /** Open This Evening — the G plate on the rail, tapped. */
+  onBoard?: () => void;
+  /** Back to the picture — the power jewel, tapped. */
+  onPower?: () => void;
+  /** Project the notes for a programme — the panel, tapped. */
+  onNotes?: (programme: Programme) => void;
   nowPlayingMap: Map<string, Programme>;
   upNextMap: Map<string, Programme>;
   clockNow: Date;
@@ -55,7 +61,7 @@ function ArtFrame({ channel, art }: { channel: Channel; art?: string }) {
   );
 }
 
-export function Home({ channels, selectedIndex, onSelect, onTune, nowPlayingMap, upNextMap, clockNow }: HomeProps) {
+export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPower, onNotes, nowPlayingMap, upNextMap, clockNow }: HomeProps) {
   const { width, height } = useWindowDimensions();
   const panelOpacity = useRef(new Animated.Value(1)).current;
 
@@ -132,7 +138,7 @@ export function Home({ channels, selectedIndex, onSelect, onTune, nowPlayingMap,
 
         <Animated.View style={[styles.panel, { opacity: panelOpacity }]}>
           {selected && (
-            <>
+            <Pressable onPress={() => now && onNotes?.(now)}>
               <View style={styles.panelHeader}>
                 <Plate jewel label={`NOW ON THE AIR — CHANNEL ${selected.number}`} labelSize={11} />
               </View>
@@ -158,7 +164,7 @@ export function Home({ channels, selectedIndex, onSelect, onTune, nowPlayingMap,
                   Then comes <Text style={styles.panelThenTitle}>{next.title}</Text>, at {timeToProse(next.start)}.
                 </Text>
               )}
-            </>
+            </Pressable>
           )}
         </Animated.View>
       </View>
@@ -175,20 +181,20 @@ export function Home({ channels, selectedIndex, onSelect, onTune, nowPlayingMap,
             <Plate label="◀ ▶" compact labelSize={10} />
             <Text style={styles.hintText}>TUNE</Text>
           </View>
-          <View style={styles.hint}>
+          <Pressable style={styles.hint} onPress={() => onTune(selectedIndex)}>
             <Plate label="⏎" compact labelSize={10} />
             <Text style={styles.hintText}>WATCH</Text>
-          </View>
-          <View style={styles.hint}>
+          </Pressable>
+          <Pressable style={styles.hint} onPress={onBoard}>
             <Plate label="G" compact labelSize={10} />
             <Text style={styles.hintText}>THIS EVENING</Text>
-          </View>
+          </Pressable>
         </View>
         <View style={styles.clockSide}>
-          <View style={styles.power}>
+          <Pressable style={styles.power} onPress={onPower}>
             <View style={styles.jewel} />
             <Text style={styles.hintText}>POWER</Text>
-          </View>
+          </Pressable>
           <FlipClock date={clockNow} />
         </View>
       </View>

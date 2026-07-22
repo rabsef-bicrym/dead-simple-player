@@ -135,10 +135,14 @@ interface BoardProps {
   /** The receiver reads the cursor's programme from here when N is pressed. */
   cursorProgRef: MutableRefObject<Programme | null>;
   onNotes: (p: Programme) => void;
+  /** Tune to the board's channel — the ⏎ plate in the footer, tapped. */
+  onTune?: () => void;
+  /** Fold the board away — the G plate in the footer, tapped. */
+  onClose?: () => void;
   clockNow: Date;
 }
 
-export function Board({ channels, boardIndex, onSelectChannel, programmes, scroll, cursor, cursorProgRef, onNotes, clockNow }: BoardProps) {
+export function Board({ channels, boardIndex, onSelectChannel, programmes, scroll, cursor, cursorProgRef, onNotes, onTune, onClose, clockNow }: BoardProps) {
   const { width, height } = useWindowDimensions();
 
   const channel = channels[boardIndex];
@@ -250,7 +254,9 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
 
       {/* Channel tabs */}
       <View style={styles.tabs}>
-        <Text style={styles.tabArrow}>◀</Text>
+        <Pressable onPress={() => onSelectChannel((boardIndex - 1 + channels.length) % channels.length)} hitSlop={10}>
+          <Text style={styles.tabArrow}>◀</Text>
+        </Pressable>
         {channels.map((ch, i) => {
           const active = i === boardIndex;
           return (
@@ -268,7 +274,9 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
             </Pressable>
           );
         })}
-        <Text style={styles.tabArrow}>▶</Text>
+        <Pressable onPress={() => onSelectChannel((boardIndex + 1) % channels.length)} hitSlop={10}>
+          <Text style={styles.tabArrow}>▶</Text>
+        </Pressable>
         <Text style={styles.tabHint}>◀ ▶ CHANGES THE CHANNEL</Text>
       </View>
 
@@ -347,18 +355,18 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
           <Plate label="↕" compact labelSize={10} />
           <Text style={styles.hintText}>THROUGH THE EVENING</Text>
         </View>
-        <View style={styles.hint}>
+        <Pressable style={styles.hint} onPress={onTune}>
           <Plate label="⏎" compact labelSize={10} />
           <Text style={styles.hintText}>TUNE</Text>
-        </View>
+        </Pressable>
         <View style={styles.hint}>
           <Plate label="N" compact labelSize={10} />
           <Text style={styles.hintText}>NOTES</Text>
         </View>
-        <View style={styles.hint}>
+        <Pressable style={styles.hint} onPress={onClose}>
           <Plate label="G" compact labelSize={10} />
           <Text style={styles.hintText}>RETURN</Text>
-        </View>
+        </Pressable>
         <Text style={styles.footNote}>the board advances itself when the hour does</Text>
       </View>
     </View>
