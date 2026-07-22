@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Animated,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-video';
@@ -90,6 +90,7 @@ function formatVideoError(errorData: OnVideoErrorData): string {
 
 export default function WatchScreen() {
   const { activeConfig, loading: configLoading } = useServerConfig();
+  const { welcome } = useLocalSearchParams<{ welcome?: string }>();
   const isExpoGo = Constants.appOwnership === 'expo';
   const hasVlc = VLCPlayer !== null;
 
@@ -277,6 +278,17 @@ export default function WatchScreen() {
     setDetailProgramme(null);
     setBoardVisible(true);
   }, []);
+
+  // Arriving from the antenna terminals, the set presents its stations —
+  // the receiver, dial resting on the remembered channel — rather than
+  // blasting straight into a picture nobody chose.
+  const welcomed = useRef(false);
+  useEffect(() => {
+    if (welcome === '1' && !welcomed.current && indexRestored && channels.length > 0) {
+      welcomed.current = true;
+      openHome(safeIndex);
+    }
+  }, [welcome, indexRestored, channels.length, safeIndex, openHome]);
 
   // Reset playback state on channel change; flash the channel bug.
   useEffect(() => {

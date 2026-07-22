@@ -53,7 +53,7 @@ export default function SetupScreen() {
       await addServer(serverName, trimmedHost, portNum);
       // The lamp warms when the set finds it — let it be seen warming.
       setLampLit(true);
-      setTimeout(() => router.replace('/watch'), 700);
+      setTimeout(() => router.replace('/watch?welcome=1'), 700);
     } catch (error) {
       setDifficulty(
         error instanceof Error
@@ -67,7 +67,7 @@ export default function SetupScreen() {
   const handleSelectServer = useCallback(
     async (server: SavedServer) => {
       await setActiveServer(server.id);
-      router.replace('/watch');
+      router.replace('/watch?welcome=1');
     },
     [setActiveServer],
   );
