@@ -250,10 +250,13 @@ export default function WatchScreen() {
   }, [flashOpacity]);
 
   // ── Tuning ──
+  // Changing surface always dismisses the notes projection — otherwise
+  // it lingers over the new surface and every key looks dead beneath it.
   const tuneTo = useCallback((index: number) => {
     setCurrentIndex(index);
     setHomeVisible(false);
     setBoardVisible(false);
+    setDetailProgramme(null);
     flashChannel();
   }, [flashChannel]);
 
@@ -261,6 +264,7 @@ export default function WatchScreen() {
   const openHome = useCallback((atIndex: number) => {
     setDialIndex(atIndex);
     setBoardVisible(false);
+    setDetailProgramme(null);
     setHomeVisible(true);
   }, []);
 
@@ -270,6 +274,7 @@ export default function WatchScreen() {
     setBoardScroll(0);
     setBoardCursor(2);
     setHomeVisible(false);
+    setDetailProgramme(null);
     setBoardVisible(true);
   }, []);
 
