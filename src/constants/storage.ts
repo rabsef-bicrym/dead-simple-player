@@ -12,4 +12,8 @@ export const STORAGE_KEYS = {
   FLASH_STYLE: '@ipswitch/flash-style',
   /** '1' when the set is silent (no detent, no clatter) */
   SOUND_MUTED: '@ipswitch/sound-muted',
+  /** What upright shows while watching: 'shift' (column shift) | 'picture' (the reading orientation) */
+  UPRIGHT_MODE: '@ipswitch/upright-mode',
+  /** Sign-off tone: 'soft' (1 kHz, softly) | 'silent' */
+  SIGNOFF_TONE: '@ipswitch/signoff-tone',
 } as const;

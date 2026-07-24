@@ -58,3 +58,41 @@ export function playSound(name: SoundName): void {
     .then((sound) => sound.replayAsync({ volume: VOLUMES[name] }))
     .catch(() => {});
 }
+
+// The sign-off tone — softly, 1 kHz, the way a station left the air.
+let signoffTone: 'soft' | 'silent' = 'soft';
+AsyncStorage.getItem(STORAGE_KEYS.SIGNOFF_TONE)
+  .then((v) => { if (v === 'silent') signoffTone = 'silent'; })
+  .catch(() => {});
+
+export function setSignoffTone(next: 'soft' | 'silent'): void {
+  signoffTone = next;
+  AsyncStorage.setItem(STORAGE_KEYS.SIGNOFF_TONE, next).catch(() => {});
+}
+
+export function getSignoffTone(): 'soft' | 'silent' {
+  return signoffTone;
+}
+
+/** A breath of 1 kHz sine, fading out — web only; silence elsewhere. */
+export function playSignoffTone(): void {
+  if (muted || signoffTone === 'silent') return;
+  try {
+    const Ctx = (globalThis as any).AudioContext ?? (globalThis as any).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 1000;
+    gain.gain.setValueAtTime(0.045, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.6);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 1.7);
+    osc.onended = () => { ctx.close().catch(() => {}); };
+  } catch {
+    /* the night ends silently */
+  }
+}

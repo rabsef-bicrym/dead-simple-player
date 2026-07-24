@@ -86,6 +86,65 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
       ? `airs at ${timeToProse(programme.start)}`
       : 'previously aired';
 
+  // The traveling set, on its side (9g): the projection splits into a
+  // left column — plate, title, provenance — and a right pane where the
+  // essay reads; a hairline rule stands between them.
+  const phoneLandscape = Math.min(width, height) < 500 && width > height;
+
+  if (phoneLandscape) {
+    return (
+      <View style={StyleSheet.absoluteFill}>
+        <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
+          <Defs>
+            <RadialGradient id="notesDimM" cx="50%" cy="45%" rx="85%" ry="100%">
+              <Stop offset="0%" stopColor="#0e0803" stopOpacity={0.7} />
+              <Stop offset="80%" stopColor="#0e0803" stopOpacity={0.96} />
+              <Stop offset="100%" stopColor="#0e0803" stopOpacity={0.97} />
+            </RadialGradient>
+          </Defs>
+          <Rect x={0} y={0} width={width} height={height} fill="url(#notesDimM)" />
+        </Svg>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+
+        <View style={styles.mSplit} pointerEvents="box-none">
+          <View style={styles.mLeft} pointerEvents="none">
+            <View style={styles.headerPlateShell}>
+              <LinearGradient colors={[walnut.grain, '#231507']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.headerPlate}>
+                <View style={styles.jewel} />
+                <Text style={styles.headerText}>
+                  {`PROGRAMME NOTES${channel ? ` — CH ${channel.number}` : ''}`}
+                </Text>
+              </LinearGradient>
+            </View>
+            <Text style={styles.mTitle} numberOfLines={3}>{programme.title}</Text>
+            <Text style={styles.mMeta}>{metaLine(programme)}</Text>
+          </View>
+
+          <View style={styles.mDivider} pointerEvents="none" />
+
+          <ScrollView style={styles.mRight} showsVerticalScrollIndicator={false}>
+            {paragraphs.length > 0 ? (
+              paragraphs.map((para, i) => (
+                <Text key={i} style={i === 0 ? styles.mLede : styles.mBody}>{para}</Text>
+              ))
+            ) : (
+              <Text style={styles.mBody}>The library offers no notes for this programme.</Text>
+            )}
+            <Text style={styles.mReadOn}>↓ READ ON — TAP THE PICTURE TO RETURN</Text>
+          </ScrollView>
+        </View>
+
+        <View style={styles.rail} pointerEvents="none">
+          <Text style={styles.mRailText}>{airing ? 'the film continues beneath' : railText}</Text>
+          <View style={styles.railTrack}>
+            {airing && <View style={[styles.railFill, { width: `${progress * 100}%` }]} />}
+          </View>
+          {airing && <Text style={styles.railClock}>ENDS {clockShort(programme.stop)}</Text>}
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={StyleSheet.absoluteFill}>
       {/* the dimming — the projectionist lowers the house lights */}
@@ -293,5 +352,73 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     color: '#6e5f4b',
     fontVariant: ['tabular-nums'],
+  },
+
+  // ── the traveling set, on its side (9g) ──
+  mSplit: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    paddingLeft: 28,
+    paddingRight: 32,
+    paddingTop: 30,
+    paddingBottom: 44,
+    gap: 26,
+  },
+  mLeft: {
+    width: 250,
+    flexShrink: 0,
+  },
+  mTitle: {
+    fontFamily: fonts.plate,
+    fontWeight: '600',
+    fontSize: 34,
+    lineHeight: 40,
+    paddingBottom: 4,
+    color: cream,
+    marginTop: 14,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowRadius: 3,
+    textShadowOffset: { width: 0, height: 2 },
+  },
+  mMeta: {
+    fontFamily: fonts.plate,
+    fontSize: 8,
+    letterSpacing: 1.8,
+    lineHeight: 15,
+    color: brass.muted,
+    marginTop: 8,
+  },
+  mDivider: {
+    width: 1,
+    backgroundColor: 'rgba(241,229,207,0.14)',
+  },
+  mRight: {
+    flex: 1,
+  },
+  mLede: {
+    fontFamily: fonts.speech,
+    fontSize: 13.5,
+    lineHeight: 23,
+    color: cream,
+  },
+  mBody: {
+    fontFamily: fonts.speech,
+    fontSize: 12.5,
+    lineHeight: 20.5,
+    color: '#cbba99',
+    marginTop: 9,
+  },
+  mReadOn: {
+    fontFamily: fonts.plate,
+    fontSize: 7,
+    letterSpacing: 1.8,
+    color: '#6e5f4b',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  mRailText: {
+    fontFamily: fonts.speech,
+    fontSize: 11,
+    color: brass.muted,
   },
 });

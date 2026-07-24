@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Animated,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-video';
@@ -22,6 +22,12 @@ import { Home } from '../src/components/ds6/Home';
 import { Board } from '../src/components/ds6/Board';
 import { Flash } from '../src/components/ds6/Flash';
 import { Notes } from '../src/components/ds6/Notes';
+import { MHomeLandscape, MHomePortrait } from '../src/components/ds8m/MHome';
+import { MApron } from '../src/components/ds8m/MApron';
+import { MReading } from '../src/components/ds8m/MReading';
+import { MBoard } from '../src/components/ds8m/MBoard';
+import { SignOff } from '../src/components/ds8m/SignOff';
+import { useCabinet } from '../src/hooks/useCabinet';
 import { Platform } from 'react-native';
 import type { Channel, Programme } from '../src/types';
 
@@ -97,6 +103,9 @@ export default function WatchScreen() {
   const { welcome } = useLocalSearchParams<{ welcome?: string }>();
   const isExpoGo = Constants.appOwnership === 'expo';
   const hasVlc = VLCPlayer !== null;
+  // DS-8 console, or the DS-8/M traveling set? Nothing shrinks;
+  // everything re-cabinets.
+  const { isPhone, landscape: isLandscape, width: winW, height: winH } = useCabinet();
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
@@ -115,6 +124,19 @@ export default function WatchScreen() {
   const [boardCursor, setBoardCursor] = useState(2);
   const boardCursorProg = useRef<Programme | null>(null);
   const [detailProgramme, setDetailProgramme] = useState<Programme | null>(null);
+
+  // The traveling set's night: POWER concludes the broadcast day.
+  const [signOff, setSignOff] = useState(false);
+  // What upright shows while watching — the service panel's UPRIGHT
+  // COURTESY card: the column shift (default), or the reading picture.
+  const [uprightMode, setUprightMode] = useState<'shift' | 'picture'>('shift');
+  useFocusEffect(
+    useCallback(() => {
+      AsyncStorage.getItem(STORAGE_KEYS.UPRIGHT_MODE)
+        .then((v) => setUprightMode(v === 'picture' ? 'picture' : 'shift'))
+        .catch(() => {});
+    }, []),
+  );
 
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
   const [fallbackUsed, setFallbackUsed] = useState(false);
@@ -283,6 +305,18 @@ export default function WatchScreen() {
     setBoardVisible(true);
   }, []);
 
+  // The gated shifter engages a speed: the lever throws first (the
+  // gate lights, the knob runs through neutral), then the set tunes.
+  const gateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onGate = useCallback((index: number) => {
+    setDialIndex(index);
+    if (gateTimer.current) clearTimeout(gateTimer.current);
+    gateTimer.current = setTimeout(() => tuneTo(index), 340);
+  }, [tuneTo]);
+  useEffect(() => () => {
+    if (gateTimer.current) clearTimeout(gateTimer.current);
+  }, []);
+
   // Arriving from the antenna terminals, the set presents its stations —
   // the receiver, dial resting on the remembered channel — rather than
   // blasting straight into a picture nobody chose. On the web the set
@@ -348,6 +382,49 @@ export default function WatchScreen() {
     // While the notes are projected, fingers belong to the reading.
     if (detailProgramme) return;
 
+    // ── The traveling set's vocabulary ──
+    if (isPhone) {
+      if (signOff) return;
+      if (boardVisible) {
+        if (horizontal) {
+          if (Math.abs(translationX) < SWIPE_THRESHOLD) return;
+          const dir = translationX < 0 ? 1 : -1;
+          setBoardIndex((i) => (i + dir + channels.length) % channels.length);
+          setBoardScroll(0);
+        } else if (translationY < -SWIPE_THRESHOLD) {
+          // Upright: the shade rolls home. On its side: page onward.
+          if (!isLandscape) setBoardVisible(false);
+          else setBoardScroll((s) => Math.min(s + 1, 30));
+        } else if (translationY > SWIPE_THRESHOLD) {
+          setBoardScroll((s) => (isLandscape ? Math.max(s - 1, -8) : Math.min(s + 1, 30)));
+        }
+        return;
+      }
+      if (homeVisible) {
+        if (isLandscape) {
+          // Run the gate: sideways browses the speeds without engaging.
+          if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
+            const dir = translationX < 0 ? 1 : -1;
+            setDialIndex((i) => (i + dir + channels.length) % channels.length);
+          }
+        } else if (translationY > SWIPE_THRESHOLD) {
+          // THIS EVENING — pull down.
+          openBoard(dialIndex);
+        }
+        return;
+      }
+      // Watching: swipe across to tune; upright, the shade pulls down.
+      if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
+        const dir = translationX < 0 ? 1 : -1;
+        tuneTo((safeIndex + dir + channels.length) % channels.length);
+        return;
+      }
+      if (!isLandscape && translationY > SWIPE_THRESHOLD) {
+        openBoard(safeIndex);
+      }
+      return;
+    }
+
     if (boardVisible) {
       // Sideways rolls the channel drums; vertical walks the cursor
       // through the evening, paging at the edges — same as the arrows.
@@ -386,7 +463,7 @@ export default function WatchScreen() {
     } else if (translationY > SWIPE_THRESHOLD && safeIndex > 0) {
       tuneTo(safeIndex - 1);
     }
-  }, [safeIndex, channels.length, tuneTo, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard]);
+  }, [safeIndex, channels.length, tuneTo, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard, isPhone, isLandscape, signOff, dialIndex]);
 
   const handleTap = useCallback(() => {
     if (hudVisible) {
@@ -587,31 +664,24 @@ export default function WatchScreen() {
     );
   }
 
-  return (
-    <PanGestureHandler
-      onHandlerStateChange={onGestureEvent}
-      activeOffsetY={[-20, 20]}
-      activeOffsetX={[-20, 20]}
-    >
-      <View style={styles.container}>
-        <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
-          <View style={styles.container}>
-            {/* ── The picture (dark while the receiver is showing) ── */}
-            {homeVisible ? null : WebVideo ? (
-              <WebVideo
-                key={`web:${reloadNonce}:${currentChannel.streamUrl}`}
-                streamUrl={currentChannel.streamUrl}
-                onStarted={handlePlaybackStarted}
-                onProgress={handlePlaybackProgress}
-                onError={tryFallbackEngine}
-              />
-            ) : isExpoGo ? (
-              <View style={styles.center}>
-                <Text style={styles.difficultyDetail}>
-                  Playback requires a development build (Expo Go lacks the native player).
-                </Text>
-              </View>
-            ) : playerEngine === 'vlc' && VLCPlayer ? (
+  // The engine chain, built once so any cabinet can seat it — full
+  // screen on the console, letterboxed strip in the reading orientation,
+  // out of sight (sound carrying on) under the upright column shift.
+  const videoEl = WebVideo ? (
+    <WebVideo
+      key={`web:${reloadNonce}:${currentChannel.streamUrl}`}
+      streamUrl={currentChannel.streamUrl}
+      onStarted={handlePlaybackStarted}
+      onProgress={handlePlaybackProgress}
+      onError={tryFallbackEngine}
+    />
+  ) : isExpoGo ? (
+    <View style={styles.center}>
+      <Text style={styles.difficultyDetail}>
+        Playback requires a development build (Expo Go lacks the native player).
+      </Text>
+    </View>
+  ) : playerEngine === 'vlc' && VLCPlayer ? (
               <VLCPlayer
                 key={`vlc:${reloadNonce}:${currentChannel.streamUrl}`}
                 source={{
@@ -657,6 +727,31 @@ export default function WatchScreen() {
                 onProgress={handlePlaybackProgress}
                 onError={handleNativeError}
               />
+  );
+
+  const uprightPicture = uprightMode === 'picture';
+  // Upright on the phone, the picture leaves the stage: under the
+  // column shift (or the shade) it plays on unseen — the sound carries —
+  // and in the reading orientation MReading seats it in the strip.
+  const hidePicture = isPhone && !isLandscape && !homeVisible && !signOff
+    && (boardVisible || !uprightPicture);
+  const readingSeatsPicture = isPhone && !isLandscape && !homeVisible && !signOff
+    && uprightPicture && !boardVisible;
+
+  return (
+    <PanGestureHandler
+      onHandlerStateChange={onGestureEvent}
+      activeOffsetY={[-20, 20]}
+      activeOffsetX={[-20, 20]}
+    >
+      <View style={styles.container}>
+        <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
+          <View style={styles.container}>
+            {/* ── The picture (dark while the receiver is showing) ── */}
+            {homeVisible || signOff || readingSeatsPicture ? null : hidePicture ? (
+              <View style={styles.hiddenVideo} pointerEvents="none">{videoEl}</View>
+            ) : (
+              videoEl
             )}
 
             {showBufferingOverlay && (
@@ -674,23 +769,130 @@ export default function WatchScreen() {
             )}
 
             {/* ── Tune-in: the stamped channel plate flashes, then fades ── */}
-            {flashVisible && (
+            {flashVisible && !signOff && (
               <Animated.View style={[StyleSheet.absoluteFill, { opacity: flashOpacity }]} pointerEvents="none">
-                <Flash channel={currentChannel} nowPlaying={nowPlaying} />
+                <Flash channel={currentChannel} nowPlaying={nowPlaying} compact={isPhone} />
               </Animated.View>
             )}
 
             {/* ── HUD: the resting apron — the walnut shelf under the picture ── */}
-            {hudVisible && (
+            {hudVisible && !signOff && !hidePicture && !readingSeatsPicture && (
               <Animated.View style={[styles.hud, { opacity: hudOpacity }]}>
-                <Apron channel={currentChannel} nowPlaying={nowPlaying} clockNow={clockNow} />
+                {isPhone ? (
+                  <MApron
+                    channel={currentChannel}
+                    nowPlaying={nowPlaying}
+                    clockNow={clockNow}
+                    onNotes={openNotes}
+                    onBoard={() => openBoard(safeIndex)}
+                    onHome={() => openHome(safeIndex)}
+                  />
+                ) : (
+                  <Apron channel={currentChannel} nowPlaying={nowPlaying} clockNow={clockNow} />
+                )}
               </Animated.View>
             )}
           </View>
         </TouchableWithoutFeedback>
 
+        {/* ── THE READING ORIENTATION: upright, the picture in its strip ── */}
+        {readingSeatsPicture && (
+          <MReading
+            channel={currentChannel}
+            nowPlaying={nowPlaying}
+            clockNow={clockNow}
+            width={winW}
+          >
+            {videoEl}
+          </MReading>
+        )}
+
+        {/* ── UPRIGHT COURTESY: the column shift, over the sound of the room ── */}
+        {isPhone && !isLandscape && !homeVisible && !boardVisible && !signOff && !uprightPicture && (
+          <MHomePortrait
+            channels={channels}
+            tunedIndex={safeIndex}
+            onTune={tuneTo}
+            nowPlayingMap={nowPlayingMap}
+            upNextMap={upNextMap}
+            clockNow={clockNow}
+          />
+        )}
+
+        {/* ── HOME on the traveling set ── */}
+        {isPhone && homeVisible && !signOff && (
+          isLandscape ? (
+            <MHomeLandscape
+              channels={channels}
+              selectedIndex={dialIndex}
+              onGate={onGate}
+              onBoard={() => openBoard(dialIndex)}
+              onPower={() => { setHomeVisible(false); setSignOff(true); }}
+              onNotes={setDetailProgramme}
+              nowPlayingMap={nowPlayingMap}
+              upNextMap={upNextMap}
+              clockNow={clockNow}
+              height={winH}
+            />
+          ) : (
+            <MHomePortrait
+              channels={channels}
+              tunedIndex={dialIndex}
+              onTune={tuneTo}
+              nowPlayingMap={nowPlayingMap}
+              upNextMap={upNextMap}
+              clockNow={clockNow}
+            />
+          )
+        )}
+
+        {/* ── THIS EVENING on the traveling set — board, or shade ── */}
+        {isPhone && boardVisible && !signOff && (
+          <>
+            {!isLandscape && (
+              <MHomePortrait
+                channels={channels}
+                tunedIndex={boardIndex}
+                onTune={tuneTo}
+                nowPlayingMap={nowPlayingMap}
+                upNextMap={upNextMap}
+                clockNow={clockNow}
+                dimmed
+              />
+            )}
+            <MBoard
+              channels={channels}
+              boardIndex={boardIndex}
+              onSelectChannel={(i) => {
+                setBoardIndex(i);
+                setBoardScroll(0);
+              }}
+              programmes={programmes}
+              scroll={boardScroll}
+              landscape={isLandscape}
+              onTune={() => tuneTo(boardIndex)}
+              onClose={() => setBoardVisible(false)}
+              onNotes={setDetailProgramme}
+              clockNow={clockNow}
+              height={Math.round(winH * 0.66)}
+            />
+          </>
+        )}
+
+        {/* ── SIGN-OFF: the broadcast day concludes ── */}
+        {isPhone && signOff && (
+          <SignOff
+            channel={currentChannel}
+            next={upNextMap.get(currentChannel.id)}
+            onWake={() => {
+              setSignOff(false);
+              openHome(safeIndex);
+            }}
+          />
+        )}
+
         {/* ── HOME: the receiver — dial, plates, service rail ── */}
-        {homeVisible && (
+        {!isPhone && homeVisible && (
           <Home
             channels={channels}
             selectedIndex={dialIndex}
@@ -709,7 +911,7 @@ export default function WatchScreen() {
         )}
 
         {/* ── THIS EVENING: the departure board — the picture's sound carries on beneath ── */}
-        {boardVisible && (
+        {!isPhone && boardVisible && (
           <Board
             channels={channels}
             boardIndex={boardIndex}
@@ -834,5 +1036,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+
+  // Upright on the phone: the picture plays on out of sight, so the
+  // sound keeps faith with the room while the column shift shows.
+  hiddenVideo: {
+    position: 'absolute',
+    width: 2,
+    height: 2,
+    opacity: 0,
+    overflow: 'hidden',
   },
 });

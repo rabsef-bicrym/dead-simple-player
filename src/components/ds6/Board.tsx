@@ -4,6 +4,7 @@ import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { Plate } from './Plate';
+import { STEP, flapChars, drumNeed, Cell } from './flap';
 import { playSound } from '../../utils/sound';
 import { dateProse } from '../../utils/prose';
 import type { Channel, Programme } from '../../types';
@@ -21,11 +22,6 @@ import type { Channel, Programme } from '../../types';
  * does, and cascades when the channel changes.
  */
 
-// The ½ earned its place on the drum the day Fellini's 8½ hit the
-// Nana's Picks rotation.
-const DRUM = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789½:.,-&;'";
-const DN = DRUM.length;
-const STEP = 55;
 const ROWS = 8;
 
 const LEN = { time: 5, title: 34, year: 4, note: 56 };
@@ -43,42 +39,13 @@ interface BoardRow {
 
 const BLANK_ROW: BoardRow = { time: '', title: '', year: '', note: '', live: false, past: false, next: false };
 
-function di(ch: string): number {
-  const x = DRUM.indexOf(ch);
-  return x < 0 ? 0 : x;
-}
-
-function fmt(txt: string, len: number, padLeft: boolean): string {
-  let str = (txt || '').toUpperCase();
-  if (str.length > len) str = str.slice(0, len);
-  const pad = ' '.repeat(len - str.length);
-  return padLeft ? pad + str : str + pad;
-}
-
-/** The character each module shows after `done` flips from prev toward cur. */
-function flapChars(prevTxt: string, curTxt: string, len: number, done: number, padLeft: boolean): string[] {
-  const P = fmt(prevTxt, len, padLeft);
-  const C = fmt(curTxt, len, padLeft);
-  const out: string[] = [];
-  for (let j = 0; j < len; j++) {
-    const a = di(P[j]);
-    const need = (di(C[j]) - a + DN) % DN;
-    out.push(DRUM[(a + Math.min(need, done)) % DN]);
-  }
-  return out;
-}
-
 function maxDrumNeed(prev: BoardRow[], cur: BoardRow[]): number {
   let max = 0;
   const fields: (keyof typeof LEN)[] = ['time', 'title', 'year', 'note'];
   for (let r = 0; r < prev.length; r++) {
     for (const f of fields) {
-      const P = fmt(prev[r][f], LEN[f], f === 'time' || f === 'year');
-      const C = fmt(cur[r][f], LEN[f], f === 'time' || f === 'year');
-      for (let j = 0; j < P.length; j++) {
-        const need = (di(C[j]) - di(P[j]) + DN) % DN;
-        if (need > max) max = need;
-      }
+      const padLeft = f === 'time' || f === 'year';
+      max = Math.max(max, drumNeed(prev[r][f], cur[r][f], LEN[f], padLeft));
     }
   }
   return max;
@@ -110,18 +77,6 @@ function rowsFor(progs: Programme[], liveIdx: number, scroll: number): BoardRow[
 
 function rowsKey(rows: BoardRow[]): string {
   return rows.map((r) => `${r.time}|${r.title}|${r.year}|${r.note}`).join('~');
-}
-
-/** One split-flap module: a dark tile, its hinge, its character. */
-function Cell({ ch, w, h, fs, color, hingeDim }: { ch: string; w: number; h: number; fs: number; color: string; hingeDim?: boolean }) {
-  return (
-    <View style={[styles.cell, { width: w, height: h }]}>
-      <Text style={{ fontFamily: fonts.flapBold, fontSize: fs, lineHeight: h, color, textAlign: 'center' }}>
-        {ch === ' ' ? '' : ch}
-      </Text>
-      <View style={[styles.hinge, { top: h / 2, opacity: hingeDim ? 0.5 : 1 }]} />
-    </View>
-  );
 }
 
 interface BoardProps {
@@ -503,21 +458,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     overflow: 'hidden',
-  },
-  cell: {
-    backgroundColor: 'rgba(0,0,0,0.28)',
-    borderRadius: 1.5,
-    marginRight: 1.5,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  hinge: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.72)',
   },
   status: {
     fontFamily: fonts.plate,

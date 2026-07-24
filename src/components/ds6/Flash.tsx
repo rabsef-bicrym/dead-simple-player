@@ -18,13 +18,15 @@ import type { Channel, Programme } from '../../types';
 interface FlashProps {
   channel: Channel;
   nowPlaying?: Programme;
+  /** The traveling set's plate (10f) — nearer the corner, a size down. */
+  compact?: boolean;
 }
 
 function Screw() {
   return <View style={styles.screw} />;
 }
 
-export function Flash({ channel, nowPlaying }: FlashProps) {
+export function Flash({ channel, nowPlaying, compact = false }: FlashProps) {
   const { width, height } = useWindowDimensions();
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -40,15 +42,15 @@ export function Flash({ channel, nowPlaying }: FlashProps) {
         <Rect x={0} y={0} width={width} height={height} fill="url(#flashVignette)" />
       </Svg>
 
-      <View style={styles.shell}>
-        <LinearGradient colors={[walnut.grain, '#231507']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.face}>
+      <View style={[styles.shell, compact && styles.shellCompact]}>
+        <LinearGradient colors={[walnut.grain, '#231507']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={[styles.face, compact && styles.faceCompact]}>
           <View style={styles.kickerRow}>
             <View style={styles.jewel} />
-            <Text style={styles.kicker}>CHANNEL {channel.number}</Text>
+            <Text style={[styles.kicker, compact && styles.kickerCompact]}>CHANNEL {channel.number}</Text>
           </View>
-          <Text style={styles.name}>{channel.name.toUpperCase()}</Text>
+          <Text style={[styles.name, compact && styles.nameCompact]}>{channel.name.toUpperCase()}</Text>
           {nowPlaying && (
-            <Text style={styles.arriving} numberOfLines={1}>
+            <Text style={[styles.arriving, compact && styles.arrivingCompact]} numberOfLines={1}>
               {nowPlaying.title} · until {timeToProse(nowPlaying.stop)}
             </Text>
           )}
@@ -74,10 +76,31 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 10,
   },
+  shellCompact: {
+    left: 26,
+    top: 26,
+  },
   face: {
     borderRadius: 3,
     paddingVertical: 14,
     paddingHorizontal: 34,
+  },
+  faceCompact: {
+    paddingVertical: 11,
+    paddingHorizontal: 26,
+  },
+  kickerCompact: {
+    fontSize: 8.5,
+    letterSpacing: 2.6,
+  },
+  nameCompact: {
+    fontSize: 23,
+    letterSpacing: plateTracking(23) * 0.8,
+    marginTop: 6,
+  },
+  arrivingCompact: {
+    fontSize: 12.5,
+    marginTop: 4,
   },
   kickerRow: {
     flexDirection: 'row',

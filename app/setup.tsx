@@ -14,6 +14,7 @@ import { useServerConfig } from '../src/hooks/useServerConfig';
 import { verifyServerConnection } from '../src/services/iptv';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { ServiceLabel, TerminalInput, PlateButton, Lamp } from '../src/components/ds6/Service';
+import { useCabinet } from '../src/hooks/useCabinet';
 import type { SavedServer } from '../src/types';
 
 /**
@@ -26,6 +27,7 @@ import type { SavedServer } from '../src/types';
  */
 export default function SetupScreen() {
   const { servers, loading: configLoading, addServer, setActiveServer } = useServerConfig();
+  const { isPhone } = useCabinet();
 
   const [name, setName] = useState('');
   const [host, setHost] = useState('');
@@ -95,7 +97,9 @@ export default function SetupScreen() {
             </View>
             <Text style={styles.signature}>dead simple, player</Text>
             <Text style={styles.lede}>
-              Before the picture, the aerial. Tell the set where your ErsatzTV signal originates.
+              {isPhone
+                ? 'Before the picture, the aerial. Tell the traveling set where the signal originates.'
+                : 'Before the picture, the aerial. Tell the set where your ErsatzTV signal originates.'}
             </Text>
           </View>
 
@@ -154,7 +158,9 @@ export default function SetupScreen() {
 
           {difficulty && <Text style={styles.difficulty}>{difficulty}</Text>}
 
-          <Text style={styles.foot}>MODEL DS-6 · MADE FOR ONE HOUSEHOLD</Text>
+          <Text style={styles.foot}>
+            {isPhone ? 'MODEL DS-8/M · TRAVELS WITH THE HOUSEHOLD' : 'MODEL DS-8 · MADE FOR ONE HOUSEHOLD'}
+          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

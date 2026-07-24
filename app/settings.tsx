@@ -8,8 +8,9 @@ import { useServerConfig } from '../src/hooks/useServerConfig';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { ServiceLabel, TerminalInput, PlateButton, Lamp } from '../src/components/ds6/Service';
-import { setSoundMuted, isSoundMuted } from '../src/utils/sound';
+import { setSoundMuted, isSoundMuted, setSignoffTone, getSignoffTone } from '../src/utils/sound';
 import { timeToProse } from '../src/utils/prose';
+import { useCabinet } from '../src/hooks/useCabinet';
 import type { SavedServer } from '../src/types';
 
 /**
@@ -31,10 +32,16 @@ export default function SettingsScreen() {
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [flashStyle, setFlashStyle] = useState<'brief' | 'six'>('brief');
   const [silent, setSilent] = useState(isSoundMuted());
+  const [upright, setUpright] = useState<'shift' | 'picture'>('shift');
+  const [signoff, setSignoff] = useState<'soft' | 'silent'>(getSignoffTone());
+  const { isPhone } = useCabinet();
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.FLASH_STYLE)
       .then((v) => { if (v === 'six') setFlashStyle('six'); })
+      .catch(() => {});
+    AsyncStorage.getItem(STORAGE_KEYS.UPRIGHT_MODE)
+      .then((v) => { if (v === 'picture') setUpright('picture'); })
       .catch(() => {});
   }, []);
 
@@ -100,6 +107,18 @@ export default function SettingsScreen() {
     setSilent(next);
     setSoundMuted(next);
   }, [silent]);
+
+  const toggleUpright = useCallback(() => {
+    const next = upright === 'shift' ? 'picture' : 'shift';
+    setUpright(next);
+    AsyncStorage.setItem(STORAGE_KEYS.UPRIGHT_MODE, next).catch(() => {});
+  }, [upright]);
+
+  const toggleSignoff = useCallback(() => {
+    const next = signoff === 'soft' ? 'silent' : 'soft';
+    setSignoff(next);
+    setSignoffTone(next);
+  }, [signoff]);
 
   if (loading) {
     return <View style={styles.cabinet} />;
@@ -231,8 +250,26 @@ export default function SettingsScreen() {
               </LinearGradient>
             </Pressable>
           </View>
+          <View style={[styles.setRow, { marginTop: 12 }]}>
+            <Pressable style={{ flex: 1 }} onPress={toggleSignoff}>
+              <LinearGradient colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.setCard}>
+                <Text style={styles.setLabel}>SIGN-OFF TONE</Text>
+                <Text style={styles.setValue}>{signoff === 'soft' ? 'softly, 1 kHz' : 'the night ends silently'}</Text>
+              </LinearGradient>
+            </Pressable>
+            <Pressable style={{ flex: 1 }} onPress={toggleUpright}>
+              <LinearGradient colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.setCard}>
+                <Text style={styles.setLabel}>UPRIGHT COURTESY</Text>
+                <Text style={styles.setValue}>{upright === 'shift' ? 'column shift, not the picture' : 'the picture, with its notes'}</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
 
-          <Text style={styles.foot}>MODEL DS-6 · SERIAL № 000001 · SERVICED BY ITS OWNER</Text>
+          <Text style={styles.foot}>
+            {isPhone
+              ? 'MODEL DS-8/M · SERIAL № 000002 · SERVICED BY ITS OWNER'
+              : 'MODEL DS-8 · SERIAL № 000001 · SERVICED BY ITS OWNER'}
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
