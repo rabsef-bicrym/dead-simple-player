@@ -6,6 +6,7 @@ import {
   TouchableWithoutFeedback,
   TouchableOpacity,
   Animated,
+  AppState,
 } from 'react-native';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
@@ -14,7 +15,7 @@ import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-vi
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
-import { fetchIptvData } from '../src/services/iptv';
+import { fetchIptvChannels, fetchIptvGuide, type GuideState } from '../src/services/iptv';
 import { restoreLastChannelIndex } from '../src/services/channelStorage';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
@@ -57,6 +58,7 @@ const FLASH_HIDE_MS = 2500;
 const BUFFERING_OVERLAY_DELAY_MS = 800;
 const BUFFER_STALL_WINDOW_MS = 1500;
 const CLOCK_TICK_MS = 30000;
+const GUIDE_REFRESH_MS = 30 * 60 * 1000;
 
 type PlayerEngine = 'vlc' | 'native';
 
@@ -114,6 +116,8 @@ export default function WatchScreen() {
   const [indexRestored, setIndexRestored] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [guideState, setGuideState] = useState<GuideState | 'loading'>('loading');
+  const [guideError, setGuideError] = useState<string | null>(null);
 
   const [hudVisible, setHudVisible] = useState(false);
   const [flashVisible, setFlashVisible] = useState(false);
@@ -161,6 +165,11 @@ export default function WatchScreen() {
   const [reloadNonce, setReloadNonce] = useState(0);
   const lastProgressAt = useRef<number>(0);
   const channelRestoreStarted = useRef(false);
+  const dataGeneration = useRef(0);
+  const guideRefreshInFlight = useRef<string | null>(null);
+  const activeConfigKey = activeConfig ? `${activeConfig.host}:${activeConfig.port}` : '';
+  const activeConfigKeyRef = useRef(activeConfigKey);
+  activeConfigKeyRef.current = activeConfigKey;
 
   // ── Setup gate ──
   useEffect(() => {
@@ -170,19 +179,63 @@ export default function WatchScreen() {
   // ── Data ──
   const loadData = useCallback(async () => {
     if (!activeConfig) return;
+    const generation = ++dataGeneration.current;
+    const requestConfigKey = `${activeConfig.host}:${activeConfig.port}`;
     setDataLoading(true);
     if (isMountedRef.current) setDataError(null);
+    setGuideState('loading');
+    setGuideError(null);
+    setProgrammes([]);
+
+    // The guide is deliberately not awaited here: a slow or absent XMLTV
+    // endpoint must not hold the tuner behind it.
+    fetchIptvGuide(activeConfig)
+      .then((guide) => {
+        if (
+          isMountedRef.current
+          && dataGeneration.current === generation
+          && activeConfigKeyRef.current === requestConfigKey
+        ) {
+          setProgrammes(guide.epg.programmes);
+          setGuideState(guide.state);
+          setGuideError(guide.error ?? null);
+        }
+      })
+      .catch(() => {});
+
     try {
-      const { channels: nextChannels, epg } = await fetchIptvData(activeConfig);
-      if (!isMountedRef.current) return;
+      const nextChannels = await fetchIptvChannels(activeConfig);
+      if (
+        !isMountedRef.current
+        || dataGeneration.current !== generation
+        || activeConfigKeyRef.current !== requestConfigKey
+      ) return;
       setChannels(nextChannels);
-      setProgrammes(epg.programmes);
     } catch (error) {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && dataGeneration.current === generation) {
         setDataError(error instanceof Error ? error.message : 'Failed to load channel data');
       }
     } finally {
-      if (isMountedRef.current) setDataLoading(false);
+      if (isMountedRef.current && dataGeneration.current === generation) setDataLoading(false);
+    }
+  }, [activeConfig]);
+
+  const refreshGuide = useCallback(async () => {
+    if (!activeConfig) return;
+    const requestConfigKey = `${activeConfig.host}:${activeConfig.port}`;
+    if (guideRefreshInFlight.current === requestConfigKey) return;
+    guideRefreshInFlight.current = requestConfigKey;
+    try {
+      const guide = await fetchIptvGuide(activeConfig);
+      if (isMountedRef.current && activeConfigKeyRef.current === requestConfigKey) {
+        if (guide.state !== 'unavailable') setProgrammes(guide.epg.programmes);
+        setGuideState(guide.state);
+        setGuideError(guide.error ?? null);
+      }
+    } finally {
+      if (guideRefreshInFlight.current === requestConfigKey) {
+        guideRefreshInFlight.current = null;
+      }
     }
   }, [activeConfig]);
 
@@ -193,6 +246,30 @@ export default function WatchScreen() {
       isMountedRef.current = false;
     };
   }, [loadData]);
+
+  useEffect(() => {
+    if (!activeConfig) return;
+    const interval = setInterval(() => { refreshGuide().catch(() => {}); }, GUIDE_REFRESH_MS);
+
+    if (Platform.OS === 'web') {
+      const onVisibilityChange = () => {
+        if (document.visibilityState === 'visible') refreshGuide().catch(() => {});
+      };
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      return () => {
+        clearInterval(interval);
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      };
+    }
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshGuide().catch(() => {});
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [activeConfig, refreshGuide]);
 
   // ── Remember the channel like a TV does ──
   useEffect(() => {
@@ -957,6 +1034,28 @@ export default function WatchScreen() {
           />
         )}
 
+        {/* The tuner keeps playing when the separate programme guide is late. */}
+        {guideState !== 'fresh'
+          && !signOff
+          && (homeVisible || boardVisible || (isPhone && !isLandscape && !uprightPicture))
+          && (
+            <View style={styles.guideStatus} pointerEvents="none">
+              <View style={styles.momentJewel} />
+              <View style={styles.guideStatusCopy}>
+                <Text style={styles.momentText}>
+                  {guideState === 'loading'
+                    ? 'THE GUIDE — A MOMENT, PLEASE'
+                    : guideState === 'cached'
+                      ? 'THE GUIDE — LAST RECEIPT'
+                      : 'THE GUIDE IS NOT ANSWERING'}
+                </Text>
+                {guideState === 'unavailable' && guideError && (
+                  <Text style={styles.difficultyDetail} numberOfLines={1}>{guideError}</Text>
+                )}
+              </View>
+            </View>
+          )}
+
         {/* ── PROGRAMME NOTES: the NFO, projected on the dimmed picture ── */}
         {detailProgramme && (
           <Notes
@@ -1054,6 +1153,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 2.6,
     color: cream,
+  },
+  guideStatus: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    bottom: 70,
+    zIndex: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  guideStatusCopy: {
+    gap: 3,
+    alignItems: 'center',
   },
 
   // ── HUD anchor — the apron rides the bottom edge ──

@@ -10,6 +10,8 @@ export const STORAGE_KEYS = {
   LAST_CHANNEL_ID: '@ipswitch/last-channel-id',
   /** @deprecated Migrated to LAST_CHANNEL_ID */
   LAST_CHANNEL_INDEX: '@ipswitch/last-channel-index',
+  /** Prefix for per-server last-good XMLTV guide caches */
+  GUIDE_CACHE_PREFIX: '@ipswitch/guide-cache:',
   /** Tune-in plate dwell: 'brief' | 'six' (seconds on screen) */
   FLASH_STYLE: '@ipswitch/flash-style',
   /** '1' when the set is silent (no detent, no clatter) */
