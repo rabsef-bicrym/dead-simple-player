@@ -15,6 +15,7 @@ import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
 import { fetchIptvData } from '../src/services/iptv';
+import { restoreLastChannelIndex } from '../src/services/channelStorage';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { Apron } from '../src/components/ds6/Apron';
@@ -155,6 +156,7 @@ export default function WatchScreen() {
   const retriedForUrl = useRef<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const lastProgressAt = useRef<number>(0);
+  const channelRestoreStarted = useRef(false);
 
   // ── Setup gate ──
   useEffect(() => {
@@ -190,21 +192,23 @@ export default function WatchScreen() {
 
   // ── Remember the channel like a TV does ──
   useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEYS.LAST_CHANNEL_INDEX);
-        const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
-        if (!Number.isNaN(parsed) && parsed >= 0) setCurrentIndex(parsed);
-      } finally {
-        setIndexRestored(true);
-      }
-    })();
-  }, []);
+    if (dataLoading || channels.length === 0 || channelRestoreStarted.current) return;
+    channelRestoreStarted.current = true;
+    restoreLastChannelIndex(channels)
+      .then((index) => {
+        if (isMountedRef.current) setCurrentIndex(index);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isMountedRef.current) setIndexRestored(true);
+      });
+  }, [channels, dataLoading]);
 
   useEffect(() => {
-    if (!indexRestored) return;
-    AsyncStorage.setItem(STORAGE_KEYS.LAST_CHANNEL_INDEX, String(currentIndex)).catch(() => {});
-  }, [currentIndex, indexRestored]);
+    if (!indexRestored || channels.length === 0) return;
+    const channel = channels[Math.min(currentIndex, channels.length - 1)];
+    AsyncStorage.setItem(STORAGE_KEYS.LAST_CHANNEL_ID, channel.id).catch(() => {});
+  }, [channels, currentIndex, indexRestored]);
 
   const safeIndex = channels.length > 0 ? Math.min(currentIndex, channels.length - 1) : 0;
   const currentChannel = channels[safeIndex];
@@ -638,7 +642,7 @@ export default function WatchScreen() {
   }, [tryFallbackEngine]);
 
   // ── Render ──
-  if (configLoading || dataLoading || !indexRestored) {
+  if (configLoading || dataLoading || (!indexRestored && channels.length > 0)) {
     return (
       <View style={styles.center}>
         <View style={styles.momentJewel} />
