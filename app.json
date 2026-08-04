@@ -20,7 +20,8 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "DS,P uses your local network to connect to your media server and stream your channels."
+        "NSLocalNetworkUsageDescription": "DS,P uses your local network to connect to your media server and stream your channels.",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.rabsefbicrym.dsp"
     },
@@ -32,7 +33,8 @@
       "edgeToEdgeEnabled": true,
       "usesCleartextTraffic": true,
       "permissions": [
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "package": "com.rabsefbicrym.dsp"
     },
@@ -61,6 +63,12 @@
           "recordAudioAndroid": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9b279bd7-8370-4371-805c-2a12a6bb49a3"
+      }
+    }
   }
 }
