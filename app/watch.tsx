@@ -558,6 +558,9 @@ export default function WatchScreen() {
           case 'g':
             openBoard(dialIndex);
             break;
+          case 's':
+            router.push('/settings');
+            break;
           case 'Escape':
             setHomeVisible(false);
             break;
@@ -848,6 +851,7 @@ export default function WatchScreen() {
               onGate={onGate}
               onBoard={() => openBoard(dialIndex)}
               onPower={() => { setHomeVisible(false); setSignOff(true); }}
+              onService={() => router.push('/settings')}
               onNotes={setDetailProgramme}
               nowPlayingMap={nowPlayingMap}
               upNextMap={upNextMap}
@@ -862,6 +866,7 @@ export default function WatchScreen() {
               nowPlayingMap={nowPlayingMap}
               upNextMap={upNextMap}
               clockNow={clockNow}
+              onService={() => router.push('/settings')}
             />
           )
         )}
@@ -923,6 +928,7 @@ export default function WatchScreen() {
             }}
             onBoard={() => openBoard(dialIndex)}
             onPower={() => setHomeVisible(false)}
+            onService={() => router.push('/settings')}
             onNotes={setDetailProgramme}
             nowPlayingMap={nowPlayingMap}
             upNextMap={upNextMap}

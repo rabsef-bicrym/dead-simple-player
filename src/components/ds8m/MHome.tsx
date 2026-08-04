@@ -206,6 +206,7 @@ interface MHomeLandscapeProps {
   onGate: (index: number) => void;
   onBoard: () => void;
   onPower: () => void;
+  onService: () => void;
   onNotes: (p: Programme) => void;
   nowPlayingMap: Map<string, Programme>;
   upNextMap: Map<string, Programme>;
@@ -213,7 +214,7 @@ interface MHomeLandscapeProps {
   height: number;
 }
 
-export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPower, onNotes, nowPlayingMap, upNextMap, clockNow, height }: MHomeLandscapeProps) {
+export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPower, onService, onNotes, nowPlayingMap, upNextMap, clockNow, height }: MHomeLandscapeProps) {
   const panelOpacity = useRef(new Animated.Value(1)).current;
   const selected = channels[Math.min(selectedIndex, channels.length - 1)];
   const now = selected ? nowPlayingMap.get(selected.id) : undefined;
@@ -264,6 +265,9 @@ export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPow
         <Pressable onPress={onBoard} style={styles.railButton}>
           <Text style={styles.railButtonText}>THIS EVENING</Text>
         </Pressable>
+        <Pressable onPress={onService} style={styles.railService}>
+          <Text style={styles.railButtonText}>S · SERVICE</Text>
+        </Pressable>
         <Pressable onPress={onPower} style={styles.railPower}>
           <Jewel size={6} />
           <Text style={styles.railModel}>POWER</Text>
@@ -287,6 +291,8 @@ interface MHomePortraitProps {
   courtesy?: boolean;
   /** Dimmed beneath the pull-down shade. */
   dimmed?: boolean;
+  /** Open the service panel from the receiver home. */
+  onService?: () => void;
 }
 
 function nowLine(now?: Programme, next?: Programme): string {
@@ -295,7 +301,7 @@ function nowLine(now?: Programme, next?: Programme): string {
   return '';
 }
 
-export function MHomePortrait({ channels, tunedIndex, onTune, nowPlayingMap, upNextMap, clockNow, dimmed }: MHomePortraitProps) {
+export function MHomePortrait({ channels, tunedIndex, onTune, nowPlayingMap, upNextMap, clockNow, dimmed, onService }: MHomePortraitProps) {
   const [bodyH, setBodyH] = useState(0);
   const safeTuned = Math.min(tunedIndex, channels.length - 1);
   const n = Math.max(1, channels.length);
@@ -364,6 +370,11 @@ export function MHomePortrait({ channels, tunedIndex, onTune, nowPlayingMap, upN
           <Text style={styles.footHint}>TAP A POSITION TO TUNE</Text>
           <Text style={styles.footHint}>·</Text>
           <Text style={styles.footHint}>THIS EVENING — PULL DOWN</Text>
+          {onService && (
+            <Pressable onPress={onService} style={styles.portraitService}>
+              <Text style={styles.footService}>S · SERVICE</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </View>
@@ -657,6 +668,15 @@ const styles = StyleSheet.create({
     letterSpacing: 1.6,
     color: brass.bright,
   },
+  railService: {
+    height: 32,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#24180c',
+    borderWidth: 1,
+    borderColor: walnut.void,
+  },
   railPower: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -821,5 +841,18 @@ const styles = StyleSheet.create({
     fontSize: 7,
     letterSpacing: 1.8,
     color: '#6e5f4b',
+  },
+  portraitService: {
+    paddingVertical: 6,
+    paddingHorizontal: 9,
+    backgroundColor: '#24180c',
+    borderWidth: 1,
+    borderColor: walnut.void,
+  },
+  footService: {
+    fontFamily: fonts.plate,
+    fontSize: 7,
+    letterSpacing: 1.8,
+    color: brass.mid,
   },
 });
