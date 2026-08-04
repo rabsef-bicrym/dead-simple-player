@@ -109,6 +109,7 @@ export default function WatchScreen() {
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [buffering, setBuffering] = useState(true);
   const [showBufferingOverlay, setShowBufferingOverlay] = useState(false);
+  const [pictureOutAvailable, setPictureOutAvailable] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
 
   const isMountedRef = useRef(true);
@@ -513,6 +514,11 @@ export default function WatchScreen() {
     if (nowPlaying) setDetailProgramme(nowPlaying);
   }, [nowPlaying]);
 
+  const requestPictureOut = useCallback(() => {
+    // This remains a direct, synchronous call from the key/plate gesture.
+    playerRef.current?.requestPictureInPicture();
+  }, []);
+
   // ── Keyboard remote (web / desktop): a TV deserves a remote ──
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -611,6 +617,10 @@ export default function WatchScreen() {
           if (detailProgramme) setDetailProgramme(null);
           else openNotes();
           break;
+        case 'p':
+        case 'P':
+          if (pictureOutAvailable) requestPictureOut();
+          break;
         case 'Escape':
           if (detailProgramme) setDetailProgramme(null);
           else openHome(safeIndex);
@@ -619,7 +629,7 @@ export default function WatchScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor]);
+  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor, pictureOutAvailable, requestPictureOut]);
 
 
   // ── Playback plumbing ──
@@ -641,6 +651,15 @@ export default function WatchScreen() {
     setBuffering(false);
     setShowBufferingOverlay(false);
   }, []);
+
+  const mediaSessionControls = useMemo(() => ({
+    onPreviousTrack: () => {
+      if (safeIndex > 0) tuneTo(safeIndex - 1);
+    },
+    onNextTrack: () => {
+      if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1);
+    },
+  }), [channels.length, safeIndex, tuneTo]);
 
   // ── Render ──
   if (configLoading || dataLoading || (!indexRestored && channels.length > 0)) {
@@ -688,13 +707,15 @@ export default function WatchScreen() {
       viewport="contain"
       metadata={{
         channelName: currentChannel.name,
-        programmeTitle: nowPlaying?.title,
-        description: nowPlaying?.description,
+        programmeTitle: nowPlayingMap.get(currentChannel.id)?.title,
+        description: nowPlayingMap.get(currentChannel.id)?.description,
         artworkUrl: currentChannel.logo,
       }}
+      mediaSessionControls={mediaSessionControls}
       onReady={handlePlaybackStarted}
       onBuffering={handlePlayerBuffering}
       onError={handlePlayerError}
+      onPictureInPictureAvailabilityChange={setPictureOutAvailable}
     />
   );
 
@@ -755,9 +776,15 @@ export default function WatchScreen() {
                     onNotes={openNotes}
                     onBoard={() => openBoard(safeIndex)}
                     onHome={() => openHome(safeIndex)}
+                    onPictureOut={pictureOutAvailable ? requestPictureOut : undefined}
                   />
                 ) : (
-                  <Apron channel={currentChannel} nowPlaying={nowPlaying} clockNow={clockNow} />
+                  <Apron
+                    channel={currentChannel}
+                    nowPlaying={nowPlaying}
+                    clockNow={clockNow}
+                    onPictureOut={pictureOutAvailable ? requestPictureOut : undefined}
+                  />
                 )}
               </Animated.View>
             )}

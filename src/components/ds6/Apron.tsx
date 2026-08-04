@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, cream, fonts } from '../../constants/ds6';
 import { Plate } from './Plate';
@@ -19,6 +19,7 @@ interface ApronProps {
   channel: Channel;
   nowPlaying?: Programme;
   clockNow: Date;
+  onPictureOut?: () => void;
 }
 
 function metaLine(p?: Programme): string | null {
@@ -31,7 +32,7 @@ function metaLine(p?: Programme): string | null {
   return bits.join(' · ').toUpperCase();
 }
 
-export function Apron({ channel, nowPlaying, clockNow }: ApronProps) {
+export function Apron({ channel, nowPlaying, clockNow, onPictureOut }: ApronProps) {
   return (
     <LinearGradient
       colors={[walnut.panel, walnut.deep, walnut.void]}
@@ -68,6 +69,12 @@ export function Apron({ channel, nowPlaying, clockNow }: ApronProps) {
             <Plate label="G" compact labelSize={11} />
             <Text style={styles.hintText}>THIS EVENING</Text>
           </View>
+          {onPictureOut && (
+            <Pressable onPress={onPictureOut} style={styles.hint}>
+              <Plate label="P" compact labelSize={11} />
+              <Text style={styles.hintText}>PICTURE OUT</Text>
+            </Pressable>
+          )}
           <FlipClock date={clockNow} />
         </View>
       </View>
