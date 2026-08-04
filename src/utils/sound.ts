@@ -1,5 +1,10 @@
-import { Audio } from 'expo-av';
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  type AudioPlayer,
+} from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import { STORAGE_KEYS } from '../constants/storage';
 
 /**
@@ -26,7 +31,12 @@ const VOLUMES: Record<keyof typeof ASSETS, number> = {
 
 type SoundName = keyof typeof ASSETS;
 
-const loaded = new Map<SoundName, Audio.Sound>();
+const loaded = new Map<SoundName, AudioPlayer>();
+const audioModeReady = setAudioModeAsync({
+  allowsRecording: false,
+  interruptionMode: 'mixWithOthers',
+  playsInSilentMode: true,
+}).catch(() => {});
 
 // The service panel's SOUND card — the set can be made silent.
 let muted = false;
@@ -43,21 +53,39 @@ export function isSoundMuted(): boolean {
   return muted;
 }
 
-async function get(name: SoundName): Promise<Audio.Sound> {
+async function get(name: SoundName): Promise<AudioPlayer> {
   const existing = loaded.get(name);
   if (existing) return existing;
-  const { sound } = await Audio.Sound.createAsync(ASSETS[name], { volume: VOLUMES[name] });
-  loaded.set(name, sound);
-  return sound;
+  await audioModeReady;
+  const player = createAudioPlayer(ASSETS[name], { keepAudioSessionActive: true });
+  player.volume = VOLUMES[name];
+  loaded.set(name, player);
+  return player;
 }
 
 /** Fire and forget — a sound that fails to play fails silently. */
 export function playSound(name: SoundName): void {
   if (muted) return;
   get(name)
-    .then((sound) => sound.replayAsync({ volume: VOLUMES[name] }))
+    .then(async (player) => {
+      player.volume = VOLUMES[name];
+      await player.seekTo(0);
+      player.play();
+    })
     .catch(() => {});
 }
+
+function releasePlayers(): void {
+  for (const player of loaded.values()) player.remove();
+  loaded.clear();
+}
+
+// These are short-lived UI voices, not part of background television. Drop
+// their native resources when the UI leaves the foreground; the lazy cache
+// repopulates on the next detent or clatter without touching video playback.
+AppState.addEventListener('change', (state) => {
+  if (state !== 'active') releasePlayers();
+});
 
 // The sign-off tone — softly, 1 kHz, the way a station left the air.
 let signoffTone: 'soft' | 'silent' = 'soft';
