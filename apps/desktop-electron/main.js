@@ -126,9 +126,22 @@ function startStaticServer() {
     });
   });
 
+  // A fixed port keeps the app's origin — and with it localStorage (saved
+  // servers, last channel) — stable across launches. An ephemeral port would
+  // ask for the antenna terminals again on every boot.
+  const port = Number.parseInt(process.env.DSP_SHELL_PORT ?? '', 10) || 8412;
+
   return new Promise((resolve, reject) => {
-    staticServer.once('error', reject);
-    staticServer.listen(0, '127.0.0.1', () => {
+    staticServer.once('error', (error) => {
+      if (error && error.code === 'EADDRINUSE') {
+        console.warn(`[desktop] port ${port} busy; falling back to an ephemeral port (stored settings will not carry over)`);
+        staticServer.once('error', reject);
+        staticServer.listen(0, '127.0.0.1');
+        return;
+      }
+      reject(error);
+    });
+    staticServer.listen(port, '127.0.0.1', () => {
       const address = staticServer.address();
       const origin = `http://127.0.0.1:${address.port}`;
       console.log(`[desktop] static server up at ${origin} (root: ${root})`);
