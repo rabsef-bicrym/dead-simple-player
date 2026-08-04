@@ -8,6 +8,7 @@ import {
   Animated,
   AppState,
   Platform,
+  type LayoutRectangle,
 } from 'react-native';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
@@ -111,6 +112,12 @@ export default function WatchScreen() {
   const [showBufferingOverlay, setShowBufferingOverlay] = useState(false);
   const [pictureOutAvailable, setPictureOutAvailable] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
+  const [housekeepingForeground, setHousekeepingForeground] = useState(() => (
+    Platform.OS === 'web'
+      ? typeof document === 'undefined' || document.visibilityState === 'visible'
+      : AppState.currentState === 'active'
+  ));
+  const [readingPictureFrame, setReadingPictureFrame] = useState<LayoutRectangle | null>(null);
 
   const isMountedRef = useRef(true);
   const hudOpacity = useRef(new Animated.Value(0)).current;
@@ -125,6 +132,7 @@ export default function WatchScreen() {
   const guideRefreshInFlight = useRef<string | null>(null);
   const activeConfigKey = activeConfig ? `${activeConfig.host}:${activeConfig.port}` : '';
   const activeConfigKeyRef = useRef(activeConfigKey);
+  const housekeepingForegroundRef = useRef(housekeepingForeground);
   activeConfigKeyRef.current = activeConfigKey;
 
   // ── Setup gate ──
@@ -204,28 +212,33 @@ export default function WatchScreen() {
   }, [loadData]);
 
   useEffect(() => {
-    if (!activeConfig) return;
-    const interval = setInterval(() => { refreshGuide().catch(() => {}); }, GUIDE_REFRESH_MS);
+    const updateForeground = (foreground: boolean) => {
+      const becameActive = foreground && !housekeepingForegroundRef.current;
+      housekeepingForegroundRef.current = foreground;
+      setHousekeepingForeground(foreground);
+      if (becameActive) {
+        setClockNow(new Date());
+        refreshGuide().catch(() => {});
+      }
+    };
 
     if (Platform.OS === 'web') {
-      const onVisibilityChange = () => {
-        if (document.visibilityState === 'visible') refreshGuide().catch(() => {});
-      };
+      const onVisibilityChange = () => updateForeground(document.visibilityState === 'visible');
       document.addEventListener('visibilitychange', onVisibilityChange);
-      return () => {
-        clearInterval(interval);
-        document.removeEventListener('visibilitychange', onVisibilityChange);
-      };
+      return () => document.removeEventListener('visibilitychange', onVisibilityChange);
     }
 
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') refreshGuide().catch(() => {});
+      updateForeground(state === 'active');
     });
-    return () => {
-      clearInterval(interval);
-      subscription.remove();
-    };
-  }, [activeConfig, refreshGuide]);
+    return () => subscription.remove();
+  }, [refreshGuide]);
+
+  useEffect(() => {
+    if (!activeConfig || !housekeepingForeground) return;
+    const interval = setInterval(() => { refreshGuide().catch(() => {}); }, GUIDE_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [activeConfig, housekeepingForeground, refreshGuide]);
 
   // ── Remember the channel like a TV does ──
   useEffect(() => {
@@ -251,9 +264,10 @@ export default function WatchScreen() {
   const currentChannel = channels[safeIndex];
   // ── Clock + EPG lookups ──
   useEffect(() => {
+    if (!housekeepingForeground) return;
     const interval = setInterval(() => setClockNow(new Date()), CLOCK_TICK_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [housekeepingForeground]);
 
   const nowPlaying = useMemo(
     () => (currentChannel ? getNowPlaying(programmes, currentChannel.id, clockNow) : undefined),
@@ -688,11 +702,45 @@ export default function WatchScreen() {
     );
   }
 
-  // The engine chain, built once so any cabinet can seat it — full
-  // screen on the console, letterboxed strip in the reading orientation,
-  // out of sight (sound carrying on) under the upright column shift.
+  const uprightPicture = uprightMode === 'picture';
+  const hidePicture = isPhone && !isLandscape && !homeVisible && !signOff
+    && (boardVisible || !uprightPicture);
+  const readingSeatsPicture = isPhone && !isLandscape && !homeVisible && !signOff
+    && uprightPicture && !boardVisible;
+
+  const handleReadingPictureLayout = (layout: LayoutRectangle) => {
+    setReadingPictureFrame((current) => (
+      current
+      && current.x === layout.x
+      && current.y === layout.y
+      && current.width === layout.width
+      && current.height === layout.height
+        ? current
+        : layout
+    ));
+  };
+
+  const playerViewAttached = !hidePicture && (!readingSeatsPicture || readingPictureFrame !== null);
+  const playerSeatStyle = hidePicture
+    ? styles.hiddenVideo
+    : readingSeatsPicture && readingPictureFrame
+      ? [
+        styles.readingVideo,
+        {
+          left: readingPictureFrame.x,
+          top: readingPictureFrame.y,
+          width: readingPictureFrame.width,
+          height: readingPictureFrame.height,
+        },
+      ]
+      : styles.video;
+
+  // The player has one stable owner and one stable seat above the visual
+  // cabinet. Cabinet changes only restyle or detach its VideoView, so board,
+  // reading, and column-shift transitions cannot recreate the native player.
+  // Home and sign-off intentionally remove this owner and kill the stream.
   const videoEl = Platform.OS !== 'web' && isExpoGo ? (
-    <View style={styles.center}>
+    <View style={[playerSeatStyle, styles.center]}>
       <Text style={styles.difficultyDetail}>
         Playback requires a development build (Expo Go lacks the native player).
       </Text>
@@ -703,8 +751,9 @@ export default function WatchScreen() {
       sourceUrl={currentChannel.streamUrl}
       playing
       muted={false}
-      style={styles.video}
+      style={playerSeatStyle}
       viewport="contain"
+      viewAttached={Platform.OS === 'web' || playerViewAttached}
       metadata={{
         channelName: currentChannel.name,
         programmeTitle: nowPlayingMap.get(currentChannel.id)?.title,
@@ -719,15 +768,6 @@ export default function WatchScreen() {
     />
   );
 
-  const uprightPicture = uprightMode === 'picture';
-  // Upright on the phone, the picture leaves the stage: under the
-  // column shift (or the shade) it plays on unseen — the sound carries —
-  // and in the reading orientation MReading seats it in the strip.
-  const hidePicture = isPhone && !isLandscape && !homeVisible && !signOff
-    && (boardVisible || !uprightPicture);
-  const readingSeatsPicture = isPhone && !isLandscape && !homeVisible && !signOff
-    && uprightPicture && !boardVisible;
-
   return (
     <PanGestureHandler
       onHandlerStateChange={onGestureEvent}
@@ -735,23 +775,36 @@ export default function WatchScreen() {
       activeOffsetX={[-20, 20]}
     >
       <View style={styles.container}>
-        <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
-          <View style={styles.container}>
-            {/* ── The picture (dark while the receiver is showing) ── */}
-            {homeVisible || signOff || readingSeatsPicture ? null : hidePicture ? (
-              <View style={styles.hiddenVideo} pointerEvents="none">{videoEl}</View>
-            ) : (
-              videoEl
-            )}
+        <View
+          style={styles.readingLayer}
+          pointerEvents={readingSeatsPicture ? 'auto' : 'none'}
+        >
+          {readingSeatsPicture && (
+            <MReading
+              channel={currentChannel}
+              nowPlaying={nowPlaying}
+              clockNow={clockNow}
+              width={winW}
+              onPictureLayout={handleReadingPictureLayout}
+            />
+          )}
+        </View>
 
-            {showBufferingOverlay && (
+        {!homeVisible && !signOff && videoEl}
+
+        <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
+          <View
+            style={styles.pictureControls}
+            pointerEvents={readingSeatsPicture ? 'none' : 'auto'}
+          >
+            {showBufferingOverlay && !readingSeatsPicture && (
               <View style={styles.moment} pointerEvents="none">
                 <View style={styles.momentJewel} />
                 <Text style={styles.momentText}>A MOMENT, PLEASE</Text>
               </View>
             )}
 
-            {playerError && (
+            {playerError && !readingSeatsPicture && (
               <View style={styles.difficulty} pointerEvents="none">
                 <Text style={styles.difficultyKicker}>THE PICTURE IS HAVING DIFFICULTY</Text>
                 <Text style={styles.difficultyDetail} numberOfLines={2}>{playerError}</Text>
@@ -759,7 +812,7 @@ export default function WatchScreen() {
             )}
 
             {/* ── Tune-in: the stamped channel plate flashes, then fades ── */}
-            {flashVisible && !signOff && (
+            {flashVisible && !signOff && !readingSeatsPicture && (
               <Animated.View style={[StyleSheet.absoluteFill, { opacity: flashOpacity }]} pointerEvents="none">
                 <Flash channel={currentChannel} nowPlaying={nowPlaying} compact={isPhone} />
               </Animated.View>
@@ -790,18 +843,6 @@ export default function WatchScreen() {
             )}
           </View>
         </TouchableWithoutFeedback>
-
-        {/* ── THE READING ORIENTATION: upright, the picture in its strip ── */}
-        {readingSeatsPicture && (
-          <MReading
-            channel={currentChannel}
-            nowPlaying={nowPlaying}
-            clockNow={clockNow}
-            width={winW}
-          >
-            {videoEl}
-          </MReading>
-        )}
 
         {/* ── UPRIGHT COURTESY: the column shift, over the sound of the room ── */}
         {isPhone && !isLandscape && !homeVisible && !boardVisible && !signOff && !uprightPicture && (
@@ -977,6 +1018,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  pictureControls: {
+    flex: 1,
+  },
+  readingLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
   center: {
     flex: 1,
     backgroundColor: walnut.deep,
@@ -987,6 +1034,10 @@ const styles = StyleSheet.create({
   },
   video: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+  },
+  readingVideo: {
+    position: 'absolute',
     backgroundColor: '#000',
   },
 
@@ -1080,8 +1131,8 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
 
-  // Upright on the phone: the picture plays on out of sight, so the
-  // sound keeps faith with the room while the column shift shows.
+  // Web needs its DOM video connected to preserve the hls.js pipeline.
+  // Native instead detaches VideoView and keeps the expo-video player alive.
   hiddenVideo: {
     position: 'absolute',
     width: 2,

@@ -4,45 +4,30 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
-  useState,
-  type ComponentType,
 } from 'react';
-import Video, {
-  type OnBufferData,
-  type OnVideoErrorData,
-  type VideoRef,
-} from 'react-native-video';
-import type { PlayerError, PlayerSurfaceHandle, PlayerSurfaceProps } from './types';
+import { useEventListener } from 'expo';
+import {
+  isPictureInPictureSupported,
+  useVideoPlayer,
+  VideoView,
+  type VideoSource,
+  type VideoView as VideoViewInstance,
+} from 'expo-video';
+import type { PlayerError, PlayerMetadata, PlayerSurfaceHandle, PlayerSurfaceProps } from './types';
 
-type PlayerEngine = 'vlc' | 'native';
-
-const vlcModule = (() => {
-  try {
-    return require('react-native-vlc-media-player');
-  } catch {
-    return null;
-  }
-})();
-const VLCPlayer = (vlcModule?.VLCPlayer ?? null) as ComponentType<any> | null;
-
-function resolvePrimaryEngine(streamUrl: string): PlayerEngine {
-  if (!VLCPlayer) return 'native';
-  if (streamUrl.toLowerCase().includes('.m3u8')) return 'native';
-  return 'vlc';
+function videoSource(sourceUrl: string, metadata?: PlayerMetadata): VideoSource {
+  return {
+    uri: sourceUrl,
+    contentType: 'hls',
+    metadata: {
+      title: metadata?.programmeTitle ?? metadata?.channelName ?? 'Dead Simple Player',
+      artist: metadata?.programmeTitle ? metadata.channelName : undefined,
+      artwork: metadata?.artworkUrl,
+    },
+  };
 }
 
-function formatVideoError(errorData: OnVideoErrorData): string {
-  const details = errorData.error;
-  return (
-    details.errorString
-    || details.localizedDescription
-    || details.errorException
-    || details.error
-    || 'Playback failed'
-  );
-}
-
-/** Native playback, including the established VLC/native failover chain. */
+/** AVPlayer-backed live television with a player lifecycle independent of its view. */
 export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(
   function PlayerSurface(
     {
@@ -52,6 +37,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       style,
       viewport = 'contain',
       metadata,
+      viewAttached = true,
       onReady,
       onBuffering,
       onError,
@@ -59,138 +45,174 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     },
     forwardedRef,
   ) {
-    const videoRef = useRef<VideoRef | null>(null);
+    const videoViewRef = useRef<VideoViewInstance | null>(null);
     const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const sourceRef = useRef(sourceUrl);
-    const [engine, setEngine] = useState<PlayerEngine>(() => resolvePrimaryEngine(sourceUrl));
-    const [fallbackUsed, setFallbackUsed] = useState(false);
-    const [retried, setRetried] = useState(false);
-    const [reloadNonce, setReloadNonce] = useState(0);
+    const retryPending = useRef(false);
+    const retried = useRef(false);
+    const readyReported = useRef(false);
+    const sourceGeneration = useRef(0);
+    const sourceRef = useRef(videoSource(sourceUrl, metadata));
+    const playingRef = useRef(playing);
+    const callbacksRef = useRef({ onReady, onBuffering, onError });
 
-    sourceRef.current = sourceUrl;
+    playingRef.current = playing;
+    callbacksRef.current = { onReady, onBuffering, onError };
+    sourceRef.current = videoSource(sourceUrl, metadata);
 
-    useEffect(() => {
-      if (retryTimer.current) clearTimeout(retryTimer.current);
-      retryTimer.current = null;
-      setEngine(resolvePrimaryEngine(sourceUrl));
-      setFallbackUsed(false);
-      setRetried(false);
-      setReloadNonce(0);
-      onBuffering(true);
-    }, [sourceUrl, onBuffering]);
+    const player = useVideoPlayer(null, (createdPlayer) => {
+      createdPlayer.staysActiveInBackground = true;
+      createdPlayer.showNowPlayingNotification = true;
+      createdPlayer.audioMixingMode = 'doNotMix';
+      createdPlayer.allowsExternalPlayback = true;
+      createdPlayer.timeUpdateEventInterval = 0.5;
+    });
 
-    useEffect(() => () => {
-      if (retryTimer.current) clearTimeout(retryTimer.current);
+    const reportReady = useCallback(() => {
+      callbacksRef.current.onBuffering(false);
+      if (!readyReported.current) {
+        readyReported.current = true;
+        callbacksRef.current.onReady();
+      }
     }, []);
 
-    useEffect(() => {
-      onPictureInPictureAvailabilityChange?.(false);
-    }, [onPictureInPictureAvailabilityChange]);
+    const reportPlayerError = useCallback((error: PlayerError) => {
+      if (retryPending.current) return;
 
-    useImperativeHandle(forwardedRef, () => ({
-      requestPictureInPicture: () => {
-        videoRef.current?.enterPictureInPicture();
-      },
-      seekToLiveEdge: () => {},
-    }), []);
-
-    const reportStarted = useCallback(() => {
-      onReady();
-      onBuffering(false);
-    }, [onReady, onBuffering]);
-
-    const tryFallbackEngine = useCallback((error: PlayerError) => {
-      const failedSource = sourceUrl;
-      if (sourceRef.current !== failedSource) return;
-
-      // ErsatzTV can briefly serve an empty cold-start playlist. Preserve the
-      // established one-time, same-engine four-second retry before failover.
-      if (!retried) {
-        setRetried(true);
-        onBuffering(true);
+      // ErsatzTV can briefly serve an empty cold-start playlist. Reload the
+      // same HLS source on this same AVPlayer once, after the established
+      // four-second grace period, before surfacing the failure.
+      if (!retried.current) {
+        retried.current = true;
+        retryPending.current = true;
+        callbacksRef.current.onBuffering(true);
         console.warn('[Player retry after cold-start error]', error.message);
-        if (retryTimer.current) clearTimeout(retryTimer.current);
+        const generation = sourceGeneration.current;
         retryTimer.current = setTimeout(() => {
           retryTimer.current = null;
-          if (sourceRef.current === failedSource) setReloadNonce((nonce) => nonce + 1);
+          retryPending.current = false;
+          if (sourceGeneration.current !== generation) return;
+          readyReported.current = false;
+          void player.replaceAsync(sourceRef.current)
+            .then(() => {
+              if (playingRef.current) player.play();
+            })
+            .catch((replacementError: unknown) => reportPlayerError({
+              kind: 'media',
+              message: replacementError instanceof Error
+                ? replacementError.message
+                : 'Native HLS retry failed',
+            }));
         }, 4000);
         return;
       }
 
-      if (fallbackUsed || !VLCPlayer) {
-        onBuffering(false);
-        onError(error);
-        return;
+      callbacksRef.current.onBuffering(false);
+      callbacksRef.current.onError(error);
+    }, [player]);
+
+    useEventListener(player, 'statusChange', ({ status, error }) => {
+      if (status === 'loading') {
+        callbacksRef.current.onBuffering(true);
+      } else if (status === 'readyToPlay') {
+        reportReady();
+        if (playingRef.current) player.play();
+      } else if (status === 'error') {
+        reportPlayerError({
+          kind: 'media',
+          message: error?.message ? `Native HLS player error: ${error.message}` : 'Native HLS playback failed',
+        });
       }
+    });
 
-      setFallbackUsed(true);
-      setEngine((current) => (current === 'vlc' ? 'native' : 'vlc'));
-      onBuffering(true);
-      console.warn('[Player failover]', error.message);
-    }, [fallbackUsed, onBuffering, onError, retried, sourceUrl]);
+    useEventListener(player, 'playingChange', ({ isPlaying }) => {
+      if (isPlaying) reportReady();
+    });
 
-    const handleNativeBuffer = useCallback((event: OnBufferData) => {
-      onBuffering(event.isBuffering);
-    }, [onBuffering]);
+    useEventListener(player, 'timeUpdate', () => {
+      reportReady();
+    });
 
-    const resizeMode = viewport === 'stretch' ? 'stretch' : viewport;
+    useEffect(() => {
+      const generation = ++sourceGeneration.current;
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+      retryPending.current = false;
+      retried.current = false;
+      readyReported.current = false;
+      callbacksRef.current.onBuffering(true);
 
-    if (engine === 'vlc' && VLCPlayer) {
-      return (
-        <VLCPlayer
-          key={`vlc:${reloadNonce}:${sourceUrl}`}
-          source={{
-            uri: sourceUrl,
-            initType: 2,
-            initOptions: ['--network-caching=900', '--clock-jitter=0'],
-          }}
-          autoplay
-          paused={!playing}
-          muted={muted}
-          playInBackground
-          resizeMode={resizeMode}
-          style={style}
-          onPlaying={reportStarted}
-          onProgress={() => onBuffering(false)}
-          onLoad={reportStarted}
-          onError={() => tryFallbackEngine({ kind: 'media', message: 'VLC player error' })}
-        />
-      );
-    }
+      void player.replaceAsync(sourceRef.current)
+        .then(() => {
+          if (sourceGeneration.current === generation && playingRef.current) player.play();
+        })
+        .catch((error: unknown) => {
+          if (sourceGeneration.current !== generation) return;
+          reportPlayerError({
+            kind: 'media',
+            message: error instanceof Error ? error.message : 'Native HLS source failed to load',
+          });
+        });
+
+      return () => {
+        if (retryTimer.current) clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+        retryPending.current = false;
+      };
+    }, [
+      metadata?.artworkUrl,
+      metadata?.channelName,
+      metadata?.programmeTitle,
+      player,
+      reportPlayerError,
+      sourceUrl,
+    ]);
+
+    useEffect(() => {
+      if (playing) player.play();
+      else player.pause();
+    }, [player, playing]);
+
+    useEffect(() => {
+      player.muted = muted;
+    }, [muted, player]);
+
+    useEffect(() => {
+      let available = false;
+      try {
+        available = isPictureInPictureSupported();
+      } catch {
+        available = false;
+      }
+      onPictureInPictureAvailabilityChange?.(available);
+      return () => onPictureInPictureAvailabilityChange?.(false);
+    }, [onPictureInPictureAvailabilityChange]);
+
+    useImperativeHandle(forwardedRef, () => ({
+      requestPictureInPicture: () => {
+        void videoViewRef.current?.startPictureInPicture().catch(() => {});
+      },
+      seekToLiveEdge: () => {
+        const offset = player.currentOffsetFromLive;
+        if (typeof offset === 'number' && Number.isFinite(offset) && offset > 0) {
+          player.seekBy(offset);
+        }
+      },
+    }), [player]);
+
+    if (!viewAttached) return null;
 
     return (
-      <Video
-        ref={videoRef}
-        key={`native:${reloadNonce}:${sourceUrl}`}
-        source={{
-          uri: sourceUrl,
-          metadata: {
-            title: metadata?.channelName,
-            subtitle: metadata?.programmeTitle,
-            description: metadata?.description,
-            imageUri: metadata?.artworkUrl,
-          },
-        }}
+      <VideoView
+        ref={videoViewRef}
+        player={player}
         style={style}
-        resizeMode={resizeMode}
-        paused={!playing}
-        muted={muted}
-        controls={false}
-        ignoreSilentSwitch="ignore"
-        automaticallyWaitsToMinimizeStalling={false}
-        playInBackground
-        playWhenInactive
-        enterPictureInPictureOnLeave
-        allowsExternalPlayback
-        showNotificationControls
-        onLoadStart={() => onBuffering(true)}
-        onLoad={reportStarted}
-        onBuffer={handleNativeBuffer}
-        onProgress={() => onBuffering(false)}
-        onError={(event) => tryFallbackEngine({
-          kind: 'media',
-          message: `Native player error: ${formatVideoError(event)}`,
-        })}
+        pointerEvents="none"
+        contentFit={viewport === 'stretch' ? 'fill' : viewport}
+        nativeControls={false}
+        allowsFullscreen={false}
+        allowsPictureInPicture
+        startsPictureInPictureAutomatically
+        onFirstFrameRender={reportReady}
       />
     );
   },

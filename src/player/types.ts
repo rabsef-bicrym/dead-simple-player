@@ -34,6 +34,8 @@ export interface PlayerSurfaceProps {
   viewport?: PlayerViewport;
   metadata?: PlayerMetadata;
   mediaSessionControls?: PlayerMediaSessionControls;
+  /** Keep the player alive while detaching its native picture surface. */
+  viewAttached?: boolean;
   onReady: () => void;
   onBuffering: (buffering: boolean) => void;
   onError: (error: PlayerError) => void;
