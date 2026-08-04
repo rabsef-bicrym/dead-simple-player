@@ -1,0 +1,45 @@
+{
+  "name": "dead-simple-player-desktop",
+  "version": "1.0.0",
+  "description": "Electron desktop shell for Dead Simple Player",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package:appimage": "electron-builder --linux AppImage",
+    "package:dir": "electron-builder --linux dir"
+  },
+  "devDependencies": {
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.deadsimpleplayer.desktop",
+    "productName": "Dead Simple Player",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../../dist",
+        "to": "web-dist",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "AudioVideo",
+      "artifactName": "dead-simple-player-${version}-${arch}.${ext}"
+    }
+  }
+}

@@ -902,7 +902,12 @@ export default function WatchScreen() {
               setHomeVisible(false);
             }}
             onBoard={() => openBoard(dialIndex)}
-            onPower={() => setHomeVisible(false)}
+            onPower={() => {
+              setHomeVisible(false);
+              if (typeof window !== 'undefined') {
+                (window as typeof window & { dspShell?: { powerOff(): void } }).dspShell?.powerOff();
+              }
+            }}
             onNotes={setDetailProgramme}
             nowPlayingMap={nowPlayingMap}
             upNextMap={upNextMap}

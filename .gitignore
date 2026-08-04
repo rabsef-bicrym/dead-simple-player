@@ -3,6 +3,7 @@
 
 # dependencies
 node_modules/
+apps/desktop-electron/release/
 
 # Expo
 .expo/
