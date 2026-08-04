@@ -212,6 +212,8 @@ export default function WatchScreen() {
 
   const safeIndex = channels.length > 0 ? Math.min(currentIndex, channels.length - 1) : 0;
   const currentChannel = channels[safeIndex];
+  const tunedSourceRef = useRef<string | undefined>(currentChannel?.streamUrl);
+  tunedSourceRef.current = currentChannel?.streamUrl;
 
   // ── Clock + EPG lookups ──
   useEffect(() => {
@@ -337,6 +339,10 @@ export default function WatchScreen() {
   // Reset playback state on channel change; flash the channel bug.
   useEffect(() => {
     if (!currentChannel) return;
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
     setPlayerEngine(resolvePrimaryEngine(hasVlc, currentChannel.streamUrl));
     setFallbackUsed(false);
     setPlayerError(null);
@@ -603,16 +609,22 @@ export default function WatchScreen() {
   }, []);
 
   const tryFallbackEngine = useCallback((reason: string) => {
+    const failedSource = currentChannel?.streamUrl;
+    if (!failedSource || tunedSourceRef.current !== failedSource) return;
+
     // A freshly tuned channel's server session may not be ready for a few
     // seconds (cold start serves an empty playlist -> demuxer parse errors).
     // Retry the same engine once after a short wait before anything drastic.
-    if (retriedForUrl.current !== currentChannel?.streamUrl) {
-      retriedForUrl.current = currentChannel?.streamUrl ?? null;
+    if (retriedForUrl.current !== failedSource) {
+      retriedForUrl.current = failedSource;
       setBuffering(true);
       console.warn('[Player retry after cold-start error]', reason);
       if (retryTimer.current) clearTimeout(retryTimer.current);
       retryTimer.current = setTimeout(() => {
-        if (isMountedRef.current) setReloadNonce((n) => n + 1);
+        retryTimer.current = null;
+        if (isMountedRef.current && tunedSourceRef.current === failedSource) {
+          setReloadNonce((n) => n + 1);
+        }
       }, 4000);
       return;
     }
