@@ -1,0 +1,61 @@
+name: Electron AppImage
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/electron-shell
+    paths:
+      - '.github/workflows/electron-appimage.yml'
+      - 'app/**'
+      - 'apps/desktop-electron/**'
+      - 'assets/**'
+      - 'public/**'
+      - 'scripts/patch-pwa.mjs'
+      - 'src/**'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop-electron/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Install Electron packaging dependencies
+        run: npm ci --prefix apps/desktop-electron
+
+      - name: Build web export
+        run: npm run build:web
+
+      - name: Package AppImage
+        run: npm --prefix apps/desktop-electron run package:appimage
+
+      - name: Compute SHA-256
+        run: sha256sum apps/desktop-electron/release/*.AppImage | tee apps/desktop-electron/release/SHA256SUMS
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: dead-simple-player-appimage
+          path: apps/desktop-electron/release/*.AppImage
+          if-no-files-found: error
+
+      - name: Upload SHA-256
+        uses: actions/upload-artifact@v4
+        with:
+          name: dead-simple-player-sha256
+          path: apps/desktop-electron/release/SHA256SUMS
+          if-no-files-found: error
