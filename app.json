@@ -17,12 +17,9 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
+          "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "(×▶×) DS,P uses your local network to connect to your ErsatzTV server and stream channels.",
-        "UIBackgroundModes": [
-          "audio"
-        ]
+        "NSLocalNetworkUsageDescription": "(×▶×) DS,P uses your local network to connect to your ErsatzTV server and stream channels."
       },
       "bundleIdentifier": "com.anonymous.ipswitch"
     },
@@ -48,8 +45,21 @@
     },
     "plugins": [
       "expo-router",
-      "react-native-vlc-media-player",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true,
+          "supportsPictureInPicture": true
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
     ]
   }
 }

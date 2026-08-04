@@ -9,7 +9,7 @@ A purpose-built IPTV player for ErsatzTV. Nothing else. No generality.
 
 ## Tech Stack
 - React Native with Expo (iOS + Android)
-- expo-av or react-native-video for HLS playback
+- expo-video/AVPlayer for native HLS playback; hls.js on web
 - Custom M3U parser (ETV format only)
 - Custom XMLTV parser that actually works (handles single-line XML, Unicode, short-duration programmes)
 

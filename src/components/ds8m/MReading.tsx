@@ -1,5 +1,4 @@
-import { type ReactNode } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, type LayoutRectangle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { durationProse } from '../../utils/prose';
@@ -18,8 +17,8 @@ interface MReadingProps {
   nowPlaying?: Programme;
   clockNow: Date;
   width: number;
-  /** The live picture, re-cabineted into the strip. */
-  children: ReactNode;
+  /** Reports the strip so the one persistent player can be seated over it. */
+  onPictureLayout?: (layout: LayoutRectangle) => void;
 }
 
 function clockShort(d: Date): string {
@@ -41,7 +40,7 @@ function metaLine(p: Programme): string {
   return bits.join(' · ').toUpperCase();
 }
 
-export function MReading({ channel, nowPlaying, clockNow, width, children }: MReadingProps) {
+export function MReading({ channel, nowPlaying, clockNow, width, onPictureLayout }: MReadingProps) {
   const stripH = Math.round((width * 9) / 16);
   const paragraphs = (nowPlaying?.description ?? '')
     .split(/\n+/)
@@ -63,7 +62,10 @@ export function MReading({ channel, nowPlaying, clockNow, width, children }: MRe
       </View>
 
       {/* the picture, edge to edge in its strip */}
-      <View style={[styles.strip, { height: stripH }]}>{children}</View>
+      <View
+        style={[styles.strip, { height: stripH }]}
+        onLayout={(event) => onPictureLayout?.(event.nativeEvent.layout)}
+      />
 
       {/* the notes */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.notes} showsVerticalScrollIndicator={false}>
