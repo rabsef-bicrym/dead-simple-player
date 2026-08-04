@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, Image, StyleSheet, Animated, Pressable, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Defs, Line, Rect, RadialGradient, Stop } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts, plateTracking } from '../../constants/ds6';
 import { Plate } from './Plate';
 import { FlipClock } from './FlipClock';
@@ -12,10 +13,11 @@ import type { Channel, Programme } from '../../types';
  * Home — the receiver, cabinet face on, per the faceplate drawing.
  *
  * The wordmark stamped top-left with the one chrome signature beside it;
- * the announcer's greeting top-right. The dial sits left of amidships and
- * the right-hand panel answers it: NOW ON THE AIR, the channel's art
- * plate, the programme spoken large, its provenance line, the blurb, and
- * what comes after. The service rail runs along the bottom.
+ * the announcer's greeting top-right. Amidships, a station register stands
+ * left, the dial occupies the remaining centerline, and the right-hand
+ * panel answers it: NOW ON THE AIR, the channel's art plate, the programme
+ * spoken large, its provenance line, the blurb, and what comes after. The
+ * service rail runs along the bottom.
  */
 
 interface HomeProps {
@@ -35,6 +37,12 @@ interface HomeProps {
   upNextMap: Map<string, Programme>;
   clockNow: Date;
 }
+
+const REGISTER_MIN_PLATE_HEIGHT = 42;
+const REGISTER_MAX_PLATE_HEIGHT = 56;
+const REGISTER_PLATE_GAP = 6;
+const REGISTER_HEADER_HEIGHT = 30;
+const REGISTER_INDICATOR_HEIGHT = 14;
 
 function clockShort(d: Date): string {
   const h = d.getHours() % 12 || 12;
@@ -63,9 +71,63 @@ function ArtFrame({ channel, art }: { channel: Channel; art?: string }) {
   );
 }
 
+function StationRegisterPlate({
+  channel,
+  height,
+  tuned,
+  selected,
+  onPress,
+}: {
+  channel: Channel;
+  height: number;
+  tuned: boolean;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const face: [string, string, string] = tuned
+    ? [amber.glow, amber.jewel, amber.deep]
+    : [walnut.grain, walnut.raised, walnut.panel];
+  const ink = tuned ? walnut.void : brass.light;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Tune channel ${channel.number}, ${channel.name}`}
+      onPress={onPress}
+      style={[
+        styles.stationPlateShell,
+        { height },
+        tuned && styles.stationPlateTuned,
+        selected && styles.stationPlateSelected,
+      ]}
+    >
+      <LinearGradient colors={face} start={{ x: 0.15, y: 0 }} end={{ x: 0.85, y: 1 }} style={styles.stationPlateFace}>
+        <View style={[styles.registerScrew, styles.registerScrewTL]}><View style={styles.registerScrewSlot} /></View>
+        <View style={[styles.registerScrew, styles.registerScrewTR]}><View style={styles.registerScrewSlot} /></View>
+        <View style={[styles.registerScrew, styles.registerScrewBL]}><View style={styles.registerScrewSlot} /></View>
+        <View style={[styles.registerScrew, styles.registerScrewBR]}><View style={styles.registerScrewSlot} /></View>
+        <Text style={[styles.stationNumber, { color: ink }]}>{channel.number}</Text>
+        <View style={[styles.stationDivider, { backgroundColor: tuned ? 'rgba(26,16,6,0.32)' : brass.shadow }]} />
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+          numberOfLines={1}
+          style={[styles.stationName, { color: ink }]}
+        >
+          {channel.name.toUpperCase()}
+        </Text>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
 export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPower, onService, onNotes, nowPlayingMap, upNextMap, clockNow }: HomeProps) {
   const { width, height } = useWindowDimensions();
   const panelOpacity = useRef(new Animated.Value(1)).current;
+  const [registerHeight, setRegisterHeight] = useState(Math.max(300, height - 180));
+  // Home opens with its cursor resting on the tuned channel. Preserve that
+  // identity while arrows and swipes walk the cursor ahead of the picture.
+  const tunedChannelId = useRef(channels[selectedIndex]?.id).current;
 
   const selected = channels[selectedIndex];
   const now = selected ? nowPlayingMap.get(selected.id) : undefined;
@@ -82,10 +144,39 @@ export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPow
     Animated.timing(panelOpacity, { toValue: 1, duration: 280, useNativeDriver: true }).start();
   }, [selectedIndex, panelOpacity]);
 
-  // The station plates ride outside the dial drawing; the wrapper below
-  // reserves their extent (190 wide, 90 tall) so they never trespass on
-  // the masthead or the panel.
-  const dialSize = Math.max(280, Math.min(620, height - 262, width * 0.55 - 190));
+  const horizontalPadding = width < 1200 ? 32 : 48;
+  const columnGap = width < 1200 ? 24 : 36;
+  const registerWidth = Math.max(215, Math.min(286, width * 0.2));
+  const panelWidth = Math.max(280, Math.min(460, width * 0.3));
+  const centerWidth = width - horizontalPadding * 2 - columnGap * 2 - registerWidth - panelWidth;
+  const dialSize = Math.max(180, Math.min(560, height - 188, centerWidth));
+
+  const registerBodyHeight = Math.max(0, registerHeight - REGISTER_HEADER_HEIGHT);
+  const allPlateHeight = channels.length > 0
+    ? (registerBodyHeight - REGISTER_PLATE_GAP * (channels.length - 1)) / channels.length
+    : REGISTER_MAX_PLATE_HEIGHT;
+  const registerWindowed = allPlateHeight < REGISTER_MIN_PLATE_HEIGHT;
+  const windowPlateArea = registerBodyHeight - (registerWindowed ? REGISTER_INDICATOR_HEIGHT * 2 : 0);
+  const visibleCount = registerWindowed
+    ? Math.min(
+        channels.length,
+        Math.max(1, Math.floor((windowPlateArea + REGISTER_PLATE_GAP) / (REGISTER_MIN_PLATE_HEIGHT + REGISTER_PLATE_GAP))),
+      )
+    : channels.length;
+  const plateHeight = visibleCount > 0
+    ? Math.max(
+        REGISTER_MIN_PLATE_HEIGHT,
+        Math.min(
+          REGISTER_MAX_PLATE_HEIGHT,
+          Math.floor((windowPlateArea - REGISTER_PLATE_GAP * (visibleCount - 1)) / visibleCount),
+        ),
+      )
+    : REGISTER_MAX_PLATE_HEIGHT;
+  const lastWindowStart = Math.max(0, channels.length - visibleCount);
+  const windowStart = registerWindowed
+    ? Math.min(lastWindowStart, Math.max(0, selectedIndex - Math.floor(visibleCount / 2)))
+    : 0;
+  const visibleChannels = channels.slice(windowStart, windowStart + visibleCount);
 
   // On a short cabinet the panel's engraving shrinks so nothing spills
   // into the masthead; the television gets the full drawing.
@@ -118,17 +209,64 @@ export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPow
         <Text style={styles.greeting}>{greeting(clockNow)}</Text>
       </View>
 
-      {/* Amidships: the dial left, the panel answering it */}
-      <View style={styles.midRow}>
+      {/* Amidships: register, dial on the remaining centerline, programme panel. */}
+      <View style={[styles.midRow, { paddingHorizontal: horizontalPadding, gap: columnGap }]}>
         <View
-          style={{
-            width: dialSize + 190,
-            height: dialSize + 90,
-            flexShrink: 0,
-            alignItems: 'center',
-            justifyContent: 'center',
+          style={[styles.register, { width: registerWidth }]}
+          onLayout={(event) => {
+            const measured = Math.floor(event.nativeEvent.layout.height);
+            if (measured > 0 && measured !== registerHeight) setRegisterHeight(measured);
           }}
         >
+          <View style={styles.registerHeader}>
+            <View style={styles.registerHeaderRule} />
+            <Text style={styles.registerHeaderText}>STATION REGISTER</Text>
+            <View style={styles.registerHeaderRule} />
+          </View>
+          <View style={styles.registerBody}>
+            {registerWindowed && (
+              <Text
+                accessibilityLabel={windowStart > 0 ? 'More stations above' : undefined}
+                style={[styles.registerIndicator, windowStart === 0 && styles.registerIndicatorHidden]}
+              >
+                ▲
+              </Text>
+            )}
+            <View style={styles.registerPlates}>
+              {visibleChannels.map((channel, visibleIndex) => {
+                const index = windowStart + visibleIndex;
+                const tuned = channel.id === tunedChannelId;
+                const selected = index === selectedIndex && !tuned;
+                return (
+                  <StationRegisterPlate
+                    key={channel.id}
+                    channel={channel}
+                    height={plateHeight}
+                    tuned={tuned}
+                    selected={selected}
+                    onPress={() => {
+                      onSelect(index);
+                      onTune(index);
+                    }}
+                  />
+                );
+              })}
+            </View>
+            {registerWindowed && (
+              <Text
+                accessibilityLabel={windowStart + visibleCount < channels.length ? 'More stations below' : undefined}
+                style={[
+                  styles.registerIndicator,
+                  windowStart + visibleCount >= channels.length && styles.registerIndicatorHidden,
+                ]}
+              >
+                ▼
+              </Text>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.dialColumn}>
           <Dial
             channels={channels}
             selectedIndex={selectedIndex}
@@ -138,7 +276,7 @@ export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPow
           />
         </View>
 
-        <Animated.View style={[styles.panel, { opacity: panelOpacity }]}>
+        <Animated.View style={[styles.panel, { width: panelWidth, opacity: panelOpacity }]}>
           {selected && (
             <Pressable onPress={() => now && onNotes?.(now)}>
               <View style={styles.panelHeader}>
@@ -245,11 +383,141 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 48,
-    gap: 36,
+  },
+  register: {
+    flexShrink: 0,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    paddingBottom: 14,
+  },
+  registerHeader: {
+    height: REGISTER_HEADER_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  registerHeaderRule: {
+    flex: 1,
+    height: 1,
+    backgroundColor: brass.shadow,
+  },
+  registerHeaderText: {
+    fontFamily: fonts.plate,
+    fontSize: 9,
+    letterSpacing: plateTracking(9),
+    color: brass.muted,
+  },
+  registerBody: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  registerPlates: {
+    width: '100%',
+    gap: REGISTER_PLATE_GAP,
+  },
+  registerIndicator: {
+    height: REGISTER_INDICATOR_HEIGHT,
+    lineHeight: REGISTER_INDICATOR_HEIGHT,
+    textAlign: 'center',
+    fontFamily: fonts.plate,
+    fontSize: 9,
+    color: brass.mid,
+    textShadowColor: 'rgba(0,0,0,0.75)',
+    textShadowRadius: 1,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  registerIndicatorHidden: {
+    opacity: 0,
+  },
+  stationPlateShell: {
+    width: '100%',
+    borderRadius: 3,
+    borderWidth: 1,
+    borderTopColor: 'rgba(241,229,207,0.14)',
+    borderLeftColor: 'rgba(241,229,207,0.08)',
+    borderRightColor: 'rgba(0,0,0,0.65)',
+    borderBottomColor: 'rgba(0,0,0,0.8)',
+    backgroundColor: walnut.void,
+  },
+  stationPlateTuned: {
+    shadowColor: amber.jewel,
+    shadowOpacity: 0.55,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 8,
+  },
+  stationPlateSelected: {
+    borderTopColor: amber.needle,
+    borderLeftColor: amber.deep,
+    borderRightColor: amber.deep,
+    borderBottomColor: amber.deep,
+    shadowColor: amber.jewel,
+    shadowOpacity: 0.48,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
+  },
+  stationPlateFace: {
+    flex: 1,
+    borderRadius: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 13,
+  },
+  registerScrew: {
+    position: 'absolute',
+    zIndex: 2,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: brass.mid,
+    borderWidth: 0.5,
+    borderColor: walnut.void,
+  },
+  registerScrewSlot: {
+    width: 4,
+    height: 1,
+    backgroundColor: walnut.deep,
+    transform: [{ rotate: '22deg' }],
+  },
+  registerScrewTL: { top: 3, left: 3 },
+  registerScrewTR: { top: 3, right: 3 },
+  registerScrewBL: { bottom: 3, left: 3 },
+  registerScrewBR: { bottom: 3, right: 3 },
+  stationNumber: {
+    width: 45,
+    textAlign: 'center',
+    fontFamily: fonts.plate,
+    fontWeight: '700',
+    fontSize: 18,
+    lineHeight: 24,
+    fontVariant: ['tabular-nums'],
+  },
+  stationDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    marginVertical: 9,
+    opacity: 0.7,
+  },
+  stationName: {
+    flex: 1,
+    paddingLeft: 13,
+    paddingRight: 5,
+    fontFamily: fonts.plate,
+    fontWeight: '700',
+    fontSize: 13,
+    letterSpacing: plateTracking(13) * 0.42,
+  },
+  dialColumn: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   panel: {
-    flex: 1,
+    flexShrink: 0,
     minWidth: 0,
     alignSelf: 'stretch',
     justifyContent: 'center',
