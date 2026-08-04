@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, Easing, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, Pressable } from 'react-native';
 import Svg, { Circle, Defs, G, Line, Rect, RadialGradient, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
-import { walnut, amber } from '../../constants/ds6';
-import { Plate } from './Plate';
+import { walnut, brass, amber, fonts } from '../../constants/ds6';
 import { playSound } from '../../utils/sound';
 import type { Channel } from '../../types';
 
@@ -12,9 +11,10 @@ import type { Channel } from '../../types';
  * Concentric from the outside in: an amber breath of glow, the fine outer
  * knurl, the dial face carrying one station dot per channel, the coarse
  * inner knurl, the grip knob with its full-width thumb bar, and a single
- * slotted screw holding the whole affair to the chassis. Station plates
- * ride a uniform polar clearance outside the knurl. Everything scales
- * from the 620px reference drawing.
+ * slotted screw holding the whole affair to the chassis. Fixed-width
+ * channel numerals ride each detent outside the knurl, so their anchors
+ * remain optically equidistant. Everything scales from the 620px
+ * reference drawing.
  */
 
 interface DialProps {
@@ -75,10 +75,9 @@ export function Dial({ channels, selectedIndex, onSelect, onTune, size }: DialPr
   const rInnerKnurlInner = 67 * s;
   const rInnerFace = 67 * s;
   const rGrip = 53 * s;
-  // Plates keep their engraved size when the cabinet shrinks, so their
-  // clearance off the knurl is absolute, not scaled — they must never
-  // ride up onto the ring.
-  const rPlates = Math.max(245 * s, rKnurlOuter + 95);
+  // Number boxes are fixed-width and centered on their polar anchors;
+  // unlike name plaques, their contents can never disturb the spacing.
+  const rNumbers = Math.max(188 * s, rKnurlOuter + 30);
   const grip = rGrip * 2;
 
   const fineTicks = Array.from({ length: 60 }, (_, i) => (i / 60) * Math.PI * 2);
@@ -220,30 +219,22 @@ export function Dial({ channels, selectedIndex, onSelect, onTune, size }: DialPr
         </Svg>
       </View>
 
-      {/* station plates on the polar clearance */}
+      {/* fixed-width channel numerals at the detents */}
       {channels.map((ch, i) => {
         const a = (angleFor(i, channels.length) * Math.PI) / 180;
-        const px = c + rPlates * Math.cos(a);
-        const py = c + rPlates * Math.sin(a);
+        const px = c + rNumbers * Math.cos(a);
+        const py = c + rNumbers * Math.sin(a);
         const selected = i === selectedIndex;
         return (
-          // A wide centering box keeps the engraving on one line — an
-          // absolutely-positioned plate near the cabinet's edge would
-          // otherwise wrap its own name.
-          <View key={ch.id} style={[styles.station, { left: px - 170, top: py, width: 340 }]} pointerEvents="box-none">
-            {/* Percentage translate centers the plate on its polar point (RN >= 0.76). */}
-            <View style={{ transform: [{ translateY: '-50%' }] } as never}>
-              <Pressable onPress={() => (selected ? onTune(i) : onSelect(i))}>
-                <Plate
-                  kicker={`CHANNEL ${ch.number}`}
-                  label={ch.name.toUpperCase()}
-                  lit={selected}
-                  kickerSize={8}
-                  labelSize={12.5}
-                />
-              </Pressable>
-            </View>
-          </View>
+          <Pressable
+            key={ch.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Channel ${ch.number}, ${ch.name}`}
+            onPress={() => (selected ? onTune(i) : onSelect(i))}
+            style={[styles.channelNumberHit, { left: px - 28, top: py - 22 }]}
+          >
+            <Text style={[styles.channelNumber, selected && styles.channelNumberSelected]}>{ch.number}</Text>
+          </Pressable>
         );
       })}
     </View>
@@ -257,8 +248,30 @@ const styles = StyleSheet.create({
   screwLayer: {
     position: 'absolute',
   },
-  station: {
+  channelNumberHit: {
     position: 'absolute',
+    width: 56,
+    height: 44,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  channelNumber: {
+    width: 56,
+    textAlign: 'center',
+    fontFamily: fonts.plate,
+    fontWeight: '700',
+    fontSize: 22,
+    lineHeight: 28,
+    fontVariant: ['tabular-nums'],
+    color: brass.light,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowRadius: 2,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  channelNumberSelected: {
+    color: amber.glow,
+    textShadowColor: amber.jewel,
+    textShadowRadius: 12,
+    textShadowOffset: { width: 0, height: 0 },
   },
 });

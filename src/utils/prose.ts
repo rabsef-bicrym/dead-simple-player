@@ -32,13 +32,13 @@ export function timeToProse(d: Date): string {
     const w = MINUTE_WORDS[m] ?? String(m);
     return m === 5 || m === 10 || m === 20 || m === 25
       ? `${w} past ${hourWord}`
-      : `${w} minutes past ${hourWord}`;
+      : `${w} ${m === 1 ? 'minute' : 'minutes'} past ${hourWord}`;
   }
   const rem = 60 - m;
   const w = MINUTE_WORDS[rem] ?? String(rem);
   return rem === 5 || rem === 10 || rem === 20 || rem === 25
     ? `${w} to ${nextHourWord}`
-    : `${w} minutes to ${nextHourWord}`;
+    : `${w} ${rem === 1 ? 'minute' : 'minutes'} to ${nextHourWord}`;
 }
 
 /** "Good evening. It is Friday, a quarter to eight." */
