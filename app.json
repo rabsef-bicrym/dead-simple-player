@@ -1,13 +1,14 @@
 {
   "expo": {
-    "name": "(×▶×) DS,P",
-    "slug": "ipswitch",
+    "name": "DS,P",
+    "slug": "dead-simple-player",
+    "owner": "eric-helal-apps",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
-    "scheme": "ipswitch",
+    "scheme": "deadsimpleplayer",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -19,9 +20,9 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "(×▶×) DS,P uses your local network to connect to your ErsatzTV server and stream channels."
+        "NSLocalNetworkUsageDescription": "DS,P uses your local network to connect to your media server and stream your channels."
       },
-      "bundleIdentifier": "com.anonymous.ipswitch"
+      "bundleIdentifier": "com.rabsefbicrym.dsp"
     },
     "android": {
       "adaptiveIcon": {
@@ -33,7 +34,7 @@
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
       ],
-      "package": "com.anonymous.ipswitch"
+      "package": "com.rabsefbicrym.dsp"
     },
     "web": {
       "favicon": "./assets/favicon.png",
