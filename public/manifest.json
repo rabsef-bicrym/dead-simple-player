@@ -3,7 +3,6 @@
   "short_name": "DS,P",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "landscape",
   "background_color": "#120a05",
   "theme_color": "#120a05",
   "icons": [

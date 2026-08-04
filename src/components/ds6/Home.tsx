@@ -27,6 +27,8 @@ interface HomeProps {
   onBoard?: () => void;
   /** Back to the picture — the power jewel, tapped. */
   onPower?: () => void;
+  /** Open the service panel — the S plate on the rail, tapped. */
+  onService?: () => void;
   /** Project the notes for a programme — the panel, tapped. */
   onNotes?: (programme: Programme) => void;
   nowPlayingMap: Map<string, Programme>;
@@ -61,7 +63,7 @@ function ArtFrame({ channel, art }: { channel: Channel; art?: string }) {
   );
 }
 
-export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPower, onNotes, nowPlayingMap, upNextMap, clockNow }: HomeProps) {
+export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPower, onService, onNotes, nowPlayingMap, upNextMap, clockNow }: HomeProps) {
   const { width, height } = useWindowDimensions();
   const panelOpacity = useRef(new Animated.Value(1)).current;
 
@@ -188,6 +190,10 @@ export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPow
           <Pressable style={styles.hint} onPress={onBoard}>
             <Plate label="G" compact labelSize={10} />
             <Text style={styles.hintText}>THIS EVENING</Text>
+          </Pressable>
+          <Pressable style={styles.hint} onPress={onService}>
+            <Plate label="S" compact labelSize={10} />
+            <Text style={styles.hintText}>SERVICE</Text>
           </Pressable>
         </View>
         <View style={styles.clockSide}>

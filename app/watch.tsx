@@ -6,6 +6,7 @@ import {
   TouchableWithoutFeedback,
   TouchableOpacity,
   Animated,
+  AppState,
 } from 'react-native';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
@@ -14,7 +15,8 @@ import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-vi
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
-import { fetchIptvData } from '../src/services/iptv';
+import { fetchIptvChannels, fetchIptvGuide, type GuideState } from '../src/services/iptv';
+import { restoreLastChannelIndex } from '../src/services/channelStorage';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { Apron } from '../src/components/ds6/Apron';
@@ -56,6 +58,7 @@ const FLASH_HIDE_MS = 2500;
 const BUFFERING_OVERLAY_DELAY_MS = 800;
 const BUFFER_STALL_WINDOW_MS = 1500;
 const CLOCK_TICK_MS = 30000;
+const GUIDE_REFRESH_MS = 30 * 60 * 1000;
 
 type PlayerEngine = 'vlc' | 'native';
 
@@ -99,7 +102,7 @@ function formatVideoError(errorData: OnVideoErrorData): string {
 }
 
 export default function WatchScreen() {
-  const { activeConfig, loading: configLoading } = useServerConfig();
+  const { activeConfig, loading: configLoading, reload: reloadServerConfig } = useServerConfig();
   const { welcome } = useLocalSearchParams<{ welcome?: string }>();
   const isExpoGo = Constants.appOwnership === 'expo';
   const hasVlc = VLCPlayer !== null;
@@ -113,6 +116,8 @@ export default function WatchScreen() {
   const [indexRestored, setIndexRestored] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [guideState, setGuideState] = useState<GuideState | 'loading'>('loading');
+  const [guideError, setGuideError] = useState<string | null>(null);
 
   const [hudVisible, setHudVisible] = useState(false);
   const [flashVisible, setFlashVisible] = useState(false);
@@ -132,10 +137,14 @@ export default function WatchScreen() {
   const [uprightMode, setUprightMode] = useState<'shift' | 'picture'>('shift');
   useFocusEffect(
     useCallback(() => {
+      // Settings owns a separate hook instance, so re-read its active aerial
+      // before resuming this screen. A changed host/port then reloads data and
+      // gives every channel a stream URL from the newly selected server.
+      reloadServerConfig().catch(() => {});
       AsyncStorage.getItem(STORAGE_KEYS.UPRIGHT_MODE)
         .then((v) => setUprightMode(v === 'picture' ? 'picture' : 'shift'))
         .catch(() => {});
-    }, []),
+    }, [reloadServerConfig]),
   );
 
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
@@ -155,6 +164,12 @@ export default function WatchScreen() {
   const retriedForUrl = useRef<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const lastProgressAt = useRef<number>(0);
+  const channelRestoreStarted = useRef(false);
+  const dataGeneration = useRef(0);
+  const guideRefreshInFlight = useRef<string | null>(null);
+  const activeConfigKey = activeConfig ? `${activeConfig.host}:${activeConfig.port}` : '';
+  const activeConfigKeyRef = useRef(activeConfigKey);
+  activeConfigKeyRef.current = activeConfigKey;
 
   // ── Setup gate ──
   useEffect(() => {
@@ -164,19 +179,63 @@ export default function WatchScreen() {
   // ── Data ──
   const loadData = useCallback(async () => {
     if (!activeConfig) return;
+    const generation = ++dataGeneration.current;
+    const requestConfigKey = `${activeConfig.host}:${activeConfig.port}`;
     setDataLoading(true);
     if (isMountedRef.current) setDataError(null);
+    setGuideState('loading');
+    setGuideError(null);
+    setProgrammes([]);
+
+    // The guide is deliberately not awaited here: a slow or absent XMLTV
+    // endpoint must not hold the tuner behind it.
+    fetchIptvGuide(activeConfig)
+      .then((guide) => {
+        if (
+          isMountedRef.current
+          && dataGeneration.current === generation
+          && activeConfigKeyRef.current === requestConfigKey
+        ) {
+          setProgrammes(guide.epg.programmes);
+          setGuideState(guide.state);
+          setGuideError(guide.error ?? null);
+        }
+      })
+      .catch(() => {});
+
     try {
-      const { channels: nextChannels, epg } = await fetchIptvData(activeConfig);
-      if (!isMountedRef.current) return;
+      const nextChannels = await fetchIptvChannels(activeConfig);
+      if (
+        !isMountedRef.current
+        || dataGeneration.current !== generation
+        || activeConfigKeyRef.current !== requestConfigKey
+      ) return;
       setChannels(nextChannels);
-      setProgrammes(epg.programmes);
     } catch (error) {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && dataGeneration.current === generation) {
         setDataError(error instanceof Error ? error.message : 'Failed to load channel data');
       }
     } finally {
-      if (isMountedRef.current) setDataLoading(false);
+      if (isMountedRef.current && dataGeneration.current === generation) setDataLoading(false);
+    }
+  }, [activeConfig]);
+
+  const refreshGuide = useCallback(async () => {
+    if (!activeConfig) return;
+    const requestConfigKey = `${activeConfig.host}:${activeConfig.port}`;
+    if (guideRefreshInFlight.current === requestConfigKey) return;
+    guideRefreshInFlight.current = requestConfigKey;
+    try {
+      const guide = await fetchIptvGuide(activeConfig);
+      if (isMountedRef.current && activeConfigKeyRef.current === requestConfigKey) {
+        if (guide.state !== 'unavailable') setProgrammes(guide.epg.programmes);
+        setGuideState(guide.state);
+        setGuideError(guide.error ?? null);
+      }
+    } finally {
+      if (guideRefreshInFlight.current === requestConfigKey) {
+        guideRefreshInFlight.current = null;
+      }
     }
   }, [activeConfig]);
 
@@ -188,26 +247,54 @@ export default function WatchScreen() {
     };
   }, [loadData]);
 
+  useEffect(() => {
+    if (!activeConfig) return;
+    const interval = setInterval(() => { refreshGuide().catch(() => {}); }, GUIDE_REFRESH_MS);
+
+    if (Platform.OS === 'web') {
+      const onVisibilityChange = () => {
+        if (document.visibilityState === 'visible') refreshGuide().catch(() => {});
+      };
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      return () => {
+        clearInterval(interval);
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      };
+    }
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshGuide().catch(() => {});
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [activeConfig, refreshGuide]);
+
   // ── Remember the channel like a TV does ──
   useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEYS.LAST_CHANNEL_INDEX);
-        const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
-        if (!Number.isNaN(parsed) && parsed >= 0) setCurrentIndex(parsed);
-      } finally {
-        setIndexRestored(true);
-      }
-    })();
-  }, []);
+    if (dataLoading || channels.length === 0 || channelRestoreStarted.current) return;
+    channelRestoreStarted.current = true;
+    restoreLastChannelIndex(channels)
+      .then((index) => {
+        if (isMountedRef.current) setCurrentIndex(index);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isMountedRef.current) setIndexRestored(true);
+      });
+  }, [channels, dataLoading]);
 
   useEffect(() => {
-    if (!indexRestored) return;
-    AsyncStorage.setItem(STORAGE_KEYS.LAST_CHANNEL_INDEX, String(currentIndex)).catch(() => {});
-  }, [currentIndex, indexRestored]);
+    if (!indexRestored || channels.length === 0) return;
+    const channel = channels[Math.min(currentIndex, channels.length - 1)];
+    AsyncStorage.setItem(STORAGE_KEYS.LAST_CHANNEL_ID, channel.id).catch(() => {});
+  }, [channels, currentIndex, indexRestored]);
 
   const safeIndex = channels.length > 0 ? Math.min(currentIndex, channels.length - 1) : 0;
   const currentChannel = channels[safeIndex];
+  const tunedSourceRef = useRef<string | undefined>(currentChannel?.streamUrl);
+  tunedSourceRef.current = currentChannel?.streamUrl;
 
   // ── Clock + EPG lookups ──
   useEffect(() => {
@@ -333,6 +420,10 @@ export default function WatchScreen() {
   // Reset playback state on channel change; flash the channel bug.
   useEffect(() => {
     if (!currentChannel) return;
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
     setPlayerEngine(resolvePrimaryEngine(hasVlc, currentChannel.streamUrl));
     setFallbackUsed(false);
     setPlayerError(null);
@@ -544,6 +635,9 @@ export default function WatchScreen() {
           case 'g':
             openBoard(dialIndex);
             break;
+          case 's':
+            router.push('/settings');
+            break;
           case 'Escape':
             setHomeVisible(false);
             break;
@@ -599,16 +693,22 @@ export default function WatchScreen() {
   }, []);
 
   const tryFallbackEngine = useCallback((reason: string) => {
+    const failedSource = currentChannel?.streamUrl;
+    if (!failedSource || tunedSourceRef.current !== failedSource) return;
+
     // A freshly tuned channel's server session may not be ready for a few
     // seconds (cold start serves an empty playlist -> demuxer parse errors).
     // Retry the same engine once after a short wait before anything drastic.
-    if (retriedForUrl.current !== currentChannel?.streamUrl) {
-      retriedForUrl.current = currentChannel?.streamUrl ?? null;
+    if (retriedForUrl.current !== failedSource) {
+      retriedForUrl.current = failedSource;
       setBuffering(true);
       console.warn('[Player retry after cold-start error]', reason);
       if (retryTimer.current) clearTimeout(retryTimer.current);
       retryTimer.current = setTimeout(() => {
-        if (isMountedRef.current) setReloadNonce((n) => n + 1);
+        retryTimer.current = null;
+        if (isMountedRef.current && tunedSourceRef.current === failedSource) {
+          setReloadNonce((n) => n + 1);
+        }
       }, 4000);
       return;
     }
@@ -638,7 +738,7 @@ export default function WatchScreen() {
   }, [tryFallbackEngine]);
 
   // ── Render ──
-  if (configLoading || dataLoading || !indexRestored) {
+  if (configLoading || dataLoading || (!indexRestored && channels.length > 0)) {
     return (
       <View style={styles.center}>
         <View style={styles.momentJewel} />
@@ -828,6 +928,7 @@ export default function WatchScreen() {
               onGate={onGate}
               onBoard={() => openBoard(dialIndex)}
               onPower={() => { setHomeVisible(false); setSignOff(true); }}
+              onService={() => router.push('/settings')}
               onNotes={setDetailProgramme}
               nowPlayingMap={nowPlayingMap}
               upNextMap={upNextMap}
@@ -842,6 +943,7 @@ export default function WatchScreen() {
               nowPlayingMap={nowPlayingMap}
               upNextMap={upNextMap}
               clockNow={clockNow}
+              onService={() => router.push('/settings')}
             />
           )
         )}
@@ -903,6 +1005,7 @@ export default function WatchScreen() {
             }}
             onBoard={() => openBoard(dialIndex)}
             onPower={() => setHomeVisible(false)}
+            onService={() => router.push('/settings')}
             onNotes={setDetailProgramme}
             nowPlayingMap={nowPlayingMap}
             upNextMap={upNextMap}
@@ -930,6 +1033,28 @@ export default function WatchScreen() {
             clockNow={clockNow}
           />
         )}
+
+        {/* The tuner keeps playing when the separate programme guide is late. */}
+        {guideState !== 'fresh'
+          && !signOff
+          && (homeVisible || boardVisible || (isPhone && !isLandscape && !uprightPicture))
+          && (
+            <View style={styles.guideStatus} pointerEvents="none">
+              <View style={styles.momentJewel} />
+              <View style={styles.guideStatusCopy}>
+                <Text style={styles.momentText}>
+                  {guideState === 'loading'
+                    ? 'THE GUIDE — A MOMENT, PLEASE'
+                    : guideState === 'cached'
+                      ? 'THE GUIDE — LAST RECEIPT'
+                      : 'THE GUIDE IS NOT ANSWERING'}
+                </Text>
+                {guideState === 'unavailable' && guideError && (
+                  <Text style={styles.difficultyDetail} numberOfLines={1}>{guideError}</Text>
+                )}
+              </View>
+            </View>
+          )}
 
         {/* ── PROGRAMME NOTES: the NFO, projected on the dimmed picture ── */}
         {detailProgramme && (
@@ -1028,6 +1153,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 2.6,
     color: cream,
+  },
+  guideStatus: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    bottom: 70,
+    zIndex: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  guideStatusCopy: {
+    gap: 3,
+    alignItems: 'center',
   },
 
   // ── HUD anchor — the apron rides the bottom edge ──
