@@ -894,6 +894,7 @@ export default function WatchScreen() {
           <Home
             channels={channels}
             selectedIndex={dialIndex}
+            tunedIndex={safeIndex}
             onSelect={setDialIndex}
             onTune={(i) => {
               tuneTo(i);

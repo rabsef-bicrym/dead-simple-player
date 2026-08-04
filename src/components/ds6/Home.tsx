@@ -23,6 +23,8 @@ import type { Channel, Programme } from '../../types';
 interface HomeProps {
   channels: Channel[];
   selectedIndex: number;
+  /** The channel actually on the air — its plate carries the pilot lamp. */
+  tunedIndex: number;
   onSelect: (index: number) => void;
   onTune: (index: number) => void;
   /** Open This Evening — the G plate on the rail, tapped. */
@@ -84,10 +86,12 @@ function StationRegisterPlate({
   selected: boolean;
   onPress: () => void;
 }) {
-  const face: [string, string, string] = tuned
+  // The golden face is the dial's cursor and moves with it; the station on
+  // the air keeps a pilot lamp lit whether or not the cursor is resting there.
+  const face: [string, string, string] = selected
     ? [amber.glow, amber.jewel, amber.deep]
     : [walnut.grain, walnut.raised, walnut.panel];
-  const ink = tuned ? walnut.void : brass.light;
+  const ink = selected ? walnut.void : brass.light;
 
   return (
     <Pressable
@@ -97,8 +101,7 @@ function StationRegisterPlate({
       style={[
         styles.stationPlateShell,
         { height },
-        tuned && styles.stationPlateTuned,
-        selected && styles.stationPlateSelected,
+        selected && styles.stationPlateTuned,
       ]}
     >
       <LinearGradient colors={face} start={{ x: 0.15, y: 0 }} end={{ x: 0.85, y: 1 }} style={styles.stationPlateFace}>
@@ -107,7 +110,7 @@ function StationRegisterPlate({
         <View style={[styles.registerScrew, styles.registerScrewBL]}><View style={styles.registerScrewSlot} /></View>
         <View style={[styles.registerScrew, styles.registerScrewBR]}><View style={styles.registerScrewSlot} /></View>
         <Text style={[styles.stationNumber, { color: ink }]}>{channel.number}</Text>
-        <View style={[styles.stationDivider, { backgroundColor: tuned ? 'rgba(26,16,6,0.32)' : brass.shadow }]} />
+        <View style={[styles.stationDivider, { backgroundColor: selected ? 'rgba(26,16,6,0.32)' : brass.shadow }]} />
         <Text
           adjustsFontSizeToFit
           minimumFontScale={0.72}
@@ -116,18 +119,16 @@ function StationRegisterPlate({
         >
           {channel.name.toUpperCase()}
         </Text>
+        {tuned && <View style={[styles.stationLamp, selected && styles.stationLampOnAmber]} />}
       </LinearGradient>
     </Pressable>
   );
 }
 
-export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPower, onService, onNotes, nowPlayingMap, upNextMap, clockNow }: HomeProps) {
+export function Home({ channels, selectedIndex, tunedIndex, onSelect, onTune, onBoard, onPower, onService, onNotes, nowPlayingMap, upNextMap, clockNow }: HomeProps) {
   const { width, height } = useWindowDimensions();
   const panelOpacity = useRef(new Animated.Value(1)).current;
   const [registerHeight, setRegisterHeight] = useState(Math.max(300, height - 180));
-  // Home opens with its cursor resting on the tuned channel. Preserve that
-  // identity while arrows and swipes walk the cursor ahead of the picture.
-  const tunedChannelId = useRef(channels[selectedIndex]?.id).current;
 
   const selected = channels[selectedIndex];
   const now = selected ? nowPlayingMap.get(selected.id) : undefined;
@@ -235,8 +236,8 @@ export function Home({ channels, selectedIndex, onSelect, onTune, onBoard, onPow
             <View style={styles.registerPlates}>
               {visibleChannels.map((channel, visibleIndex) => {
                 const index = windowStart + visibleIndex;
-                const tuned = channel.id === tunedChannelId;
-                const selected = index === selectedIndex && !tuned;
+                const tuned = index === tunedIndex;
+                const selected = index === selectedIndex;
                 return (
                   <StationRegisterPlate
                     key={channel.id}
@@ -446,16 +447,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
   },
-  stationPlateSelected: {
-    borderTopColor: amber.needle,
-    borderLeftColor: amber.deep,
-    borderRightColor: amber.deep,
-    borderBottomColor: amber.deep,
-    shadowColor: amber.jewel,
-    shadowOpacity: 0.48,
-    shadowRadius: 12,
+  stationLamp: {
+    position: 'absolute',
+    right: 9,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: amber.jewel,
+    shadowColor: amber.glow,
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 6,
+    elevation: 4,
+  },
+  stationLampOnAmber: {
+    backgroundColor: '#7a2f0c',
+    borderWidth: 1,
+    borderColor: 'rgba(26,16,6,0.5)',
+    shadowOpacity: 0.35,
   },
   stationPlateFace: {
     flex: 1,
