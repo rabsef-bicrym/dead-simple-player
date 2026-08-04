@@ -100,7 +100,7 @@ function formatVideoError(errorData: OnVideoErrorData): string {
 }
 
 export default function WatchScreen() {
-  const { activeConfig, loading: configLoading } = useServerConfig();
+  const { activeConfig, loading: configLoading, reload: reloadServerConfig } = useServerConfig();
   const { welcome } = useLocalSearchParams<{ welcome?: string }>();
   const isExpoGo = Constants.appOwnership === 'expo';
   const hasVlc = VLCPlayer !== null;
@@ -133,10 +133,14 @@ export default function WatchScreen() {
   const [uprightMode, setUprightMode] = useState<'shift' | 'picture'>('shift');
   useFocusEffect(
     useCallback(() => {
+      // Settings owns a separate hook instance, so re-read its active aerial
+      // before resuming this screen. A changed host/port then reloads data and
+      // gives every channel a stream URL from the newly selected server.
+      reloadServerConfig().catch(() => {});
       AsyncStorage.getItem(STORAGE_KEYS.UPRIGHT_MODE)
         .then((v) => setUprightMode(v === 'picture' ? 'picture' : 'shift'))
         .catch(() => {});
-    }, []),
+    }, [reloadServerConfig]),
   );
 
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
