@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo, type ComponentType } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,11 @@ import {
   TouchableOpacity,
   Animated,
   AppState,
+  Platform,
 } from 'react-native';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Video, { type OnBufferData, type OnVideoErrorData } from 'react-native-video';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
@@ -30,7 +30,8 @@ import { MReading } from '../src/components/ds8m/MReading';
 import { MBoard } from '../src/components/ds8m/MBoard';
 import { SignOff } from '../src/components/ds8m/SignOff';
 import { useCabinet } from '../src/hooks/useCabinet';
-import { Platform } from 'react-native';
+import { PlayerSurface } from '../src/player/PlayerSurface';
+import type { PlayerError, PlayerSurfaceHandle } from '../src/player/types';
 import type { Channel, Programme } from '../src/types';
 
 /**
@@ -60,52 +61,10 @@ const BUFFER_STALL_WINDOW_MS = 1500;
 const CLOCK_TICK_MS = 30000;
 const GUIDE_REFRESH_MS = 30 * 60 * 1000;
 
-type PlayerEngine = 'vlc' | 'native';
-
-const vlcModule = (() => {
-  try {
-    return require('react-native-vlc-media-player');
-  } catch {
-    return null;
-  }
-})();
-const VLCPlayer = (vlcModule?.VLCPlayer ?? null) as ComponentType<any> | null;
-
-// Web browsers need hls.js for HLS; loaded only on web so native bundles skip it.
-const WebVideo = (() => {
-  if (Platform.OS !== 'web') return null;
-  try {
-    return require('../src/components/WebVideo').WebVideo;
-  } catch {
-    return null;
-  }
-})() as ComponentType<any> | null;
-
-/** Determine which engine should be tried first (native handles HLS + PiP). */
-function resolvePrimaryEngine(vlcAvailable: boolean, streamUrl?: string): PlayerEngine {
-  if (!vlcAvailable) return 'native';
-  if (!streamUrl) return 'vlc';
-  if (streamUrl.toLowerCase().includes('.m3u8')) return 'native';
-  return 'vlc';
-}
-
-/** Normalize react-native-video errors into readable text. */
-function formatVideoError(errorData: OnVideoErrorData): string {
-  const details = errorData.error;
-  return (
-    details.errorString
-    || details.localizedDescription
-    || details.errorException
-    || details.error
-    || 'Playback failed'
-  );
-}
-
 export default function WatchScreen() {
   const { activeConfig, loading: configLoading, reload: reloadServerConfig } = useServerConfig();
   const { welcome } = useLocalSearchParams<{ welcome?: string }>();
   const isExpoGo = Constants.appOwnership === 'expo';
-  const hasVlc = VLCPlayer !== null;
   // DS-8 console, or the DS-8/M traveling set? Nothing shrinks;
   // everything re-cabinets.
   const { isPhone, landscape: isLandscape, width: winW, height: winH } = useCabinet();
@@ -147,11 +106,10 @@ export default function WatchScreen() {
     }, [reloadServerConfig]),
   );
 
-  const [playerEngine, setPlayerEngine] = useState<PlayerEngine>(resolvePrimaryEngine(hasVlc));
-  const [fallbackUsed, setFallbackUsed] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [buffering, setBuffering] = useState(true);
   const [showBufferingOverlay, setShowBufferingOverlay] = useState(false);
+  const [pictureOutAvailable, setPictureOutAvailable] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
 
   const isMountedRef = useRef(true);
@@ -160,10 +118,8 @@ export default function WatchScreen() {
   const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bufferingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retriedForUrl = useRef<string | null>(null);
-  const [reloadNonce, setReloadNonce] = useState(0);
   const lastProgressAt = useRef<number>(0);
+  const playerRef = useRef<PlayerSurfaceHandle | null>(null);
   const channelRestoreStarted = useRef(false);
   const dataGeneration = useRef(0);
   const guideRefreshInFlight = useRef<string | null>(null);
@@ -293,9 +249,6 @@ export default function WatchScreen() {
 
   const safeIndex = channels.length > 0 ? Math.min(currentIndex, channels.length - 1) : 0;
   const currentChannel = channels[safeIndex];
-  const tunedSourceRef = useRef<string | undefined>(currentChannel?.streamUrl);
-  tunedSourceRef.current = currentChannel?.streamUrl;
-
   // ── Clock + EPG lookups ──
   useEffect(() => {
     const interval = setInterval(() => setClockNow(new Date()), CLOCK_TICK_MS);
@@ -420,26 +373,18 @@ export default function WatchScreen() {
   // Reset playback state on channel change; flash the channel bug.
   useEffect(() => {
     if (!currentChannel) return;
-    if (retryTimer.current) {
-      clearTimeout(retryTimer.current);
-      retryTimer.current = null;
-    }
-    setPlayerEngine(resolvePrimaryEngine(hasVlc, currentChannel.streamUrl));
-    setFallbackUsed(false);
     setPlayerError(null);
     setBuffering(true);
     setShowBufferingOverlay(false);
     setClockNow(new Date());
     lastProgressAt.current = 0;
-    retriedForUrl.current = null;
     flashChannel();
-  }, [currentChannel?.streamUrl, hasVlc]);
+  }, [currentChannel?.streamUrl]);
 
   useEffect(() => () => {
     if (hudTimer.current) clearTimeout(hudTimer.current);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
-    if (retryTimer.current) clearTimeout(retryTimer.current);
   }, []);
 
   // Show the spinner only when playback genuinely stalls.
@@ -569,6 +514,11 @@ export default function WatchScreen() {
     if (nowPlaying) setDetailProgramme(nowPlaying);
   }, [nowPlaying]);
 
+  const requestPictureOut = useCallback(() => {
+    // This remains a direct, synchronous call from the key/plate gesture.
+    playerRef.current?.requestPictureInPicture();
+  }, []);
+
   // ── Keyboard remote (web / desktop): a TV deserves a remote ──
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -667,6 +617,10 @@ export default function WatchScreen() {
           if (detailProgramme) setDetailProgramme(null);
           else openNotes();
           break;
+        case 'p':
+        case 'P':
+          if (pictureOutAvailable) requestPictureOut();
+          break;
         case 'Escape':
           if (detailProgramme) setDetailProgramme(null);
           else openHome(safeIndex);
@@ -675,10 +629,10 @@ export default function WatchScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor]);
+  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor, pictureOutAvailable, requestPictureOut]);
 
 
-  // ── Playback plumbing (engine failover) ──
+  // ── Playback plumbing ──
   const handlePlaybackStarted = useCallback(() => {
     lastProgressAt.current = Date.now();
     setBuffering(false);
@@ -686,56 +640,26 @@ export default function WatchScreen() {
     setPlayerError(null);
   }, []);
 
-  const handlePlaybackProgress = useCallback(() => {
-    lastProgressAt.current = Date.now();
+  const handlePlayerBuffering = useCallback((isBuffering: boolean) => {
+    if (!isBuffering) lastProgressAt.current = Date.now();
+    setBuffering(isBuffering);
+    if (!isBuffering) setShowBufferingOverlay(false);
+  }, []);
+
+  const handlePlayerError = useCallback((error: PlayerError) => {
+    setPlayerError(error.message);
     setBuffering(false);
     setShowBufferingOverlay(false);
   }, []);
 
-  const tryFallbackEngine = useCallback((reason: string) => {
-    const failedSource = currentChannel?.streamUrl;
-    if (!failedSource || tunedSourceRef.current !== failedSource) return;
-
-    // A freshly tuned channel's server session may not be ready for a few
-    // seconds (cold start serves an empty playlist -> demuxer parse errors).
-    // Retry the same engine once after a short wait before anything drastic.
-    if (retriedForUrl.current !== failedSource) {
-      retriedForUrl.current = failedSource;
-      setBuffering(true);
-      console.warn('[Player retry after cold-start error]', reason);
-      if (retryTimer.current) clearTimeout(retryTimer.current);
-      retryTimer.current = setTimeout(() => {
-        retryTimer.current = null;
-        if (isMountedRef.current && tunedSourceRef.current === failedSource) {
-          setReloadNonce((n) => n + 1);
-        }
-      }, 4000);
-      return;
-    }
-    if (fallbackUsed || !hasVlc) {
-      setPlayerError(reason);
-      setBuffering(false);
-      setShowBufferingOverlay(false);
-      return;
-    }
-    const nextEngine: PlayerEngine = playerEngine === 'vlc' ? 'native' : 'vlc';
-    setFallbackUsed(true);
-    setPlayerEngine(nextEngine);
-    setBuffering(true);
-    console.warn('[Player failover]', reason);
-  }, [fallbackUsed, hasVlc, playerEngine, currentChannel?.streamUrl]);
-
-  const handleNativeBuffer = useCallback((event: OnBufferData) => {
-    setBuffering(event.isBuffering);
-  }, []);
-
-  const handleNativeError = useCallback((event: OnVideoErrorData) => {
-    tryFallbackEngine(`Native player error: ${formatVideoError(event)}`);
-  }, [tryFallbackEngine]);
-
-  const handleVlcError = useCallback(() => {
-    tryFallbackEngine('VLC player error');
-  }, [tryFallbackEngine]);
+  const mediaSessionControls = useMemo(() => ({
+    onPreviousTrack: () => {
+      if (safeIndex > 0) tuneTo(safeIndex - 1);
+    },
+    onNextTrack: () => {
+      if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1);
+    },
+  }), [channels.length, safeIndex, tuneTo]);
 
   // ── Render ──
   if (configLoading || dataLoading || (!indexRestored && channels.length > 0)) {
@@ -767,66 +691,32 @@ export default function WatchScreen() {
   // The engine chain, built once so any cabinet can seat it — full
   // screen on the console, letterboxed strip in the reading orientation,
   // out of sight (sound carrying on) under the upright column shift.
-  const videoEl = WebVideo ? (
-    <WebVideo
-      key={`web:${reloadNonce}:${currentChannel.streamUrl}`}
-      streamUrl={currentChannel.streamUrl}
-      onStarted={handlePlaybackStarted}
-      onProgress={handlePlaybackProgress}
-      onError={tryFallbackEngine}
-    />
-  ) : isExpoGo ? (
+  const videoEl = Platform.OS !== 'web' && isExpoGo ? (
     <View style={styles.center}>
       <Text style={styles.difficultyDetail}>
         Playback requires a development build (Expo Go lacks the native player).
       </Text>
     </View>
-  ) : playerEngine === 'vlc' && VLCPlayer ? (
-              <VLCPlayer
-                key={`vlc:${reloadNonce}:${currentChannel.streamUrl}`}
-                source={{
-                  uri: currentChannel.streamUrl,
-                  initType: 2,
-                  initOptions: ['--network-caching=900', '--clock-jitter=0'],
-                }}
-                autoplay
-                paused={false}
-                playInBackground
-                resizeMode="contain"
-                style={styles.video}
-                onPlaying={handlePlaybackStarted}
-                onProgress={handlePlaybackProgress}
-                onLoad={handlePlaybackStarted}
-                onError={handleVlcError}
-              />
-            ) : (
-              <Video
-                key={`native:${reloadNonce}:${currentChannel.streamUrl}`}
-                source={{
-                  uri: currentChannel.streamUrl,
-                  metadata: {
-                    title: currentChannel.name,
-                    subtitle: nowPlaying?.title,
-                    description: nowPlaying?.description,
-                  },
-                }}
-                style={styles.video}
-                resizeMode="contain"
-                paused={false}
-                controls={false}
-                ignoreSilentSwitch="ignore"
-                automaticallyWaitsToMinimizeStalling={false}
-                playInBackground
-                playWhenInactive
-                enterPictureInPictureOnLeave
-                allowsExternalPlayback
-                showNotificationControls
-                onLoadStart={() => setBuffering(true)}
-                onLoad={handlePlaybackStarted}
-                onBuffer={handleNativeBuffer}
-                onProgress={handlePlaybackProgress}
-                onError={handleNativeError}
-              />
+  ) : (
+    <PlayerSurface
+      ref={playerRef}
+      sourceUrl={currentChannel.streamUrl}
+      playing
+      muted={false}
+      style={styles.video}
+      viewport="contain"
+      metadata={{
+        channelName: currentChannel.name,
+        programmeTitle: nowPlayingMap.get(currentChannel.id)?.title,
+        description: nowPlayingMap.get(currentChannel.id)?.description,
+        artworkUrl: currentChannel.logo,
+      }}
+      mediaSessionControls={mediaSessionControls}
+      onReady={handlePlaybackStarted}
+      onBuffering={handlePlayerBuffering}
+      onError={handlePlayerError}
+      onPictureInPictureAvailabilityChange={setPictureOutAvailable}
+    />
   );
 
   const uprightPicture = uprightMode === 'picture';
@@ -886,9 +776,15 @@ export default function WatchScreen() {
                     onNotes={openNotes}
                     onBoard={() => openBoard(safeIndex)}
                     onHome={() => openHome(safeIndex)}
+                    onPictureOut={pictureOutAvailable ? requestPictureOut : undefined}
                   />
                 ) : (
-                  <Apron channel={currentChannel} nowPlaying={nowPlaying} clockNow={clockNow} />
+                  <Apron
+                    channel={currentChannel}
+                    nowPlaying={nowPlaying}
+                    clockNow={clockNow}
+                    onPictureOut={pictureOutAvailable ? requestPictureOut : undefined}
+                  />
                 )}
               </Animated.View>
             )}

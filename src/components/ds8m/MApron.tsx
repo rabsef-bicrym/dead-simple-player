@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { timeToProse } from '../../utils/prose';
+import { Plate } from '../ds6/Plate';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -20,6 +21,7 @@ interface MApronProps {
   onBoard: () => void;
   /** The amber channel plate, tapped — back to the receiver. */
   onHome: () => void;
+  onPictureOut?: () => void;
 }
 
 function clockShort(d: Date): string {
@@ -32,7 +34,7 @@ function clock12(d: Date): string {
   return `${clockShort(d)} ${mer}`;
 }
 
-export function MApron({ channel, nowPlaying, clockNow, onNotes, onBoard, onHome }: MApronProps) {
+export function MApron({ channel, nowPlaying, clockNow, onNotes, onBoard, onHome, onPictureOut }: MApronProps) {
   const progress = nowPlaying
     ? Math.min(1, Math.max(0, (clockNow.getTime() - nowPlaying.start.getTime()) / (nowPlaying.stop.getTime() - nowPlaying.start.getTime())))
     : 0;
@@ -68,6 +70,12 @@ export function MApron({ channel, nowPlaying, clockNow, onNotes, onBoard, onHome
           <Pressable onPress={onBoard} style={styles.button}>
             <Text style={styles.buttonText}>THIS EVENING</Text>
           </Pressable>
+          {onPictureOut && (
+            <Pressable onPress={onPictureOut} style={styles.pictureOut}>
+              <Plate label="P" compact labelSize={9} />
+              <Text style={styles.pictureOutText}>PICTURE OUT</Text>
+            </Pressable>
+          )}
           <Text style={styles.clock}>{clock12(clockNow)}</Text>
         </View>
       </View>
@@ -167,6 +175,17 @@ const styles = StyleSheet.create({
     fontSize: 9,
     letterSpacing: 1.6,
     color: brass.bright,
+  },
+  pictureOut: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  pictureOutText: {
+    fontFamily: fonts.plate,
+    fontSize: 7,
+    letterSpacing: 1.2,
+    color: brass.mid,
   },
   clock: {
     fontFamily: fonts.plate,
