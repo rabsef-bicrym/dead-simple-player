@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { brass, walnut } from '../../constants/ds6';
 
 interface VideoHardwareControlsProps {
   onStop: () => void;
+  onActivity: (control: 'stop' | 'orientation') => void;
 }
 
 // One lock, always with an exit. The plate toggles, and releasing the lock
@@ -34,7 +36,14 @@ async function toggleLandscape(): Promise<void> {
 }
 
 /** Hardware plates over the glass; every glyph is drawn from cabinet parts. */
-export function VideoHardwareControls({ onStop }: VideoHardwareControlsProps) {
+export function VideoHardwareControls({ onStop, onActivity }: VideoHardwareControlsProps) {
+  const [orientationLocked, setOrientationLocked] = useState(landscapeLocked);
+
+  const handleOrientationPress = async () => {
+    await toggleLandscape();
+    setOrientationLocked(landscapeLocked);
+  };
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <Pressable
@@ -42,6 +51,7 @@ export function VideoHardwareControls({ onStop }: VideoHardwareControlsProps) {
         accessibilityLabel="Stop playback"
         hitSlop={10}
         onPress={() => {
+          onActivity('stop');
           void releaseOrientation();
           onStop();
         }}
@@ -54,14 +64,17 @@ export function VideoHardwareControls({ onStop }: VideoHardwareControlsProps) {
       {Platform.OS !== 'web' && (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Turn the set landscape"
+          accessibilityLabel={orientationLocked ? 'Return the set to portrait' : 'Turn the set landscape'}
           hitSlop={10}
-          onPress={() => { void toggleLandscape(); }}
+          onPress={() => {
+            onActivity('orientation');
+            void handleOrientationPress();
+          }}
           style={[styles.plate, styles.rotatePlate]}
         >
-          <View style={styles.landscapeScreen} />
-          <View style={styles.arrowStem} />
-          <View style={styles.arrowHead} />
+          <View style={orientationLocked ? styles.portraitScreen : styles.landscapeScreen} />
+          <View style={orientationLocked ? styles.arrowStemBack : styles.arrowStem} />
+          <View style={orientationLocked ? styles.arrowHeadBack : styles.arrowHead} />
         </Pressable>
       )}
     </View>
@@ -113,6 +126,13 @@ const styles = StyleSheet.create({
     borderColor: brass.mid,
     borderRadius: 2,
   },
+  portraitScreen: {
+    width: 15,
+    height: 24,
+    borderWidth: 2,
+    borderColor: brass.mid,
+    borderRadius: 2,
+  },
   arrowStem: {
     position: 'absolute',
     right: 6,
@@ -136,5 +156,29 @@ const styles = StyleSheet.create({
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
     borderLeftColor: brass.bright,
+  },
+  arrowStemBack: {
+    position: 'absolute',
+    left: 6,
+    top: 5,
+    width: 10,
+    height: 7,
+    borderTopWidth: 2,
+    borderLeftWidth: 2,
+    borderColor: brass.bright,
+    borderTopLeftRadius: 5,
+  },
+  arrowHeadBack: {
+    position: 'absolute',
+    left: 4,
+    top: 9,
+    width: 0,
+    height: 0,
+    borderTopWidth: 4,
+    borderBottomWidth: 4,
+    borderRightWidth: 6,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderRightColor: brass.bright,
   },
 });

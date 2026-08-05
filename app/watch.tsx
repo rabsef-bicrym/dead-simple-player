@@ -42,6 +42,9 @@ import {
   COLLAPSE_COOL_MS,
   COLLAPSE_LINE_TO_DOT_MS,
   COLLAPSE_VERTICAL_MS,
+  CONTROLS_HIDE_MS,
+  CONTROLS_IDLE_MS,
+  CONTROLS_SHOW_MS,
   FLASH_COOL_MS,
   FLASH_DWELL_MS,
   FLASH_STAMP_MS,
@@ -99,6 +102,7 @@ export default function WatchScreen() {
   const [guideError, setGuideError] = useState<string | null>(null);
 
   const [hudVisible, setHudVisible] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(false);
   const [flashVisible, setFlashVisible] = useState(false);
   const [homeVisible, setHomeVisible] = useState(false);
   const [homeEntrance, setHomeEntrance] = useState<'none' | 'stamp' | 'expand'>('stamp');
@@ -138,6 +142,9 @@ export default function WatchScreen() {
       ? typeof document === 'undefined' || document.visibilityState === 'visible'
       : AppState.currentState === 'active'
   ));
+  const watching = playbackActive && !homeVisible && !signOff;
+  const portraitWatching = isPhone && !isLandscape && watching;
+  const controlsShouldShow = portraitWatching ? controlsVisible : hudVisible;
   const isMountedRef = useRef(true);
   const hudTravel = useRef(new Animated.Value(1)).current;
   const flashOpacity = useRef(new Animated.Value(0)).current;
@@ -146,7 +153,9 @@ export default function WatchScreen() {
   const pictureScaleX = useRef(new Animated.Value(1)).current;
   const pictureScaleY = useRef(new Animated.Value(1)).current;
   const pictureOpacity = useRef(new Animated.Value(1)).current;
+  const controlsOpacity = useRef(new Animated.Value(0)).current;
   const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bufferingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastProgressAt = useRef<number>(0);
@@ -328,14 +337,18 @@ export default function WatchScreen() {
 
   // ── Overlay choreography ──
   const hideHud = useCallback(() => {
+    if (hudTimer.current) clearTimeout(hudTimer.current);
     hudTravel.stopAnimation();
     Animated.timing(hudTravel, {
       toValue: 1,
       duration: motionDuration(APRON_DROP_MS, reducedMotion),
       easing: MECHANICAL_EASE_OUT,
       useNativeDriver: true,
-    })
-      .start(() => setHudVisible(false));
+    }).start();
+    hudTimer.current = setTimeout(() => {
+      setHudVisible(false);
+      hudTimer.current = null;
+    }, motionDuration(APRON_DROP_MS, reducedMotion));
   }, [hudTravel, reducedMotion]);
 
   const showHud = useCallback(() => {
@@ -351,6 +364,56 @@ export default function WatchScreen() {
     }).start();
     hudTimer.current = setTimeout(hideHud, HUD_HIDE_MS);
   }, [hudTravel, hideHud, reducedMotion]);
+
+  const hidePortraitControls = useCallback(() => {
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    controlsTimer.current = null;
+    setControlsVisible(false);
+  }, []);
+
+  const showPortraitControls = useCallback(() => {
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    setControlsVisible(true);
+    controlsTimer.current = setTimeout(hidePortraitControls, CONTROLS_IDLE_MS);
+  }, [hidePortraitControls]);
+
+  const handlePortraitPicturePress = useCallback(() => {
+    if (controlsVisible) hidePortraitControls();
+    else showPortraitControls();
+  }, [controlsVisible, hidePortraitControls, showPortraitControls]);
+
+  const handleControlsActivity = useCallback((control: 'stop' | 'orientation') => {
+    if (portraitWatching) {
+      showPortraitControls();
+      // The lock action crosses into the landscape HUD's ownership. Prime its
+      // existing timer so the same plate remains available after the rotation.
+      if (control === 'orientation') showHud();
+    } else {
+      showHud();
+    }
+  }, [portraitWatching, showHud, showPortraitControls]);
+
+  useEffect(() => {
+    controlsOpacity.stopAnimation();
+    Animated.timing(controlsOpacity, {
+      toValue: controlsShouldShow ? 1 : 0,
+      duration: motionDuration(
+        controlsShouldShow ? CONTROLS_SHOW_MS : CONTROLS_HIDE_MS,
+        reducedMotion,
+      ),
+      useNativeDriver: true,
+    }).start();
+  }, [controlsOpacity, controlsShouldShow, reducedMotion]);
+
+  useEffect(() => {
+    if (portraitWatching) {
+      showPortraitControls();
+      return;
+    }
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    controlsTimer.current = null;
+    setControlsVisible(false);
+  }, [portraitWatching, showPortraitControls]);
 
   // The service panel's TUNE-IN PLATE card: brief, or a full six seconds.
   const flashDwellMs = useRef(FLASH_DWELL_MS);
@@ -387,6 +450,7 @@ export default function WatchScreen() {
   // Changing surface always dismisses the notes projection — otherwise
   // it lingers over the new surface and every key looks dead beneath it.
   const tuneTo = useCallback((index: number, origin: TuneOrigin = 'remote') => {
+    if (isPhone && !isLandscape) showPortraitControls();
     setRegisterTuneRequest(null);
     if (playbackActiveRef.current && index === safeIndex) {
       setHomeVisible(false);
@@ -437,7 +501,7 @@ export default function WatchScreen() {
       watchReveal.setValue(1);
       setWatchRevealDone(true);
     }
-  }, [flashChannel, flashOpacity, isLandscape, isPhone, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, tuning, watchReveal]);
+  }, [flashChannel, flashOpacity, isLandscape, isPhone, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, showPortraitControls, tuning, watchReveal]);
 
   const requestTune = useCallback((index: number, origin: TuneOrigin) => {
     if (isPhone && !isLandscape) {
@@ -523,6 +587,7 @@ export default function WatchScreen() {
 
   useEffect(() => () => {
     if (hudTimer.current) clearTimeout(hudTimer.current);
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
     hudTravel.stopAnimation();
@@ -532,6 +597,7 @@ export default function WatchScreen() {
     pictureScaleX.stopAnimation();
     pictureScaleY.stopAnimation();
     pictureOpacity.stopAnimation();
+    controlsOpacity.stopAnimation();
   }, []);
 
   // Show the spinner only when playback genuinely stalls.
@@ -664,7 +730,12 @@ export default function WatchScreen() {
   const stopPlayback = useCallback(() => {
     if (!playbackActiveRef.current || stopping) return;
     setStopping(true);
+    if (hudTimer.current) clearTimeout(hudTimer.current);
+    hudTimer.current = null;
     setHudVisible(false);
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    controlsTimer.current = null;
+    setControlsVisible(false);
     setBoardVisible(false);
     setBoardClosing(false);
     setRegisterTuneRequest(null);
@@ -896,8 +967,6 @@ export default function WatchScreen() {
     );
   }
 
-  const watching = playbackActive && !homeVisible && !signOff;
-  const portraitWatching = isPhone && !isLandscape && watching;
   const portraitPictureFrame = {
     left: 0,
     top: safeAreaInsets.top,
@@ -1008,6 +1077,7 @@ export default function WatchScreen() {
               upNextMap={upNextMap}
               clockNow={clockNow}
               width={winW}
+              onPress={handlePortraitPicturePress}
               onNotes={openNotes}
               onBoard={() => openBoard(safeIndex)}
               revealProgress={watchReveal}
@@ -1060,9 +1130,15 @@ export default function WatchScreen() {
         )}
 
         {watching && !boardVisible && !stopping && (
-          <View style={signalOverlayStyle} pointerEvents="box-none">
-            <VideoHardwareControls onStop={stopPlayback} />
-          </View>
+          <Animated.View
+            style={[signalOverlayStyle, { opacity: controlsOpacity }]}
+            pointerEvents={controlsShouldShow ? 'box-none' : 'none'}
+          >
+            <VideoHardwareControls
+              onStop={stopPlayback}
+              onActivity={handleControlsActivity}
+            />
+          </Animated.View>
         )}
 
         {/* ── HOME on the traveling set ── */}

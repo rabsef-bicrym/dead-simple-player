@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Defs, G, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { brass, fonts, walnut } from '../../constants/ds6';
 import { STATIC_FPS } from '../../ui/motion';
@@ -56,7 +57,7 @@ export function TuningStatic({ error }: TuningStaticProps) {
       {STATIC_CANDIDATE === 'prerendered' ? (
         <Image
           source={require('../../../assets/static/tuning-static.gif')}
-          resizeMode="cover"
+          contentFit="cover"
           style={StyleSheet.absoluteFill}
         />
       ) : (

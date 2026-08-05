@@ -19,6 +19,9 @@ export const GEAR_COMMIT_MS = 340;
 
 export const APRON_LIFT_MS = 180;
 export const APRON_DROP_MS = 250;
+export const CONTROLS_IDLE_MS = 4000;
+export const CONTROLS_SHOW_MS = 180;
+export const CONTROLS_HIDE_MS = 260;
 
 export const ROLLER_DOWN_MS = 320;
 export const ROLLER_UP_MS = 260;
