@@ -18,6 +18,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
         },
         "NSLocalNetworkUsageDescription": "DS,P uses your local network to connect to your media server and stream your channels.",
