@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { STEP, flapChars, drumNeed, Cell } from '../ds6/flap';
 import { playSound } from '../../utils/sound';
+import { conjoinEvening, boardTitle } from '../../services/evening';
 import { FilamentLamp } from '../../ui/FilamentLamp';
 import {
   MECHANICAL_EASE_OUT,
@@ -54,22 +55,9 @@ function clock12(d: Date): string {
   return `${clockShort(d)} ${mer}`;
 }
 
-/** The evening, deduped of glue and conjoined of back-to-back repeats. */
+/** The evening, deduped of glue and conjoined of same-AIRING repeats. */
 function eveningFor(programmes: Programme[], channel?: Channel): Programme[] {
-  if (!channel) return [];
-  const scheduled = programmes
-    .filter((p) => p.channelId === channel.id && !/interstitial/i.test(p.title))
-    .sort((a, b) => a.start.getTime() - b.start.getTime());
-  const progs: Programme[] = [];
-  for (const p of scheduled) {
-    const last = progs[progs.length - 1];
-    if (last && last.title === p.title && p.start.getTime() - last.stop.getTime() < 15 * 60_000) {
-      progs[progs.length - 1] = { ...last, stop: p.stop };
-    } else {
-      progs.push(p);
-    }
-  }
-  return progs;
+  return conjoinEvening(programmes, channel?.id);
 }
 
 function rowsFor(progs: Programme[], liveIdx: number, scroll: number): MRow[] {
@@ -80,9 +68,9 @@ function rowsFor(progs: Programme[], liveIdx: number, scroll: number): MRow[] {
     if (!p) return BLANK;
     return {
       time: clockShort(p.start),
-      title: p.title,
+      title: boardTitle(p),
       year: p.year ?? '',
-      note: p.description ?? p.subtitle ?? '',
+      note: p.description ?? '',
       live: idx === liveIdx,
       past: liveIdx >= 0 && idx < liveIdx,
       next: idx === liveIdx + 1,
