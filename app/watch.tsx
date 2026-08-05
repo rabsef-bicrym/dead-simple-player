@@ -1060,7 +1060,7 @@ export default function WatchScreen() {
         )}
 
         {watching && !boardVisible && !stopping && (
-          <View style={signalSeatStyle} pointerEvents="box-none">
+          <View style={signalOverlayStyle} pointerEvents="box-none">
             <VideoHardwareControls onStop={stopPlayback} />
           </View>
         )}
