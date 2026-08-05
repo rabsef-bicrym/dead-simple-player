@@ -480,7 +480,10 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     const objectFit = viewport === 'stretch' ? 'fill' : viewport;
 
     return (
-      <View style={style}>
+      // Click-through like the native VideoView: in portrait the picture's tap
+      // target (MReading's seat) sits BENEATH this surface, and sound unlock
+      // rides a document-level pointerdown, so the glass owes no one a click.
+      <View style={style} pointerEvents="none">
         <video
           ref={videoRef}
           style={{

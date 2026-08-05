@@ -22,6 +22,7 @@ interface MReadingProps {
   upNextMap: Map<string, Programme>;
   clockNow: Date;
   width: number;
+  onPress: () => void;
   onNotes: () => void;
   onBoard: () => void;
   /** The full register compresses as one linkage while the picture panel opens. */
@@ -43,6 +44,7 @@ export function MReading({
   upNextMap,
   clockNow,
   width,
+  onPress,
   onNotes,
   onBoard,
   revealProgress,
@@ -58,6 +60,7 @@ export function MReading({
       {/* This empty seat is overlaid by the one persistent native VideoView. */}
       <Pressable
         style={[styles.pictureSeat, { paddingTop: insets.top, height: insets.top + stripH }]}
+        onPress={onPress}
         onLongPress={onNotes}
       >
         <View style={[styles.strip, { height: stripH }]} />
