@@ -15,6 +15,10 @@ export const BLOOM_RAMP_MS = 250;
 export const REGISTER_LINKAGE_MS = 280;
 export const GEAR_NEUTRAL_MS = 90;
 export const GEAR_CROSSBAR_MS = 110;
+export const GEAR_COMMIT_MS = 340;
+
+export const APRON_LIFT_MS = 180;
+export const APRON_DROP_MS = 250;
 
 export const ROLLER_DOWN_MS = 320;
 export const ROLLER_UP_MS = 260;
@@ -33,6 +37,11 @@ export const SERVICE_DOOR_MS = 260;
 export const LAMP_WARM_MS = 420;
 export const LAMP_COOL_MS = 120;
 export const FILAMENT_WANDER_MS = 420;
+export const FILAMENT_FLICKER_MS = 75;
+export const FILAMENT_RECOVER_MS = 170;
+export const FILAMENT_PAUSE_MIN_MS = 500;
+export const FILAMENT_PAUSE_JITTER_MS = 950;
+export const FLAP_STEP_MS = 55;
 export const STATIC_FPS = 12;
 
 export const MECHANICAL_EASE_OUT = Easing.bezier(0.18, 0.78, 0.22, 1);

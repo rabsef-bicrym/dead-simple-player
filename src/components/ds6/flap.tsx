@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { fonts } from '../../constants/ds6';
+import { FLAP_STEP_MS } from '../../ui/motion';
 
 /**
  * The split-flap toolkit — shared by the console board (DS-8) and the
@@ -11,7 +12,7 @@ import { fonts } from '../../constants/ds6';
 // Nana's Picks rotation.
 export const DRUM = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789½:.,-&;'";
 export const DN = DRUM.length;
-export const STEP = 55;
+export const STEP = FLAP_STEP_MS;
 
 export function di(ch: string): number {
   const x = DRUM.indexOf(ch);

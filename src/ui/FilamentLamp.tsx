@@ -2,6 +2,10 @@ import { useEffect, useRef } from 'react';
 import { Animated, type StyleProp, type ViewStyle } from 'react-native';
 import {
   FILAMENT_COOL_EASE,
+  FILAMENT_FLICKER_MS,
+  FILAMENT_PAUSE_JITTER_MS,
+  FILAMENT_PAUSE_MIN_MS,
+  FILAMENT_RECOVER_MS,
   FILAMENT_WANDER_MS,
   FILAMENT_WARM_EASE,
   LAMP_COOL_MS,
@@ -52,22 +56,28 @@ export function FilamentLamp({
         : 1 - amplitude * (0.2 + Math.random() * 0.8);
       Animated.timing(glow, {
         toValue: target,
-        duration: caught ? 75 : FILAMENT_WANDER_MS,
+        duration: caught ? FILAMENT_FLICKER_MS : FILAMENT_WANDER_MS,
         easing: caught ? FILAMENT_COOL_EASE : FILAMENT_WARM_EASE,
         useNativeDriver: true,
       }).start(({ finished }) => {
         if (!finished || !live) return;
         Animated.timing(glow, {
           toValue: 1 - amplitude * Math.random() * 0.45,
-          duration: caught ? 170 : FILAMENT_WANDER_MS,
+          duration: caught ? FILAMENT_RECOVER_MS : FILAMENT_WANDER_MS,
           easing: FILAMENT_WARM_EASE,
           useNativeDriver: true,
         }).start();
       });
-      timer = setTimeout(wander, 650 + Math.round(Math.random() * 950));
+      timer = setTimeout(
+        wander,
+        FILAMENT_PAUSE_MIN_MS + 150 + Math.round(Math.random() * FILAMENT_PAUSE_JITTER_MS),
+      );
     };
 
-    timer = setTimeout(wander, 500 + Math.round(Math.random() * 700));
+    timer = setTimeout(
+      wander,
+      FILAMENT_PAUSE_MIN_MS + Math.round(Math.random() * (FILAMENT_PAUSE_JITTER_MS - 250)),
+    );
     return () => {
       live = false;
       if (timer) clearTimeout(timer);

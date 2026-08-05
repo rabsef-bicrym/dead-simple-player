@@ -30,16 +30,33 @@ import { MApron } from '../src/components/ds8m/MApron';
 import { MReading } from '../src/components/ds8m/MReading';
 import { MBoard } from '../src/components/ds8m/MBoard';
 import { SignOff } from '../src/components/ds8m/SignOff';
+import { TuningStatic } from '../src/components/ds8m/TuningStatic';
+import { VideoHardwareControls } from '../src/components/ds8m/VideoHardwareControls';
 import { useCabinet } from '../src/hooks/useCabinet';
 import { PlayerSurface } from '../src/player/PlayerSurface';
 import type { PlayerError, PlayerSurfaceHandle } from '../src/player/types';
 import type { Channel, Programme } from '../src/types';
+import {
+  APRON_DROP_MS,
+  APRON_LIFT_MS,
+  COLLAPSE_COOL_MS,
+  COLLAPSE_LINE_TO_DOT_MS,
+  COLLAPSE_VERTICAL_MS,
+  FLASH_COOL_MS,
+  FLASH_DWELL_MS,
+  FLASH_STAMP_MS,
+  GEAR_COMMIT_MS,
+  MECHANICAL_EASE_OUT,
+  REGISTER_LINKAGE_MS,
+  motionDuration,
+  useReducedMotion,
+} from '../src/ui/motion';
 
 /**
  * The TV — a DS-6 receiver in walnut and brass.
  *
- * This is the whole app: it opens playing the last-watched channel,
- * full screen. Everything else is DS-6 furniture over the picture:
+ * This is the whole app. The traveling set wakes quietly at its stick;
+ * a deliberate station choice brings the tube and its sound to life.
  *
  * - swipe up/down ....... change channel (the stamped plate flashes)
  * - tap / i ............. the resting apron: what's on, until when
@@ -56,11 +73,11 @@ import type { Channel, Programme } from '../src/types';
 
 const SWIPE_THRESHOLD = 70;
 const HUD_HIDE_MS = 4000;
-const FLASH_HIDE_MS = 2500;
 const BUFFERING_OVERLAY_DELAY_MS = 800;
 const BUFFER_STALL_WINDOW_MS = 1500;
 const CLOCK_TICK_MS = 30000;
 const GUIDE_REFRESH_MS = 30 * 60 * 1000;
+type TuneOrigin = 'register' | 'swipe' | 'board' | 'remote' | 'gate';
 
 export default function WatchScreen() {
   const { activeConfig, loading: configLoading, reload: reloadServerConfig } = useServerConfig();
@@ -70,6 +87,7 @@ export default function WatchScreen() {
   // everything re-cabinets.
   const { isPhone, landscape: isLandscape, width: winW, height: winH } = useCabinet();
   const safeAreaInsets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
@@ -83,8 +101,10 @@ export default function WatchScreen() {
   const [hudVisible, setHudVisible] = useState(false);
   const [flashVisible, setFlashVisible] = useState(false);
   const [homeVisible, setHomeVisible] = useState(false);
+  const [homeEntrance, setHomeEntrance] = useState<'none' | 'stamp' | 'expand'>('stamp');
   const [dialIndex, setDialIndex] = useState(0);
   const [boardVisible, setBoardVisible] = useState(false);
+  const [boardClosing, setBoardClosing] = useState(false);
   const [boardIndex, setBoardIndex] = useState(0);
   const [boardScroll, setBoardScroll] = useState(0);
   const [boardCursor, setBoardCursor] = useState(2);
@@ -103,6 +123,11 @@ export default function WatchScreen() {
   );
 
   const [playerError, setPlayerError] = useState<string | null>(null);
+  const [playbackActive, setPlaybackActive] = useState(false);
+  const [tuning, setTuning] = useState(false);
+  const [sourceReady, setSourceReady] = useState(false);
+  const [watchRevealDone, setWatchRevealDone] = useState(true);
+  const [stopping, setStopping] = useState(false);
   const [buffering, setBuffering] = useState(true);
   const [showBufferingOverlay, setShowBufferingOverlay] = useState(false);
   const [pictureOutAvailable, setPictureOutAvailable] = useState(false);
@@ -113,13 +138,19 @@ export default function WatchScreen() {
       : AppState.currentState === 'active'
   ));
   const isMountedRef = useRef(true);
-  const hudOpacity = useRef(new Animated.Value(0)).current;
+  const hudTravel = useRef(new Animated.Value(1)).current;
   const flashOpacity = useRef(new Animated.Value(0)).current;
+  const flashScale = useRef(new Animated.Value(1)).current;
+  const watchReveal = useRef(new Animated.Value(1)).current;
+  const pictureScaleX = useRef(new Animated.Value(1)).current;
+  const pictureScaleY = useRef(new Animated.Value(1)).current;
+  const pictureOpacity = useRef(new Animated.Value(1)).current;
   const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bufferingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastProgressAt = useRef<number>(0);
   const playerRef = useRef<PlayerSurfaceHandle | null>(null);
+  const playbackActiveRef = useRef(false);
   const channelRestoreStarted = useRef(false);
   const dataGeneration = useRef(0);
   const guideRefreshInFlight = useRef<string | null>(null);
@@ -294,51 +325,124 @@ export default function WatchScreen() {
 
   // ── Overlay choreography ──
   const hideHud = useCallback(() => {
-    Animated.timing(hudOpacity, { toValue: 0, duration: 250, useNativeDriver: true })
+    hudTravel.stopAnimation();
+    Animated.timing(hudTravel, {
+      toValue: 1,
+      duration: motionDuration(APRON_DROP_MS, reducedMotion),
+      easing: MECHANICAL_EASE_OUT,
+      useNativeDriver: true,
+    })
       .start(() => setHudVisible(false));
-  }, [hudOpacity]);
+  }, [hudTravel, reducedMotion]);
 
   const showHud = useCallback(() => {
     if (hudTimer.current) clearTimeout(hudTimer.current);
     setHudVisible(true);
-    Animated.timing(hudOpacity, { toValue: 1, duration: 180, useNativeDriver: true }).start();
+    hudTravel.stopAnimation();
+    hudTravel.setValue(1);
+    Animated.timing(hudTravel, {
+      toValue: 0,
+      duration: motionDuration(APRON_LIFT_MS, reducedMotion),
+      easing: MECHANICAL_EASE_OUT,
+      useNativeDriver: true,
+    }).start();
     hudTimer.current = setTimeout(hideHud, HUD_HIDE_MS);
-  }, [hudOpacity, hideHud]);
+  }, [hudTravel, hideHud, reducedMotion]);
 
   // The service panel's TUNE-IN PLATE card: brief, or a full six seconds.
-  const flashDwellMs = useRef(FLASH_HIDE_MS);
+  const flashDwellMs = useRef(FLASH_DWELL_MS);
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.FLASH_STYLE)
-      .then((v) => { flashDwellMs.current = v === 'six' ? 6000 : FLASH_HIDE_MS; })
+      .then((v) => { flashDwellMs.current = v === 'six' ? 6000 : FLASH_DWELL_MS; })
       .catch(() => {});
   }, []);
 
   const flashChannel = useCallback(() => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashOpacity.stopAnimation();
+    flashScale.stopAnimation();
     setFlashVisible(true);
     flashOpacity.setValue(1);
+    flashScale.setValue(reducedMotion ? 1 : 1.03);
+    Animated.timing(flashScale, {
+      toValue: 1,
+      duration: motionDuration(FLASH_STAMP_MS, reducedMotion),
+      easing: MECHANICAL_EASE_OUT,
+      useNativeDriver: true,
+    }).start();
     flashTimer.current = setTimeout(() => {
-      Animated.timing(flashOpacity, { toValue: 0, duration: 400, useNativeDriver: true })
+      Animated.timing(flashOpacity, {
+        toValue: 0,
+        duration: motionDuration(FLASH_COOL_MS, reducedMotion),
+        useNativeDriver: true,
+      })
         .start(() => setFlashVisible(false));
     }, flashDwellMs.current);
-  }, [flashOpacity]);
+  }, [flashOpacity, flashScale, reducedMotion]);
 
   // ── Tuning ──
   // Changing surface always dismisses the notes projection — otherwise
   // it lingers over the new surface and every key looks dead beneath it.
-  const tuneTo = useCallback((index: number) => {
+  const tuneTo = useCallback((index: number, origin: TuneOrigin = 'remote') => {
+    if (playbackActiveRef.current && index === safeIndex) {
+      setHomeVisible(false);
+      setBoardVisible(false);
+      setBoardClosing(false);
+      setDetailProgramme(null);
+      if (origin !== 'register' && !tuning) flashChannel();
+      return;
+    }
+    const openingPicture = !playbackActiveRef.current;
+    playbackActiveRef.current = true;
+    setPlaybackActive(true);
+    setTuning(true);
+    setSourceReady(false);
+    setStopping(false);
+    setPlayerError(null);
+    pictureScaleX.setValue(1);
+    pictureScaleY.setValue(1);
+    pictureOpacity.setValue(1);
     setCurrentIndex(index);
     setHomeVisible(false);
     setBoardVisible(false);
+    setBoardClosing(false);
     setDetailProgramme(null);
-    flashChannel();
-  }, [flashChannel]);
+    if (origin !== 'register') {
+      flashChannel();
+    } else {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashOpacity.stopAnimation();
+      setFlashVisible(false);
+    }
+
+    if (openingPicture && isPhone && !isLandscape) {
+      setWatchRevealDone(reducedMotion);
+      watchReveal.setValue(reducedMotion ? 1 : 0);
+      Animated.timing(watchReveal, {
+        toValue: 1,
+        duration: motionDuration(REGISTER_LINKAGE_MS, reducedMotion),
+        easing: MECHANICAL_EASE_OUT,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setWatchRevealDone(true);
+      });
+    } else {
+      watchReveal.setValue(1);
+      setWatchRevealDone(true);
+    }
+  }, [flashChannel, flashOpacity, isLandscape, isPhone, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, tuning, watchReveal]);
 
   /** Open the receiver home with the dial resting on the given station. */
-  const openHome = useCallback((atIndex: number) => {
+  const openHome = useCallback((atIndex: number, entrance: 'none' | 'stamp' | 'expand' = 'none') => {
+    playbackActiveRef.current = false;
+    setPlaybackActive(false);
+    setTuning(false);
+    setSourceReady(false);
     setDialIndex(atIndex);
     setBoardVisible(false);
+    setBoardClosing(false);
     setDetailProgramme(null);
+    setHomeEntrance(entrance);
     setHomeVisible(true);
   }, []);
 
@@ -347,8 +451,9 @@ export default function WatchScreen() {
     setBoardIndex(atIndex);
     setBoardScroll(0);
     setBoardCursor(2);
-    setHomeVisible(false);
+    if (playbackActiveRef.current) setHomeVisible(false);
     setDetailProgramme(null);
+    setBoardClosing(false);
     setBoardVisible(true);
   }, []);
 
@@ -358,7 +463,7 @@ export default function WatchScreen() {
   const onGate = useCallback((index: number) => {
     setDialIndex(index);
     if (gateTimer.current) clearTimeout(gateTimer.current);
-    gateTimer.current = setTimeout(() => tuneTo(index), 340);
+    gateTimer.current = setTimeout(() => tuneTo(index, 'gate'), GEAR_COMMIT_MS);
   }, [tuneTo]);
   useEffect(() => () => {
     if (gateTimer.current) clearTimeout(gateTimer.current);
@@ -371,27 +476,44 @@ export default function WatchScreen() {
   // first tap of the dial is exactly the asking.
   const welcomed = useRef(false);
   useEffect(() => {
-    if ((welcome === '1' || Platform.OS === 'web') && !welcomed.current && indexRestored && channels.length > 0) {
-      welcomed.current = true;
-      openHome(safeIndex);
+    if (welcomed.current || !indexRestored || channels.length === 0) return;
+    welcomed.current = true;
+    if (isPhone || welcome === '1' || Platform.OS === 'web') {
+      openHome(safeIndex, isPhone && !isLandscape ? 'stamp' : 'none');
+    } else {
+      // Console DS-6 keeps its established turn-it-on-and-it-is-on behavior.
+      playbackActiveRef.current = true;
+      setPlaybackActive(true);
+      setBuffering(true);
     }
-  }, [welcome, indexRestored, channels.length, safeIndex, openHome]);
+  }, [welcome, indexRestored, channels.length, safeIndex, openHome, isPhone, isLandscape]);
 
-  // Reset playback state on channel change; flash the channel bug.
+  // Reset playback state for the pending source. The static interstitial owns
+  // the wait; the flash is an input acknowledgment and is triggered by origin.
   useEffect(() => {
-    if (!currentChannel) return;
+    if (!currentChannel || !playbackActiveRef.current) return;
     setPlayerError(null);
     setBuffering(true);
     setShowBufferingOverlay(false);
     setClockNow(new Date());
     lastProgressAt.current = 0;
-    flashChannel();
   }, [currentChannel?.streamUrl]);
+
+  useEffect(() => {
+    if (tuning && sourceReady && watchRevealDone) setTuning(false);
+  }, [sourceReady, tuning, watchRevealDone]);
 
   useEffect(() => () => {
     if (hudTimer.current) clearTimeout(hudTimer.current);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     if (bufferingTimer.current) clearTimeout(bufferingTimer.current);
+    hudTravel.stopAnimation();
+    flashOpacity.stopAnimation();
+    flashScale.stopAnimation();
+    watchReveal.stopAnimation();
+    pictureScaleX.stopAnimation();
+    pictureScaleY.stopAnimation();
+    pictureOpacity.stopAnimation();
   }, []);
 
   // Show the spinner only when playback genuinely stalls.
@@ -436,7 +558,7 @@ export default function WatchScreen() {
           setBoardScroll(0);
         } else if (translationY < -SWIPE_THRESHOLD) {
           // Upright: the shade rolls home. On its side: page onward.
-          if (!isLandscape) setBoardVisible(false);
+          if (!isLandscape) setBoardClosing(true);
           else setBoardScroll((s) => Math.min(s + 1, 30));
         } else if (translationY > SWIPE_THRESHOLD) {
           setBoardScroll((s) => (isLandscape ? Math.max(s - 1, -8) : Math.min(s + 1, 30)));
@@ -451,20 +573,14 @@ export default function WatchScreen() {
             const next = (dialIndex + dir + channels.length) % channels.length;
             onGate(next);
           }
-        } else if (translationY > SWIPE_THRESHOLD) {
-          // THIS EVENING — pull down.
-          openBoard(dialIndex);
         }
         return;
       }
-      // Watching: swipe across to tune; upright, the shade pulls down.
+      // Watching: swipe across to tune. iOS owns drag-from-top; the shade
+      // opens only from its THIS EVENING plate.
       if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
         const dir = translationX < 0 ? 1 : -1;
-        tuneTo((safeIndex + dir + channels.length) % channels.length);
-        return;
-      }
-      if (!isLandscape && translationY > SWIPE_THRESHOLD) {
-        openBoard(safeIndex);
+        tuneTo((safeIndex + dir + channels.length) % channels.length, 'swipe');
       }
       return;
     }
@@ -503,9 +619,9 @@ export default function WatchScreen() {
       return;
     }
     if (translationY < -SWIPE_THRESHOLD && safeIndex < channels.length - 1) {
-      tuneTo(safeIndex + 1);
+      tuneTo(safeIndex + 1, 'swipe');
     } else if (translationY > SWIPE_THRESHOLD && safeIndex > 0) {
-      tuneTo(safeIndex - 1);
+      tuneTo(safeIndex - 1, 'swipe');
     }
   }, [safeIndex, channels.length, tuneTo, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard, isPhone, isLandscape, signOff, dialIndex, onGate]);
 
@@ -526,6 +642,68 @@ export default function WatchScreen() {
     // This remains a direct, synchronous call from the key/plate gesture.
     playerRef.current?.requestPictureInPicture();
   }, []);
+
+  const stopPlayback = useCallback(() => {
+    if (!playbackActiveRef.current || stopping) return;
+    setStopping(true);
+    setHudVisible(false);
+    setBoardVisible(false);
+    setBoardClosing(false);
+    setDetailProgramme(null);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setFlashVisible(false);
+    pictureScaleX.stopAnimation();
+    pictureScaleY.stopAnimation();
+    pictureOpacity.stopAnimation();
+
+    const cutSignal = () => {
+      playbackActiveRef.current = false;
+      setPlaybackActive(false);
+      setTuning(false);
+      setSourceReady(false);
+    };
+    const showExpandedRegister = () => {
+      setDialIndex(safeIndex);
+      setHomeEntrance('expand');
+      setHomeVisible(true);
+      setStopping(false);
+    };
+
+    if (reducedMotion) {
+      pictureScaleY.setValue(0.012);
+      pictureScaleX.setValue(0.018);
+      pictureOpacity.setValue(0);
+      cutSignal();
+      showExpandedRegister();
+      return;
+    }
+
+    Animated.timing(pictureScaleY, {
+      toValue: 0.012,
+      duration: COLLAPSE_VERTICAL_MS,
+      easing: MECHANICAL_EASE_OUT,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      // The audio and current item end exactly when the picture reaches a line.
+      cutSignal();
+      Animated.sequence([
+        Animated.timing(pictureScaleX, {
+          toValue: 0.018,
+          duration: COLLAPSE_LINE_TO_DOT_MS,
+          easing: MECHANICAL_EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pictureOpacity, {
+          toValue: 0,
+          duration: COLLAPSE_COOL_MS,
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished: cooled }) => {
+        if (cooled) showExpandedRegister();
+      });
+    });
+  }, [pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, stopping]);
 
   // ── Keyboard remote (web / desktop): a TV deserves a remote ──
   useEffect(() => {
@@ -562,11 +740,12 @@ export default function WatchScreen() {
             else if (boardCursorProg.current) setDetailProgramme(boardCursorProg.current);
             break;
           case 'Enter':
-            tuneTo(boardIndex);
+            tuneTo(boardIndex, 'board');
             break;
           case 'g':
           case 'Escape':
             if (detailProgramme) setDetailProgramme(null);
+            else if (isPhone && !isLandscape) setBoardClosing(true);
             else setBoardVisible(false);
             break;
           case 'h':
@@ -588,7 +767,7 @@ export default function WatchScreen() {
             setDialIndex((i) => (i - 1 + channels.length) % channels.length);
             break;
           case 'Enter':
-            tuneTo(dialIndex);
+            tuneTo(dialIndex, 'remote');
             break;
           case 'g':
             openBoard(dialIndex);
@@ -597,17 +776,16 @@ export default function WatchScreen() {
             router.push('/settings');
             break;
           case 'Escape':
-            setHomeVisible(false);
             break;
         }
         return;
       }
       switch (e.key) {
         case 'ArrowUp':
-          if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1);
+          if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1, 'remote');
           break;
         case 'ArrowDown':
-          if (safeIndex > 0) tuneTo(safeIndex - 1);
+          if (safeIndex > 0) tuneTo(safeIndex - 1, 'remote');
           break;
         case 'Enter':
         case 'i':
@@ -618,7 +796,7 @@ export default function WatchScreen() {
           break;
         case 'l':
         case 'h':
-          openHome(safeIndex);
+          stopPlayback();
           break;
         case 'n':
           // N returns to the picture, as the projection promises.
@@ -631,18 +809,19 @@ export default function WatchScreen() {
           break;
         case 'Escape':
           if (detailProgramme) setDetailProgramme(null);
-          else openHome(safeIndex);
+          else stopPlayback();
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor, pictureOutAvailable, requestPictureOut]);
+  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor, pictureOutAvailable, requestPictureOut, stopPlayback, isPhone, isLandscape]);
 
 
   // ── Playback plumbing ──
   const handlePlaybackStarted = useCallback(() => {
     lastProgressAt.current = Date.now();
+    setSourceReady(true);
     setBuffering(false);
     setShowBufferingOverlay(false);
     setPlayerError(null);
@@ -662,10 +841,10 @@ export default function WatchScreen() {
 
   const mediaSessionControls = useMemo(() => ({
     onPreviousTrack: () => {
-      if (safeIndex > 0) tuneTo(safeIndex - 1);
+      if (safeIndex > 0) tuneTo(safeIndex - 1, 'remote');
     },
     onNextTrack: () => {
-      if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1);
+      if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1, 'remote');
     },
   }), [channels.length, safeIndex, tuneTo]);
 
@@ -696,55 +875,96 @@ export default function WatchScreen() {
     );
   }
 
-  const portraitWatching = isPhone && !isLandscape && !homeVisible && !boardVisible && !signOff;
-  const hidePicture = isPhone && !isLandscape && !homeVisible && !signOff && boardVisible;
+  const watching = playbackActive && !homeVisible && !signOff;
+  const portraitWatching = isPhone && !isLandscape && watching;
   const portraitPictureFrame = {
     left: 0,
     top: safeAreaInsets.top,
     width: winW,
     height: (winW * 9) / 16,
   };
-  const playerViewAttached = !hidePicture;
-  const playerSeatStyle = hidePicture
-    ? styles.hiddenVideo
-    : portraitWatching
+  const signalSeatStyle = watching
+    ? portraitWatching
       ? [
-        styles.readingVideo,
+        styles.signalSeat,
         portraitPictureFrame,
       ]
-      : styles.video;
+      : styles.signalSeatFull
+    : styles.hiddenVideo;
 
-  // The player has one stable owner and one stable seat above the visual
-  // cabinet. Cabinet changes only restyle or detach its VideoView, so board,
-  // reading, and column-shift transitions cannot recreate the native player.
-  // Home and sign-off intentionally remove this owner and kill the stream.
-  const videoEl = Platform.OS !== 'web' && isExpoGo ? (
-    <View style={[playerSeatStyle, styles.center]}>
-      <Text style={styles.difficultyDetail}>
-        Playback requires a development build (Expo Go lacks the native player).
-      </Text>
-    </View>
-  ) : (
-    <PlayerSurface
-      ref={playerRef}
-      sourceUrl={currentChannel.streamUrl}
-      playing
-      muted={false}
-      style={playerSeatStyle}
-      viewport="contain"
-      viewAttached={Platform.OS === 'web' || playerViewAttached}
-      metadata={{
-        channelName: currentChannel.name,
-        programmeTitle: nowPlayingMap.get(currentChannel.id)?.title,
-        description: nowPlayingMap.get(currentChannel.id)?.description,
-        artworkUrl: currentChannel.logo,
-      }}
-      mediaSessionControls={mediaSessionControls}
-      onReady={handlePlaybackStarted}
-      onBuffering={handlePlayerBuffering}
-      onError={handlePlayerError}
-      onPictureInPictureAvailabilityChange={setPictureOutAvailable}
-    />
+  // This owner never changes across cabinet surfaces or channel changes. Stop
+  // and sign-off clear its source; tuning serially replaces it in place.
+  const signalEl = (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        signalSeatStyle,
+        {
+          transform: [{ scaleX: pictureScaleX }, { scaleY: pictureScaleY }],
+          opacity: pictureOpacity,
+        },
+      ]}
+    >
+      {Platform.OS !== 'web' && isExpoGo ? (
+        playbackActive && (
+          <View style={[StyleSheet.absoluteFill, styles.center]}>
+            <Text style={styles.difficultyDetail}>
+              Playback requires a development build (Expo Go lacks the native player).
+            </Text>
+          </View>
+        )
+      ) : (
+        <PlayerSurface
+          ref={playerRef}
+          sourceUrl={playbackActive ? currentChannel.streamUrl : null}
+          playing={playbackActive}
+          muted={tuning || !playbackActive}
+          style={StyleSheet.absoluteFill}
+          viewport="contain"
+          viewAttached
+          metadata={playbackActive ? {
+            channelName: currentChannel.name,
+            programmeTitle: nowPlayingMap.get(currentChannel.id)?.title,
+            description: nowPlayingMap.get(currentChannel.id)?.description,
+            artworkUrl: currentChannel.logo,
+          } : undefined}
+          mediaSessionControls={mediaSessionControls}
+          onReady={handlePlaybackStarted}
+          onBuffering={handlePlayerBuffering}
+          onError={handlePlayerError}
+          onPictureInPictureAvailabilityChange={setPictureOutAvailable}
+        />
+      )}
+
+      {tuning && playbackActive && <TuningStatic error={playerError} />}
+
+      {!tuning && showBufferingOverlay && (
+        <View style={styles.moment}>
+          <View style={styles.momentJewel} />
+          <Text style={styles.momentText}>A MOMENT, PLEASE</Text>
+        </View>
+      )}
+
+      {!tuning && playerError && (
+        <View style={styles.portraitDifficulty}>
+          <Text style={styles.difficultyKicker}>THE PICTURE IS HAVING DIFFICULTY</Text>
+          <Text style={styles.difficultyDetail} numberOfLines={2}>{playerError}</Text>
+        </View>
+      )}
+
+      {flashVisible && playbackActive && (
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            { opacity: flashOpacity, transform: [{ scale: flashScale }] },
+          ]}
+        >
+          <Flash channel={currentChannel} nowPlaying={nowPlaying} compact={isPhone} />
+        </Animated.View>
+      )}
+
+      {stopping && <Animated.View style={[styles.crtCharge, { opacity: pictureOpacity, transform: [{ scaleX: pictureScaleX }] }]} />}
+    </Animated.View>
   );
 
   return (
@@ -756,96 +976,69 @@ export default function WatchScreen() {
       <View style={styles.container}>
         <View
           style={styles.readingLayer}
-          pointerEvents={portraitWatching ? 'auto' : 'none'}
+          pointerEvents={portraitWatching && !boardVisible && !stopping ? 'auto' : 'none'}
         >
           {portraitWatching && (
             <MReading
               channels={channels}
               tunedIndex={safeIndex}
-              onTune={tuneTo}
+              onTune={(index) => tuneTo(index, 'register')}
               nowPlayingMap={nowPlayingMap}
               upNextMap={upNextMap}
               clockNow={clockNow}
               width={winW}
               onNotes={openNotes}
+              onBoard={() => openBoard(safeIndex)}
+              revealProgress={watchReveal}
             />
           )}
         </View>
 
-        {!homeVisible && !signOff && videoEl}
+        {signalEl}
 
         <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
           <View
-            style={styles.pictureControls}
-            pointerEvents={portraitWatching ? 'none' : 'auto'}
-          >
-            {showBufferingOverlay && !portraitWatching && (
-              <View style={styles.moment} pointerEvents="none">
-                <View style={styles.momentJewel} />
-                <Text style={styles.momentText}>A MOMENT, PLEASE</Text>
-              </View>
-            )}
-
-            {playerError && !portraitWatching && (
-              <View style={styles.difficulty} pointerEvents="none">
-                <Text style={styles.difficultyKicker}>THE PICTURE IS HAVING DIFFICULTY</Text>
-                <Text style={styles.difficultyDetail} numberOfLines={2}>{playerError}</Text>
-              </View>
-            )}
-
-            {/* ── Tune-in: the stamped channel plate flashes, then fades ── */}
-            {flashVisible && !signOff && !portraitWatching && (
-              <Animated.View style={[StyleSheet.absoluteFill, { opacity: flashOpacity }]} pointerEvents="none">
-                <Flash channel={currentChannel} nowPlaying={nowPlaying} compact={isPhone} />
-              </Animated.View>
-            )}
-
-            {/* ── HUD: the resting apron — the walnut shelf under the picture ── */}
-            {hudVisible && !signOff && !hidePicture && !portraitWatching && (
-              <Animated.View style={[styles.hud, { opacity: hudOpacity }]}>
-                {isPhone ? (
-                  <MApron
-                    channel={currentChannel}
-                    nowPlaying={nowPlaying}
-                    clockNow={clockNow}
-                    onNotes={openNotes}
-                    onBoard={() => openBoard(safeIndex)}
-                    onHome={() => openHome(safeIndex)}
-                    onPictureOut={pictureOutAvailable ? requestPictureOut : undefined}
-                  />
-                ) : (
-                  <Apron
-                    channel={currentChannel}
-                    nowPlaying={nowPlaying}
-                    clockNow={clockNow}
-                    onPictureOut={pictureOutAvailable ? requestPictureOut : undefined}
-                  />
-                )}
-              </Animated.View>
-            )}
-          </View>
+            style={styles.pictureTapLayer}
+            pointerEvents={watching && !portraitWatching && !boardVisible && !stopping ? 'auto' : 'none'}
+          />
         </TouchableWithoutFeedback>
 
-        {/* Portrait tune feedback stays inside the visible picture seat. */}
-        {portraitWatching && (showBufferingOverlay || playerError || flashVisible) && (
-          <View style={[styles.portraitPictureOverlay, portraitPictureFrame]} pointerEvents="none">
-            {showBufferingOverlay && (
-              <View style={styles.moment}>
-                <View style={styles.momentJewel} />
-                <Text style={styles.momentText}>A MOMENT, PLEASE</Text>
-              </View>
+        {hudVisible && watching && !portraitWatching && !boardVisible && (
+          <Animated.View
+            style={[
+              styles.hud,
+              {
+                transform: [
+                  { translateY: hudTravel.interpolate({ inputRange: [0, 1], outputRange: [0, 22] }) },
+                  { scaleY: hudTravel.interpolate({ inputRange: [0, 1], outputRange: [1, 0.96] }) },
+                ],
+              },
+            ]}
+          >
+            {isPhone ? (
+              <MApron
+                channel={currentChannel}
+                nowPlaying={nowPlaying}
+                clockNow={clockNow}
+                onNotes={openNotes}
+                onBoard={() => openBoard(safeIndex)}
+                onHome={stopPlayback}
+                onPictureOut={pictureOutAvailable ? requestPictureOut : undefined}
+              />
+            ) : (
+              <Apron
+                channel={currentChannel}
+                nowPlaying={nowPlaying}
+                clockNow={clockNow}
+                onPictureOut={pictureOutAvailable ? requestPictureOut : undefined}
+              />
             )}
-            {playerError && (
-              <View style={styles.portraitDifficulty}>
-                <Text style={styles.difficultyKicker}>THE PICTURE IS HAVING DIFFICULTY</Text>
-                <Text style={styles.difficultyDetail} numberOfLines={2}>{playerError}</Text>
-              </View>
-            )}
-            {flashVisible && (
-              <Animated.View style={[StyleSheet.absoluteFill, { opacity: flashOpacity }]}>
-                <Flash channel={currentChannel} nowPlaying={nowPlaying} compact />
-              </Animated.View>
-            )}
+          </Animated.View>
+        )}
+
+        {watching && !boardVisible && !stopping && (
+          <View style={signalSeatStyle} pointerEvents="box-none">
+            <VideoHardwareControls onStop={stopPlayback} />
           </View>
         )}
 
@@ -857,7 +1050,13 @@ export default function WatchScreen() {
               selectedIndex={dialIndex}
               onGate={onGate}
               onBoard={() => openBoard(dialIndex)}
-              onPower={() => { setHomeVisible(false); setSignOff(true); }}
+              onPower={() => {
+                playbackActiveRef.current = false;
+                setPlaybackActive(false);
+                setTuning(false);
+                setHomeVisible(false);
+                setSignOff(true);
+              }}
               onService={() => router.push('/settings')}
               onNotes={setDetailProgramme}
               nowPlayingMap={nowPlayingMap}
@@ -869,46 +1068,40 @@ export default function WatchScreen() {
             <MHomePortrait
               channels={channels}
               tunedIndex={dialIndex}
-              onTune={tuneTo}
+              onTune={(index) => tuneTo(index, 'register')}
               nowPlayingMap={nowPlayingMap}
               upNextMap={upNextMap}
               clockNow={clockNow}
-              onService={() => router.push('/settings')}
+              onBoard={() => openBoard(dialIndex)}
+              entrance={homeEntrance}
+              expandFrom={(winW * 9) / 16}
             />
           )
         )}
 
         {/* ── THIS EVENING on the traveling set — board, or shade ── */}
         {isPhone && boardVisible && !signOff && (
-          <>
-            {!isLandscape && (
-              <MHomePortrait
-                channels={channels}
-                tunedIndex={boardIndex}
-                onTune={tuneTo}
-                nowPlayingMap={nowPlayingMap}
-                upNextMap={upNextMap}
-                clockNow={clockNow}
-                dimmed
-              />
-            )}
-            <MBoard
-              channels={channels}
-              boardIndex={boardIndex}
-              onSelectChannel={(i) => {
-                setBoardIndex(i);
-                setBoardScroll(0);
-              }}
-              programmes={programmes}
-              scroll={boardScroll}
-              landscape={isLandscape}
-              onTune={() => tuneTo(boardIndex)}
-              onClose={() => setBoardVisible(false)}
-              onNotes={setDetailProgramme}
-              clockNow={clockNow}
-              height={Math.round(winH * 0.66)}
-            />
-          </>
+          <MBoard
+            channels={channels}
+            boardIndex={boardIndex}
+            onSelectChannel={(i) => {
+              setBoardIndex(i);
+              setBoardScroll(0);
+            }}
+            programmes={programmes}
+            scroll={boardScroll}
+            landscape={isLandscape}
+            onTune={() => tuneTo(boardIndex, 'board')}
+            onClose={() => {
+              setBoardVisible(false);
+              setBoardClosing(false);
+            }}
+            onNotes={setDetailProgramme}
+            clockNow={clockNow}
+            height={Math.round(winH * 0.75)}
+            top={isLandscape ? 0 : safeAreaInsets.top}
+            closing={boardClosing}
+          />
         )}
 
         {/* ── SIGN-OFF: the broadcast day concludes ── */}
@@ -918,7 +1111,7 @@ export default function WatchScreen() {
             next={upNextMap.get(currentChannel.id)}
             onWake={() => {
               setSignOff(false);
-              openHome(safeIndex);
+              openHome(safeIndex, 'stamp');
             }}
           />
         )}
@@ -931,7 +1124,7 @@ export default function WatchScreen() {
             tunedIndex={safeIndex}
             onSelect={setDialIndex}
             onTune={(i) => {
-              tuneTo(i);
+              tuneTo(i, 'remote');
               setHomeVisible(false);
             }}
             onBoard={() => openBoard(dialIndex)}
@@ -964,7 +1157,7 @@ export default function WatchScreen() {
             cursor={boardCursor}
             cursorProgRef={boardCursorProg}
             onNotes={setDetailProgramme}
-            onTune={() => tuneTo(boardIndex)}
+            onTune={() => tuneTo(boardIndex, 'board')}
             onClose={() => setBoardVisible(false)}
             clockNow={clockNow}
           />
@@ -1011,9 +1204,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
-  pictureControls: {
-    flex: 1,
-  },
   readingLayer: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -1025,17 +1215,32 @@ const styles = StyleSheet.create({
     padding: 40,
     gap: 16,
   },
-  video: {
+  signalSeatFull: {
     ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
     backgroundColor: '#000',
   },
-  readingVideo: {
-    position: 'absolute',
-    backgroundColor: '#000',
-  },
-  portraitPictureOverlay: {
+  signalSeat: {
     position: 'absolute',
     overflow: 'hidden',
+    backgroundColor: '#000',
+    transformOrigin: '50% 50%',
+  },
+  pictureTapLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  crtCharge: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '50%',
+    height: 2,
+    marginTop: -1,
+    backgroundColor: '#fff7db',
+    shadowColor: '#fff7db',
+    shadowOpacity: 0.95,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
   },
   portraitDifficulty: {
     ...StyleSheet.absoluteFillObject,
