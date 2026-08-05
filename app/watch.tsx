@@ -428,9 +428,11 @@ export default function WatchScreen() {
         duration: motionDuration(REGISTER_LINKAGE_MS, reducedMotion),
         easing: MECHANICAL_EASE_OUT,
         useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (finished) setWatchRevealDone(true);
-      });
+      }).start();
+      // Timers decide; animations decorate. New-arch native completion
+      // callbacks can report unfinished — the static's clearance, and every
+      // other state transition, must never hang on them.
+      setTimeout(() => setWatchRevealDone(true), motionDuration(REGISTER_LINKAGE_MS, reducedMotion) + 30);
     } else {
       watchReveal.setValue(1);
       setWatchRevealDone(true);
@@ -695,13 +697,16 @@ export default function WatchScreen() {
       return;
     }
 
+    // Timers decide; animations decorate. Completion callbacks are unreliable
+    // on the native new architecture, and a stuck `stopping` parks the CRT
+    // charge line over the picture forever.
     Animated.timing(pictureScaleY, {
       toValue: 0.012,
       duration: COLLAPSE_VERTICAL_MS,
       easing: MECHANICAL_EASE_OUT,
       useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (!finished) return;
+    }).start();
+    setTimeout(() => {
       // The audio and current item end exactly when the picture reaches a line.
       cutSignal();
       Animated.sequence([
@@ -716,10 +721,9 @@ export default function WatchScreen() {
           duration: COLLAPSE_COOL_MS,
           useNativeDriver: true,
         }),
-      ]).start(({ finished: cooled }) => {
-        if (cooled) showExpandedRegister();
-      });
-    });
+      ]).start();
+    }, COLLAPSE_VERTICAL_MS);
+    setTimeout(showExpandedRegister, COLLAPSE_VERTICAL_MS + COLLAPSE_LINE_TO_DOT_MS + COLLAPSE_COOL_MS + 30);
   }, [pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, stopping]);
 
   // ── Keyboard remote (web / desktop): a TV deserves a remote ──

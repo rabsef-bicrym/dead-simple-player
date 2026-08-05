@@ -206,10 +206,17 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
         easing: MECHANICAL_EASE_OUT,
         useNativeDriver: true,
       }),
-    ]).start(({ finished }) => {
-      if (finished) setShadeSettled(true);
-    });
-    return () => shadeY.stopAnimation();
+    ]).start();
+    // Timer decides settlement; the animation is scenery. A lying native
+    // `finished` must not leave the flaps waiting forever.
+    const settle = setTimeout(
+      () => setShadeSettled(true),
+      motionDuration(ROLLER_DOWN_MS, reducedMotion) + 30,
+    );
+    return () => {
+      clearTimeout(settle);
+      shadeY.stopAnimation();
+    };
   }, [height, landscape, reducedMotion, shadeY]);
 
   const rollHome = () => {
@@ -224,9 +231,8 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
       duration: motionDuration(ROLLER_UP_MS, reducedMotion),
       easing: ROLLER_REWIND_EASE,
       useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) onClose();
-    });
+    }).start();
+    setTimeout(onClose, motionDuration(ROLLER_UP_MS, reducedMotion) + 30);
   };
 
   useEffect(() => {

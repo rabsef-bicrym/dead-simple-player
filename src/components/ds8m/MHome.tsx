@@ -140,10 +140,15 @@ function Shifter({ channels, selectedIndex, onGate, scale }: ShifterProps) {
       leg(from.x, RAIL_Y + 6, GEAR_NEUTRAL_MS),
       leg(to.x, RAIL_Y + 6, GEAR_CROSSBAR_MS),
       leg(to.x, to.y, GEAR_NEUTRAL_MS),
-    ]).start(({ finished }) => {
-      if (finished) playSound('detent');
-    });
-    return () => pos.stopAnimation();
+    ]).start();
+    const detent = setTimeout(
+      () => playSound('detent'),
+      motionDuration(GEAR_NEUTRAL_MS + GEAR_CROSSBAR_MS + GEAR_NEUTRAL_MS, reducedMotion),
+    );
+    return () => {
+      clearTimeout(detent);
+      pos.stopAnimation();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIndex, reducedMotion]);
 
@@ -471,6 +476,10 @@ export function MColumnRegister({
   const [bodyH, setBodyH] = useState(0);
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const pendingRef = useRef<number | null>(null);
+  const bloomCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (bloomCommitTimer.current) clearTimeout(bloomCommitTimer.current);
+  }, []);
   const bloom = useRef(new Animated.Value(0)).current;
   const knobY = useRef(new Animated.Value(-100)).current;
   const knobReady = useRef(false);
@@ -519,13 +528,18 @@ export function MColumnRegister({
         easing: MECHANICAL_EASE_OUT,
         useNativeDriver: true,
       }),
-    ]).start(({ finished }) => {
-      if (!finished || pendingRef.current !== index) return;
+    ]).start();
+    // The tune commit rides a timer, never the animation callback — a lying
+    // `finished` on native must not swallow the channel change.
+    if (bloomCommitTimer.current) clearTimeout(bloomCommitTimer.current);
+    bloomCommitTimer.current = setTimeout(() => {
+      bloomCommitTimer.current = null;
+      if (pendingRef.current !== index) return;
       playSound('detent');
       pendingRef.current = null;
       setPendingIndex(null);
       onTune(index, origin);
-    });
+    }, motionDuration(BLOOM_RAMP_MS, reducedMotion) + 20);
   };
 
   const handledSelectionToken = useRef<number | null>(null);

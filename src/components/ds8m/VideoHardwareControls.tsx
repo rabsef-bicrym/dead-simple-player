@@ -6,15 +6,28 @@ interface VideoHardwareControlsProps {
   onStop: () => void;
 }
 
-async function askForLandscape(): Promise<void> {
+// One lock, always with an exit. The plate toggles, and releasing the lock
+// restores the OS's own auto-rotation — the set must never trap a form factor.
+let landscapeLocked = false;
+
+export async function releaseOrientation(): Promise<void> {
+  if (!landscapeLocked) return;
+  landscapeLocked = false;
   try {
-    if (typeof ScreenOrientation.supportsOrientationLockAsync === 'function') {
-      const supported = await ScreenOrientation.supportsOrientationLockAsync(
-        ScreenOrientation.OrientationLock.LANDSCAPE,
-      );
-      if (!supported) return;
-    }
+    await ScreenOrientation.unlockAsync();
+  } catch {
+    // Web has no lock; a native OS may decline. Either way we hold no lock.
+  }
+}
+
+async function toggleLandscape(): Promise<void> {
+  if (landscapeLocked) {
+    await releaseOrientation();
+    return;
+  }
+  try {
     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+    landscapeLocked = true;
   } catch {
     // The plate is absent on web; a native OS may still decline the request.
   }
@@ -28,7 +41,10 @@ export function VideoHardwareControls({ onStop }: VideoHardwareControlsProps) {
         accessibilityRole="button"
         accessibilityLabel="Stop playback"
         hitSlop={10}
-        onPress={onStop}
+        onPress={() => {
+          void releaseOrientation();
+          onStop();
+        }}
         style={[styles.plate, styles.stopPlate]}
       >
         <View style={[styles.xStroke, styles.xForward]} />
@@ -40,7 +56,7 @@ export function VideoHardwareControls({ onStop }: VideoHardwareControlsProps) {
           accessibilityRole="button"
           accessibilityLabel="Turn the set landscape"
           hitSlop={10}
-          onPress={() => { void askForLandscape(); }}
+          onPress={() => { void toggleLandscape(); }}
           style={[styles.plate, styles.rotatePlate]}
         >
           <View style={styles.landscapeScreen} />

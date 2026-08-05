@@ -249,8 +249,21 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       if (sourceUrl) emitBuffering(true);
       else emitBuffering(false);
 
+      // A cleared source means silence, not surgery: pause and mute instead of
+      // replaceAsync(null) — a replace-with-null that hangs on iOS poisons the
+      // serialization chain, and every later tune queues behind it forever.
+      if (!sourceUrl) {
+        try {
+          player.pause();
+          player.muted = true;
+        } catch {
+          // The shared native object may be mid-release.
+        }
+        settledGeneration.current = generation;
+        return () => {};
+      }
+
       const requestedSource = sourceRef.current;
-      if (!sourceUrl) player.pause();
       void replaceForGeneration(requestedSource, generation)
         .catch((error: unknown) => {
           if (!mountedRef.current || sourceGeneration.current !== generation) return;

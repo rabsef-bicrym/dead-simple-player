@@ -59,8 +59,8 @@ export function FilamentLamp({
         duration: caught ? FILAMENT_FLICKER_MS : FILAMENT_WANDER_MS,
         easing: caught ? FILAMENT_COOL_EASE : FILAMENT_WARM_EASE,
         useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (!finished || !live) return;
+      }).start(() => {
+        if (!live) return;
         Animated.timing(glow, {
           toValue: 1 - amplitude * Math.random() * 0.45,
           duration: caught ? FILAMENT_RECOVER_MS : FILAMENT_WANDER_MS,
