@@ -105,6 +105,7 @@ export default function WatchScreen() {
   const [dialIndex, setDialIndex] = useState(0);
   const [boardVisible, setBoardVisible] = useState(false);
   const [boardClosing, setBoardClosing] = useState(false);
+  const [registerTuneRequest, setRegisterTuneRequest] = useState<{ index: number; token: number } | null>(null);
   const [boardIndex, setBoardIndex] = useState(0);
   const [boardScroll, setBoardScroll] = useState(0);
   const [boardCursor, setBoardCursor] = useState(2);
@@ -151,6 +152,8 @@ export default function WatchScreen() {
   const lastProgressAt = useRef<number>(0);
   const playerRef = useRef<PlayerSurfaceHandle | null>(null);
   const playbackActiveRef = useRef(false);
+  const registerTuneSequence = useRef(0);
+  const registerTuneOrigin = useRef<TuneOrigin>('swipe');
   const channelRestoreStarted = useRef(false);
   const dataGeneration = useRef(0);
   const guideRefreshInFlight = useRef<string | null>(null);
@@ -384,6 +387,7 @@ export default function WatchScreen() {
   // Changing surface always dismisses the notes projection — otherwise
   // it lingers over the new surface and every key looks dead beneath it.
   const tuneTo = useCallback((index: number, origin: TuneOrigin = 'remote') => {
+    setRegisterTuneRequest(null);
     if (playbackActiveRef.current && index === safeIndex) {
       setHomeVisible(false);
       setBoardVisible(false);
@@ -406,6 +410,7 @@ export default function WatchScreen() {
     setHomeVisible(false);
     setBoardVisible(false);
     setBoardClosing(false);
+    setRegisterTuneRequest(null);
     setDetailProgramme(null);
     if (origin !== 'register') {
       flashChannel();
@@ -432,12 +437,23 @@ export default function WatchScreen() {
     }
   }, [flashChannel, flashOpacity, isLandscape, isPhone, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, tuning, watchReveal]);
 
+  const requestTune = useCallback((index: number, origin: TuneOrigin) => {
+    if (isPhone && !isLandscape) {
+      registerTuneOrigin.current = origin;
+      registerTuneSequence.current += 1;
+      setRegisterTuneRequest({ index, token: registerTuneSequence.current });
+      return;
+    }
+    tuneTo(index, origin);
+  }, [isLandscape, isPhone, tuneTo]);
+
   /** Open the receiver home with the dial resting on the given station. */
   const openHome = useCallback((atIndex: number, entrance: 'none' | 'stamp' | 'expand' = 'none') => {
     playbackActiveRef.current = false;
     setPlaybackActive(false);
     setTuning(false);
     setSourceReady(false);
+    setRegisterTuneRequest(null);
     setDialIndex(atIndex);
     setBoardVisible(false);
     setBoardClosing(false);
@@ -580,7 +596,7 @@ export default function WatchScreen() {
       // opens only from its THIS EVENING plate.
       if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
         const dir = translationX < 0 ? 1 : -1;
-        tuneTo((safeIndex + dir + channels.length) % channels.length, 'swipe');
+        requestTune((safeIndex + dir + channels.length) % channels.length, 'swipe');
       }
       return;
     }
@@ -623,7 +639,7 @@ export default function WatchScreen() {
     } else if (translationY > SWIPE_THRESHOLD && safeIndex > 0) {
       tuneTo(safeIndex - 1, 'swipe');
     }
-  }, [safeIndex, channels.length, tuneTo, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard, isPhone, isLandscape, signOff, dialIndex, onGate]);
+  }, [safeIndex, channels.length, tuneTo, requestTune, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard, isPhone, isLandscape, signOff, dialIndex, onGate]);
 
   const handleTap = useCallback(() => {
     if (hudVisible) {
@@ -649,6 +665,7 @@ export default function WatchScreen() {
     setHudVisible(false);
     setBoardVisible(false);
     setBoardClosing(false);
+    setRegisterTuneRequest(null);
     setDetailProgramme(null);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     setFlashVisible(false);
@@ -767,7 +784,7 @@ export default function WatchScreen() {
             setDialIndex((i) => (i - 1 + channels.length) % channels.length);
             break;
           case 'Enter':
-            tuneTo(dialIndex, 'remote');
+            requestTune(dialIndex, 'remote');
             break;
           case 'g':
             openBoard(dialIndex);
@@ -782,10 +799,10 @@ export default function WatchScreen() {
       }
       switch (e.key) {
         case 'ArrowUp':
-          if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1, 'remote');
+          if (safeIndex < channels.length - 1) requestTune(safeIndex + 1, 'remote');
           break;
         case 'ArrowDown':
-          if (safeIndex > 0) tuneTo(safeIndex - 1, 'remote');
+          if (safeIndex > 0) requestTune(safeIndex - 1, 'remote');
           break;
         case 'Enter':
         case 'i':
@@ -815,7 +832,7 @@ export default function WatchScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [safeIndex, channels.length, tuneTo, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor, pictureOutAvailable, requestPictureOut, stopPlayback, isPhone, isLandscape]);
+  }, [safeIndex, channels.length, tuneTo, requestTune, showHud, openNotes, homeVisible, dialIndex, openHome, detailProgramme, boardVisible, boardIndex, openBoard, boardCursor, pictureOutAvailable, requestPictureOut, stopPlayback, isPhone, isLandscape]);
 
 
   // ── Playback plumbing ──
@@ -841,12 +858,12 @@ export default function WatchScreen() {
 
   const mediaSessionControls = useMemo(() => ({
     onPreviousTrack: () => {
-      if (safeIndex > 0) tuneTo(safeIndex - 1, 'remote');
+      if (safeIndex > 0) requestTune(safeIndex - 1, 'remote');
     },
     onNextTrack: () => {
-      if (safeIndex < channels.length - 1) tuneTo(safeIndex + 1, 'remote');
+      if (safeIndex < channels.length - 1) requestTune(safeIndex + 1, 'remote');
     },
-  }), [channels.length, safeIndex, tuneTo]);
+  }), [channels.length, requestTune, safeIndex]);
 
   // ── Render ──
   if (configLoading || dataLoading || (!indexRestored && channels.length > 0)) {
@@ -982,7 +999,10 @@ export default function WatchScreen() {
             <MReading
               channels={channels}
               tunedIndex={safeIndex}
-              onTune={(index) => tuneTo(index, 'register')}
+              onTune={(index, origin) => tuneTo(
+                index,
+                origin === 'external' ? registerTuneOrigin.current : 'register',
+              )}
               nowPlayingMap={nowPlayingMap}
               upNextMap={upNextMap}
               clockNow={clockNow}
@@ -990,6 +1010,7 @@ export default function WatchScreen() {
               onNotes={openNotes}
               onBoard={() => openBoard(safeIndex)}
               revealProgress={watchReveal}
+              selectionRequest={registerTuneRequest}
             />
           )}
         </View>
@@ -1068,13 +1089,17 @@ export default function WatchScreen() {
             <MHomePortrait
               channels={channels}
               tunedIndex={dialIndex}
-              onTune={(index) => tuneTo(index, 'register')}
+              onTune={(index, origin) => tuneTo(
+                index,
+                origin === 'external' ? registerTuneOrigin.current : 'register',
+              )}
               nowPlayingMap={nowPlayingMap}
               upNextMap={upNextMap}
               clockNow={clockNow}
               onBoard={() => openBoard(dialIndex)}
               entrance={homeEntrance}
               expandFrom={(winW * 9) / 16}
+              selectionRequest={registerTuneRequest}
             />
           )
         )}

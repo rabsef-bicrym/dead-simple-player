@@ -313,7 +313,7 @@ interface MHomePortraitProps {
   channels: Channel[];
   /** The tuned station — wears the amber row and the lever. */
   tunedIndex: number;
-  onTune: (index: number) => void;
+  onTune: (index: number, origin?: 'register' | 'external') => void;
   nowPlayingMap: Map<string, Programme>;
   upNextMap: Map<string, Programme>;
   clockNow: Date;
@@ -325,6 +325,7 @@ interface MHomePortraitProps {
   onBoard?: () => void;
   entrance?: 'none' | 'stamp' | 'expand';
   expandFrom?: number;
+  selectionRequest?: { index: number; token: number } | null;
 }
 
 function nowLine(now?: Programme, next?: Programme): string {
@@ -336,7 +337,7 @@ function nowLine(now?: Programme, next?: Programme): string {
 interface MColumnRegisterProps {
   channels: Channel[];
   tunedIndex: number;
-  onTune: (index: number) => void;
+  onTune: (index: number, origin: 'register' | 'external') => void;
   nowPlayingMap: Map<string, Programme>;
   upNextMap: Map<string, Programme>;
   /** The watch composition gives the register the lower golden section. */
@@ -345,6 +346,7 @@ interface MColumnRegisterProps {
   engaged?: boolean;
   stampOnMount?: boolean;
   onBoard?: () => void;
+  selectionRequest?: { index: number; token: number } | null;
 }
 
 interface ColumnRowProps {
@@ -463,6 +465,7 @@ export function MColumnRegister({
   engaged = true,
   stampOnMount = false,
   onBoard,
+  selectionRequest,
 }: MColumnRegisterProps) {
   const reducedMotion = useReducedMotion();
   const [bodyH, setBodyH] = useState(0);
@@ -496,7 +499,7 @@ export function MColumnRegister({
     return () => knobY.stopAnimation();
   }, [gap, knobY, pendingIndex, reducedMotion, rowPitch, safeTuned]);
 
-  const selectRow = (index: number) => {
+  const selectRow = (index: number, origin: 'register' | 'external' = 'register') => {
     pendingRef.current = index;
     setPendingIndex(index);
     bloom.stopAnimation();
@@ -521,9 +524,18 @@ export function MColumnRegister({
       playSound('detent');
       pendingRef.current = null;
       setPendingIndex(null);
-      onTune(index);
+      onTune(index, origin);
     });
   };
+
+  const handledSelectionToken = useRef<number | null>(null);
+  useEffect(() => {
+    if (!selectionRequest || handledSelectionToken.current === selectionRequest.token) return;
+    handledSelectionToken.current = selectionRequest.token;
+    selectRow(selectionRequest.index, 'external');
+    // selectRow is deliberately interruptible and always uses current geometry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionRequest?.token]);
 
   useEffect(() => () => {
     pendingRef.current = null;
@@ -614,6 +626,7 @@ export function MHomePortrait({
   onBoard,
   entrance = 'none',
   expandFrom = 180,
+  selectionRequest,
 }: MHomePortraitProps) {
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
@@ -659,6 +672,7 @@ export function MHomePortrait({
           engaged={false}
           stampOnMount={entrance === 'stamp'}
           onBoard={onBoard}
+          selectionRequest={selectionRequest}
         />
       </Animated.View>
     </View>

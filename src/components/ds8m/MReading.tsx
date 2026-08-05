@@ -17,7 +17,7 @@ import type { Channel, Programme } from '../../types';
 interface MReadingProps {
   channels: Channel[];
   tunedIndex: number;
-  onTune: (index: number) => void;
+  onTune: (index: number, origin: 'register' | 'external') => void;
   nowPlayingMap: Map<string, Programme>;
   upNextMap: Map<string, Programme>;
   clockNow: Date;
@@ -26,6 +26,7 @@ interface MReadingProps {
   onBoard: () => void;
   /** The full register compresses as one linkage while the picture panel opens. */
   revealProgress?: Animated.Value;
+  selectionRequest?: { index: number; token: number } | null;
 }
 
 function clock12(d: Date): string {
@@ -45,6 +46,7 @@ export function MReading({
   onNotes,
   onBoard,
   revealProgress,
+  selectionRequest,
 }: MReadingProps) {
   const insets = useSafeAreaInsets();
   const stripH = (width * 9) / 16;
@@ -97,6 +99,7 @@ export function MReading({
           compact
           engaged
           onBoard={onBoard}
+          selectionRequest={selectionRequest}
         />
       </Animated.View>
     </View>

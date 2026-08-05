@@ -38,17 +38,24 @@ decoder failure, this theory should be revised.
 - Portrait watching keeps one attached `VideoView`; its 16:9 frame is calculated
   directly from width and the top safe-area inset, eliminating the old
   measure-detach-reattach rotation transition.
+- The gripe-batch tuner now keeps that same `VideoView` and `VideoPlayer` seated
+  across home, watch, board, stop, and sign-off. Channel changes use serialized
+  source replacement; stop/sign-off replace with `null` instead of destroying
+  the owner. Static mutes the player before every replacement.
 - All source replacements, including the one allowed cold-start retry, pass
   through one promise chain. Stale queued generations do no native work.
 - Source replacement depends on the stream URL, not changing EPG metadata.
 - Player events only affect React state for the current settled source while the
   component and logical view are attached. First-frame and PiP operations also
   require the current native view ref.
-- Detach is a two-commit, idempotent transition: automatic PiP is disabled and
-  the hidden style is applied before the native view unmounts. Attach occurs once
-  on the following commit.
+- The player surface retains its guarded two-commit detach path for other callers,
+  but the watch screen no longer exercises it while changing cabinet surfaces.
 - Teardown invalidates generations and timers, disables Now Playing ownership,
   and pauses before `useVideoPlayer` releases the shared native player.
+
+No matching upstream report or newer SDK-54-compatible stable package was found;
+the confirmed async-emission race is tracked at
+https://github.com/expo/expo/issues/48527.
 
 ## Device checks when a build is available
 
