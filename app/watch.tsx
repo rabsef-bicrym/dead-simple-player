@@ -8,9 +8,9 @@ import {
   Animated,
   AppState,
   Platform,
-  type LayoutRectangle,
 } from 'react-native';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
@@ -69,6 +69,7 @@ export default function WatchScreen() {
   // DS-8 console, or the DS-8/M traveling set? Nothing shrinks;
   // everything re-cabinets.
   const { isPhone, landscape: isLandscape, width: winW, height: winH } = useCabinet();
+  const safeAreaInsets = useSafeAreaInsets();
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
@@ -92,18 +93,12 @@ export default function WatchScreen() {
 
   // The traveling set's night: POWER concludes the broadcast day.
   const [signOff, setSignOff] = useState(false);
-  // What upright shows while watching — the service panel's UPRIGHT
-  // COURTESY card: the column shift (default), or the reading picture.
-  const [uprightMode, setUprightMode] = useState<'shift' | 'picture'>('shift');
   useFocusEffect(
     useCallback(() => {
       // Settings owns a separate hook instance, so re-read its active aerial
       // before resuming this screen. A changed host/port then reloads data and
       // gives every channel a stream URL from the newly selected server.
       reloadServerConfig().catch(() => {});
-      AsyncStorage.getItem(STORAGE_KEYS.UPRIGHT_MODE)
-        .then((v) => setUprightMode(v === 'picture' ? 'picture' : 'shift'))
-        .catch(() => {});
     }, [reloadServerConfig]),
   );
 
@@ -117,8 +112,6 @@ export default function WatchScreen() {
       ? typeof document === 'undefined' || document.visibilityState === 'visible'
       : AppState.currentState === 'active'
   ));
-  const [readingPictureFrame, setReadingPictureFrame] = useState<LayoutRectangle | null>(null);
-
   const isMountedRef = useRef(true);
   const hudOpacity = useRef(new Animated.Value(0)).current;
   const flashOpacity = useRef(new Animated.Value(0)).current;
@@ -452,10 +445,11 @@ export default function WatchScreen() {
       }
       if (homeVisible) {
         if (isLandscape) {
-          // Run the gate: sideways browses the speeds without engaging.
+          // A swipe runs the gate and tunes; no priming tap is required.
           if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
             const dir = translationX < 0 ? 1 : -1;
-            setDialIndex((i) => (i + dir + channels.length) % channels.length);
+            const next = (dialIndex + dir + channels.length) % channels.length;
+            onGate(next);
           }
         } else if (translationY > SWIPE_THRESHOLD) {
           // THIS EVENING — pull down.
@@ -513,7 +507,7 @@ export default function WatchScreen() {
     } else if (translationY > SWIPE_THRESHOLD && safeIndex > 0) {
       tuneTo(safeIndex - 1);
     }
-  }, [safeIndex, channels.length, tuneTo, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard, isPhone, isLandscape, signOff, dialIndex]);
+  }, [safeIndex, channels.length, tuneTo, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard, isPhone, isLandscape, signOff, dialIndex, onGate]);
 
   const handleTap = useCallback(() => {
     if (hudVisible) {
@@ -702,36 +696,21 @@ export default function WatchScreen() {
     );
   }
 
-  const uprightPicture = uprightMode === 'picture';
-  const hidePicture = isPhone && !isLandscape && !homeVisible && !signOff
-    && (boardVisible || !uprightPicture);
-  const readingSeatsPicture = isPhone && !isLandscape && !homeVisible && !signOff
-    && uprightPicture && !boardVisible;
-
-  const handleReadingPictureLayout = (layout: LayoutRectangle) => {
-    setReadingPictureFrame((current) => (
-      current
-      && current.x === layout.x
-      && current.y === layout.y
-      && current.width === layout.width
-      && current.height === layout.height
-        ? current
-        : layout
-    ));
+  const portraitWatching = isPhone && !isLandscape && !homeVisible && !boardVisible && !signOff;
+  const hidePicture = isPhone && !isLandscape && !homeVisible && !signOff && boardVisible;
+  const portraitPictureFrame = {
+    left: 0,
+    top: safeAreaInsets.top,
+    width: winW,
+    height: (winW * 9) / 16,
   };
-
-  const playerViewAttached = !hidePicture && (!readingSeatsPicture || readingPictureFrame !== null);
+  const playerViewAttached = !hidePicture;
   const playerSeatStyle = hidePicture
     ? styles.hiddenVideo
-    : readingSeatsPicture && readingPictureFrame
+    : portraitWatching
       ? [
         styles.readingVideo,
-        {
-          left: readingPictureFrame.x,
-          top: readingPictureFrame.y,
-          width: readingPictureFrame.width,
-          height: readingPictureFrame.height,
-        },
+        portraitPictureFrame,
       ]
       : styles.video;
 
@@ -777,15 +756,18 @@ export default function WatchScreen() {
       <View style={styles.container}>
         <View
           style={styles.readingLayer}
-          pointerEvents={readingSeatsPicture ? 'auto' : 'none'}
+          pointerEvents={portraitWatching ? 'auto' : 'none'}
         >
-          {readingSeatsPicture && (
+          {portraitWatching && (
             <MReading
-              channel={currentChannel}
-              nowPlaying={nowPlaying}
+              channels={channels}
+              tunedIndex={safeIndex}
+              onTune={tuneTo}
+              nowPlayingMap={nowPlayingMap}
+              upNextMap={upNextMap}
               clockNow={clockNow}
               width={winW}
-              onPictureLayout={handleReadingPictureLayout}
+              onNotes={openNotes}
             />
           )}
         </View>
@@ -795,16 +777,16 @@ export default function WatchScreen() {
         <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
           <View
             style={styles.pictureControls}
-            pointerEvents={readingSeatsPicture ? 'none' : 'auto'}
+            pointerEvents={portraitWatching ? 'none' : 'auto'}
           >
-            {showBufferingOverlay && !readingSeatsPicture && (
+            {showBufferingOverlay && !portraitWatching && (
               <View style={styles.moment} pointerEvents="none">
                 <View style={styles.momentJewel} />
                 <Text style={styles.momentText}>A MOMENT, PLEASE</Text>
               </View>
             )}
 
-            {playerError && !readingSeatsPicture && (
+            {playerError && !portraitWatching && (
               <View style={styles.difficulty} pointerEvents="none">
                 <Text style={styles.difficultyKicker}>THE PICTURE IS HAVING DIFFICULTY</Text>
                 <Text style={styles.difficultyDetail} numberOfLines={2}>{playerError}</Text>
@@ -812,14 +794,14 @@ export default function WatchScreen() {
             )}
 
             {/* ── Tune-in: the stamped channel plate flashes, then fades ── */}
-            {flashVisible && !signOff && !readingSeatsPicture && (
+            {flashVisible && !signOff && !portraitWatching && (
               <Animated.View style={[StyleSheet.absoluteFill, { opacity: flashOpacity }]} pointerEvents="none">
                 <Flash channel={currentChannel} nowPlaying={nowPlaying} compact={isPhone} />
               </Animated.View>
             )}
 
             {/* ── HUD: the resting apron — the walnut shelf under the picture ── */}
-            {hudVisible && !signOff && !hidePicture && !readingSeatsPicture && (
+            {hudVisible && !signOff && !hidePicture && !portraitWatching && (
               <Animated.View style={[styles.hud, { opacity: hudOpacity }]}>
                 {isPhone ? (
                   <MApron
@@ -844,16 +826,27 @@ export default function WatchScreen() {
           </View>
         </TouchableWithoutFeedback>
 
-        {/* ── UPRIGHT COURTESY: the column shift, over the sound of the room ── */}
-        {isPhone && !isLandscape && !homeVisible && !boardVisible && !signOff && !uprightPicture && (
-          <MHomePortrait
-            channels={channels}
-            tunedIndex={safeIndex}
-            onTune={tuneTo}
-            nowPlayingMap={nowPlayingMap}
-            upNextMap={upNextMap}
-            clockNow={clockNow}
-          />
+        {/* Portrait tune feedback stays inside the visible picture seat. */}
+        {portraitWatching && (showBufferingOverlay || playerError || flashVisible) && (
+          <View style={[styles.portraitPictureOverlay, portraitPictureFrame]} pointerEvents="none">
+            {showBufferingOverlay && (
+              <View style={styles.moment}>
+                <View style={styles.momentJewel} />
+                <Text style={styles.momentText}>A MOMENT, PLEASE</Text>
+              </View>
+            )}
+            {playerError && (
+              <View style={styles.portraitDifficulty}>
+                <Text style={styles.difficultyKicker}>THE PICTURE IS HAVING DIFFICULTY</Text>
+                <Text style={styles.difficultyDetail} numberOfLines={2}>{playerError}</Text>
+              </View>
+            )}
+            {flashVisible && (
+              <Animated.View style={[StyleSheet.absoluteFill, { opacity: flashOpacity }]}>
+                <Flash channel={currentChannel} nowPlaying={nowPlaying} compact />
+              </Animated.View>
+            )}
+          </View>
         )}
 
         {/* ── HOME on the traveling set ── */}
@@ -980,7 +973,7 @@ export default function WatchScreen() {
         {/* The tuner keeps playing when the separate programme guide is late. */}
         {guideState !== 'fresh'
           && !signOff
-          && (homeVisible || boardVisible || (isPhone && !isLandscape && !uprightPicture))
+          && (homeVisible || boardVisible || portraitWatching)
           && (
             <View style={styles.guideStatus} pointerEvents="none">
               <View style={styles.momentJewel} />
@@ -1039,6 +1032,19 @@ const styles = StyleSheet.create({
   readingVideo: {
     position: 'absolute',
     backgroundColor: '#000',
+  },
+  portraitPictureOverlay: {
+    position: 'absolute',
+    overflow: 'hidden',
+  },
+  portraitDifficulty: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+    backgroundColor: 'rgba(0,0,0,0.42)',
   },
 
   // ── A moment, please — the receiver gathering itself ──

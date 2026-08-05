@@ -16,9 +16,8 @@ import type { Channel, Programme } from '../../types';
  * gate and the lever throws itself there, through neutral, and settles
  * with the same detent the big dial uses.
  *
- * Portrait (9b): the column shift. One position per station, the
- * lever on its rail beside the tuned row, and a courtesy plate
- * suggesting you lay the set on its side for the full receiver.
+ * Portrait (9b): the column shift. One position per station, with the
+ * lever on its rail beside the tuned row.
  */
 
 const DAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
@@ -287,8 +286,6 @@ interface MHomePortraitProps {
   nowPlayingMap: Map<string, Programme>;
   upNextMap: Map<string, Programme>;
   clockNow: Date;
-  /** Courtesy mode: the picture's sound carries on underneath. */
-  courtesy?: boolean;
   /** Dimmed beneath the pull-down shade. */
   dimmed?: boolean;
   /** Open the service panel from the receiver home. */
@@ -301,81 +298,131 @@ function nowLine(now?: Programme, next?: Programme): string {
   return '';
 }
 
-export function MHomePortrait({ channels, tunedIndex, onTune, nowPlayingMap, upNextMap, clockNow, dimmed, onService }: MHomePortraitProps) {
+interface MColumnRegisterProps {
+  channels: Channel[];
+  tunedIndex: number;
+  onTune: (index: number) => void;
+  nowPlayingMap: Map<string, Programme>;
+  upNextMap: Map<string, Programme>;
+  /** The watch composition gives the register the lower golden section. */
+  compact?: boolean;
+  onService?: () => void;
+}
+
+/** The portrait column register, shared by the un-tuned home and live watch seat. */
+export function MColumnRegister({
+  channels,
+  tunedIndex,
+  onTune,
+  nowPlayingMap,
+  upNextMap,
+  compact = false,
+  onService,
+}: MColumnRegisterProps) {
   const [bodyH, setBodyH] = useState(0);
   const safeTuned = Math.min(tunedIndex, channels.length - 1);
   const n = Math.max(1, channels.length);
-  const gap = 7;
+  const gap = compact ? 4 : 7;
   const rowPitch = bodyH > 0 ? (bodyH - gap * (n - 1)) / n : 0;
+  const knobSize = compact ? 28 : 36;
   const knobCenter = rowPitch > 0 ? safeTuned * (rowPitch + gap) + rowPitch / 2 : -100;
 
+  return (
+    <View style={styles.register}>
+      <Text style={[styles.columnHead, compact && styles.columnHeadCompact]}>
+        COLUMN SHIFT — {countWord(channels.length)} POSITIONS
+      </Text>
+
+      <View
+        style={[styles.columnBody, compact && styles.columnBodyCompact]}
+        onLayout={(e) => setBodyH(e.nativeEvent.layout.height)}
+      >
+        <View style={[styles.columnRail, compact && styles.columnRailCompact]} />
+        {rowPitch > 0 && (
+          <>
+            <View
+              style={[
+                styles.columnKnob,
+                compact && styles.columnKnobCompact,
+                { top: knobCenter - knobSize / 2 },
+              ]}
+            />
+            <View
+              style={[
+                styles.columnKnobJewel,
+                compact && styles.columnKnobJewelCompact,
+                { top: knobCenter - (compact ? 3 : 4) },
+              ]}
+            />
+          </>
+        )}
+
+        <View style={[styles.columnRows, compact && styles.columnRowsCompact, { gap }]}>
+          {channels.map((ch, i) => {
+            const active = i === safeTuned;
+            const now = nowPlayingMap.get(ch.id);
+            const next = upNextMap.get(ch.id);
+            return (
+              <Pressable key={ch.id} onPress={() => onTune(i)} style={{ flex: 1 }}>
+                <LinearGradient
+                  colors={active ? ['#f2bd6b', '#d99b3f'] : ['#2e2013', '#171006']}
+                  start={{ x: 0.5, y: 0 }}
+                  end={{ x: 0.5, y: 1 }}
+                  style={[styles.columnRow, compact && styles.columnRowCompact, active && styles.columnRowLit]}
+                >
+                  <Text style={[styles.columnNo, compact && styles.columnNoCompact, active && { color: '#2a1a08' }]}>
+                    {ch.number}
+                  </Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      style={[styles.columnName, compact && styles.columnNameCompact, active && { color: '#2a1a08' }]}
+                      numberOfLines={1}
+                    >
+                      {ch.name.toUpperCase()}
+                    </Text>
+                    <Text
+                      style={[styles.columnNow, compact && styles.columnNowCompact, active && { color: 'rgba(42,26,8,0.75)' }]}
+                      numberOfLines={1}
+                    >
+                      {nowLine(now, next)}
+                    </Text>
+                  </View>
+                  {active && <Text style={[styles.columnOnAir, compact && styles.columnOnAirCompact]}>ON THE AIR</Text>}
+                </LinearGradient>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={[styles.portraitFoot, compact && styles.portraitFootCompact]}>
+        <Text style={styles.footHint}>TAP A POSITION TO TUNE</Text>
+        <Text style={styles.footHint}>·</Text>
+        <Text style={styles.footHint}>THIS EVENING — PULL DOWN</Text>
+        {onService && (
+          <Pressable onPress={onService} style={styles.portraitService}>
+            <Text style={styles.footService}>S · SERVICE</Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+export function MHomePortrait({ channels, tunedIndex, onTune, nowPlayingMap, upNextMap, clockNow, dimmed, onService }: MHomePortraitProps) {
   return (
     <View style={[styles.cabinet, dimmed && { opacity: 0.42 }]} pointerEvents={dimmed ? 'none' : 'auto'}>
       <CabinetLight portrait />
       <View style={styles.portraitPad}>
         <Masthead clockNow={clockNow} compact />
-
-        {/* the courtesy plate */}
-        <View style={styles.courtesy}>
-          <View style={styles.courtesyGlyph} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.courtesyHead}>TURN THE SET ON ITS SIDE</Text>
-            <Text style={styles.courtesyProse}>the full receiver plays in landscape; upright shows the column shift</Text>
-          </View>
-        </View>
-
-        <Text style={styles.columnHead}>COLUMN SHIFT — {countWord(channels.length)} POSITIONS</Text>
-
-        <View style={styles.columnBody} onLayout={(e) => setBodyH(e.nativeEvent.layout.height)}>
-          {/* the rail and the lever, resting at the tuned row */}
-          <View style={styles.columnRail} />
-          {rowPitch > 0 && (
-            <>
-              <View style={[styles.columnKnob, { top: knobCenter - 18 }]} />
-              <View style={[styles.columnKnobJewel, { top: knobCenter - 4 }]} />
-            </>
-          )}
-
-          <View style={styles.columnRows}>
-            {channels.map((ch, i) => {
-              const active = i === safeTuned;
-              const now = nowPlayingMap.get(ch.id);
-              const next = upNextMap.get(ch.id);
-              return (
-                <Pressable key={ch.id} onPress={() => onTune(i)} style={{ flex: 1 }}>
-                  <LinearGradient
-                    colors={active ? ['#f2bd6b', '#d99b3f'] : ['#2e2013', '#171006']}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={[styles.columnRow, active && styles.columnRowLit]}
-                  >
-                    <Text style={[styles.columnNo, active && { color: '#2a1a08' }]}>{ch.number}</Text>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[styles.columnName, active && { color: '#2a1a08' }]} numberOfLines={1}>
-                        {ch.name.toUpperCase()}
-                      </Text>
-                      <Text style={[styles.columnNow, active && { color: 'rgba(42,26,8,0.75)' }]} numberOfLines={1}>
-                        {nowLine(now, next)}
-                      </Text>
-                    </View>
-                    {active && <Text style={styles.columnOnAir}>ON THE AIR</Text>}
-                  </LinearGradient>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.portraitFoot}>
-          <Text style={styles.footHint}>TAP A POSITION TO TUNE</Text>
-          <Text style={styles.footHint}>·</Text>
-          <Text style={styles.footHint}>THIS EVENING — PULL DOWN</Text>
-          {onService && (
-            <Pressable onPress={onService} style={styles.portraitService}>
-              <Text style={styles.footService}>S · SERVICE</Text>
-            </Pressable>
-          )}
-        </View>
+        <MColumnRegister
+          channels={channels}
+          tunedIndex={tunedIndex}
+          onTune={onTune}
+          nowPlayingMap={nowPlayingMap}
+          upNextMap={upNextMap}
+          onService={onService}
+        />
       </View>
     </View>
   );
@@ -691,41 +738,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingBottom: 14,
   },
-  courtesy: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 14,
-    marginHorizontal: 2,
-    backgroundColor: '#241809',
-    borderWidth: 1,
-    borderColor: walnut.void,
-    borderRadius: 5,
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-  },
-  courtesyGlyph: {
-    width: 24,
-    height: 15,
-    borderWidth: 1.5,
-    borderColor: amber.needle,
-    borderRadius: 3,
-    shadowColor: amber.needle,
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  courtesyHead: {
-    fontFamily: fonts.plate,
-    fontSize: 8,
-    letterSpacing: 2.2,
-    color: amber.needle,
-  },
-  courtesyProse: {
-    fontFamily: fonts.speech,
-    fontSize: 12,
-    color: brass.muted,
-    marginTop: 3,
+  register: {
+    flex: 1,
+    minHeight: 0,
   },
   columnHead: {
     fontFamily: fonts.plate,
@@ -735,9 +750,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 18,
   },
+  columnHeadCompact: {
+    marginTop: 8,
+    fontSize: 7,
+    letterSpacing: 2.2,
+  },
   columnBody: {
     flex: 1,
     marginTop: 10,
+  },
+  columnBodyCompact: {
+    marginTop: 6,
   },
   columnRail: {
     position: 'absolute',
@@ -749,6 +772,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: walnut.void,
     borderRadius: 7,
+  },
+  columnRailCompact: {
+    left: 9,
+    top: 6,
+    bottom: 6,
+    width: 9,
   },
   columnKnob: {
     position: 'absolute',
@@ -765,6 +794,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
   },
+  columnKnobCompact: {
+    left: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
   columnKnobJewel: {
     position: 'absolute',
     left: 16,
@@ -778,10 +813,18 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 9,
   },
+  columnKnobJewelCompact: {
+    left: 11,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   columnRows: {
     flex: 1,
     marginLeft: 52,
-    gap: 7,
+  },
+  columnRowsCompact: {
+    marginLeft: 38,
   },
   columnRow: {
     flex: 1,
@@ -792,6 +835,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: walnut.void,
     borderRadius: 4,
+  },
+  columnRowCompact: {
+    gap: 8,
+    paddingHorizontal: 9,
+    borderRadius: 3,
   },
   columnRowLit: {
     shadowColor: amber.jewel,
@@ -807,6 +855,10 @@ const styles = StyleSheet.create({
     width: 22,
     textAlign: 'center',
   },
+  columnNoCompact: {
+    width: 18,
+    fontSize: 15,
+  },
   columnName: {
     fontFamily: fonts.plate,
     fontWeight: '700',
@@ -814,17 +866,29 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
     color: brass.bright,
   },
+  columnNameCompact: {
+    fontSize: 9,
+    letterSpacing: 1.5,
+  },
   columnNow: {
     fontFamily: fonts.speech,
     fontSize: 11.5,
     color: brass.mid,
     marginTop: 2,
   },
+  columnNowCompact: {
+    fontSize: 9.5,
+    marginTop: 0,
+  },
   columnOnAir: {
     fontFamily: fonts.plate,
     fontSize: 7,
     letterSpacing: 1.6,
     color: 'rgba(42,26,8,0.7)',
+  },
+  columnOnAirCompact: {
+    fontSize: 6,
+    letterSpacing: 1.2,
   },
   portraitFoot: {
     flexDirection: 'row',
@@ -835,6 +899,11 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.8)',
+  },
+  portraitFootCompact: {
+    gap: 8,
+    marginTop: 6,
+    paddingTop: 7,
   },
   footHint: {
     fontFamily: fonts.plate,

@@ -32,16 +32,12 @@ export default function SettingsScreen() {
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [flashStyle, setFlashStyle] = useState<'brief' | 'six'>('brief');
   const [silent, setSilent] = useState(isSoundMuted());
-  const [upright, setUpright] = useState<'shift' | 'picture'>('shift');
   const [signoff, setSignoff] = useState<'soft' | 'silent'>(getSignoffTone());
   const { isPhone } = useCabinet();
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.FLASH_STYLE)
       .then((v) => { if (v === 'six') setFlashStyle('six'); })
-      .catch(() => {});
-    AsyncStorage.getItem(STORAGE_KEYS.UPRIGHT_MODE)
-      .then((v) => { if (v === 'picture') setUpright('picture'); })
       .catch(() => {});
   }, []);
 
@@ -107,12 +103,6 @@ export default function SettingsScreen() {
     setSilent(next);
     setSoundMuted(next);
   }, [silent]);
-
-  const toggleUpright = useCallback(() => {
-    const next = upright === 'shift' ? 'picture' : 'shift';
-    setUpright(next);
-    AsyncStorage.setItem(STORAGE_KEYS.UPRIGHT_MODE, next).catch(() => {});
-  }, [upright]);
 
   const toggleSignoff = useCallback(() => {
     const next = signoff === 'soft' ? 'silent' : 'soft';
@@ -255,12 +245,6 @@ export default function SettingsScreen() {
               <LinearGradient colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.setCard}>
                 <Text style={styles.setLabel}>SIGN-OFF TONE</Text>
                 <Text style={styles.setValue}>{signoff === 'soft' ? 'softly, 1 kHz' : 'the night ends silently'}</Text>
-              </LinearGradient>
-            </Pressable>
-            <Pressable style={{ flex: 1 }} onPress={toggleUpright}>
-              <LinearGradient colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.setCard}>
-                <Text style={styles.setLabel}>UPRIGHT COURTESY</Text>
-                <Text style={styles.setValue}>{upright === 'shift' ? 'column shift, not the picture' : 'the picture, with its notes'}</Text>
               </LinearGradient>
             </Pressable>
           </View>
