@@ -194,8 +194,8 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
 
   const tabs = (
     <View style={styles.tabs}>
-      <Pressable onPress={() => onSelectChannel(prevIdx)} hitSlop={10}>
-        <Text style={styles.tabArrow}>◀</Text>
+      <Pressable onPress={() => onSelectChannel(prevIdx)} hitSlop={10} style={styles.tabArrowChip}>
+        <View style={[styles.tabArrowTri, styles.tabArrowTriLeft]} />
       </Pressable>
       {[prevIdx, boardIndex, nextIdx].map((i, k) => {
         const active = k === 1;
@@ -216,8 +216,8 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
           </Pressable>
         );
       })}
-      <Pressable onPress={() => onSelectChannel(nextIdx)} hitSlop={10}>
-        <Text style={styles.tabArrow}>▶</Text>
+      <Pressable onPress={() => onSelectChannel(nextIdx)} hitSlop={10} style={styles.tabArrowChip}>
+        <View style={[styles.tabArrowTri, styles.tabArrowTriRight]} />
       </Pressable>
       {landscape && <Text style={styles.tabHint}>SWIPE FOR THE OTHER CHANNELS</Text>}
     </View>
@@ -394,12 +394,33 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 8,
   },
-  tabArrow: {
-    fontFamily: fonts.plate,
-    fontSize: 10,
-    color: '#6e5f4b',
-    paddingHorizontal: 6,
+  // Drawn triangles, not typeset ones — Besley has no U+25C0/25B6, so iOS
+  // substitutes a system glyph that breaks the printed-legend aesthetic.
+  tabArrowChip: {
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    backgroundColor: walnut.grain,
     paddingVertical: 8,
+    paddingHorizontal: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabArrowTri: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 5,
+    borderBottomWidth: 5,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+  },
+  tabArrowTriLeft: {
+    borderRightWidth: 7,
+    borderRightColor: brass.mid,
+  },
+  tabArrowTriRight: {
+    borderLeftWidth: 7,
+    borderLeftColor: brass.mid,
   },
   tab: {
     borderRadius: 2,
