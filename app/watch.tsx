@@ -904,59 +904,56 @@ export default function WatchScreen() {
     width: winW,
     height: (winW * 9) / 16,
   };
-  const signalSeatStyle = watching
-    ? portraitWatching
-      ? [
-        styles.signalSeat,
-        portraitPictureFrame,
-      ]
-      : styles.signalSeatFull
-    : styles.hiddenVideo;
+  // When nothing plays there is NO video element. A player born inside a
+  // hidden box never re-promotes to a visible video layer on some platforms
+  // (the final build-7/8 black-picture bug); mounting fresh and visible on
+  // tune is the boring pattern that always worked.
+  const signalSeatStyle = portraitWatching
+    ? [styles.signalSeat, portraitPictureFrame]
+    : styles.signalSeatFull;
 
-  // This owner never changes across cabinet surfaces or channel changes. Stop
-  // and sign-off clear its source; tuning serially replaces it in place.
-  const signalEl = (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        signalSeatStyle,
-        {
-          transform: [{ scaleX: pictureScaleX }, { scaleY: pictureScaleY }],
-          opacity: pictureOpacity,
-        },
-      ]}
-    >
-      {Platform.OS !== 'web' && isExpoGo ? (
-        playbackActive && (
-          <View style={[StyleSheet.absoluteFill, styles.center]}>
-            <Text style={styles.difficultyDetail}>
-              Playback requires a development build (Expo Go lacks the native player).
-            </Text>
-          </View>
-        )
-      ) : (
-        <PlayerSurface
-          ref={playerRef}
-          sourceUrl={playbackActive ? currentChannel.streamUrl : null}
-          playing={playbackActive}
-          muted={tuning || !playbackActive}
-          style={StyleSheet.absoluteFill}
-          viewport="contain"
-          viewAttached
-          metadata={playbackActive ? {
-            channelName: currentChannel.name,
-            programmeTitle: nowPlayingMap.get(currentChannel.id)?.title,
-            description: nowPlayingMap.get(currentChannel.id)?.description,
-            artworkUrl: currentChannel.logo,
-          } : undefined}
-          mediaSessionControls={mediaSessionControls}
-          onReady={handlePlaybackStarted}
-          onBuffering={handlePlayerBuffering}
-          onError={handlePlayerError}
-          onPictureInPictureAvailabilityChange={setPictureOutAvailable}
-        />
-      )}
+  // The video stands ALONE, seat style applied directly — no wrapper, no
+  // overflow clip, no animation plumbing. This is the exact structure that
+  // demonstrably painted on every platform; the batch's Animated wrapper
+  // around the live video is what rendered black. Overlays live in a plain
+  // positioned sibling ABOVE it. (The CRT picture-collapse is retired until
+  // it can be rebuilt on a verified base — the charge line carries the stop.)
+  const signalEl = Platform.OS !== 'web' && isExpoGo ? (
+    <View style={[signalSeatStyle, styles.center]}>
+      <Text style={styles.difficultyDetail}>
+        Playback requires a development build (Expo Go lacks the native player).
+      </Text>
+    </View>
+  ) : (
+    <PlayerSurface
+      ref={playerRef}
+      sourceUrl={currentChannel.streamUrl}
+      playing
+      muted={tuning}
+      style={signalSeatStyle}
+      viewport="contain"
+      viewAttached
+      metadata={{
+        channelName: currentChannel.name,
+        programmeTitle: nowPlayingMap.get(currentChannel.id)?.title,
+        description: nowPlayingMap.get(currentChannel.id)?.description,
+        artworkUrl: currentChannel.logo,
+      }}
+      mediaSessionControls={mediaSessionControls}
+      onReady={handlePlaybackStarted}
+      onBuffering={handlePlayerBuffering}
+      onError={handlePlayerError}
+      onPictureInPictureAvailabilityChange={setPictureOutAvailable}
+    />
+  );
 
+  // Same frame as the seat, NO background — this layer sits ABOVE the video,
+  // and an opaque style here is a self-inflicted black picture.
+  const signalOverlayStyle = portraitWatching
+    ? [styles.signalOverlay, portraitPictureFrame]
+    : styles.signalOverlayFull;
+  const signalOverlays = (
+    <View pointerEvents="none" style={signalOverlayStyle}>
       {tuning && playbackActive && <TuningStatic error={playerError} />}
 
       {!tuning && showBufferingOverlay && (
@@ -985,7 +982,7 @@ export default function WatchScreen() {
       )}
 
       {stopping && <Animated.View style={[styles.crtCharge, { opacity: pictureOpacity, transform: [{ scaleX: pictureScaleX }] }]} />}
-    </Animated.View>
+    </View>
   );
 
   return (
@@ -1019,7 +1016,8 @@ export default function WatchScreen() {
           )}
         </View>
 
-        {signalEl}
+        {watching && signalEl}
+        {watching && signalOverlays}
 
         <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
           <View
@@ -1244,16 +1242,21 @@ const styles = StyleSheet.create({
     padding: 40,
     gap: 16,
   },
+  // No overflow clip, no transform origin — the proven seat styles. Anything
+  // fancier around a live video has already burned us twice.
   signalSeatFull: {
     ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
     backgroundColor: '#000',
   },
   signalSeat: {
     position: 'absolute',
-    overflow: 'hidden',
     backgroundColor: '#000',
-    transformOrigin: '50% 50%',
+  },
+  signalOverlayFull: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  signalOverlay: {
+    position: 'absolute',
   },
   pictureTapLayer: {
     ...StyleSheet.absoluteFillObject,

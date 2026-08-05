@@ -107,17 +107,21 @@ export function MReading({
 }
 
 const styles = StyleSheet.create({
+  // The picture area is a HOLE, not a wall. This layer sits above the one
+  // persistent player on at least some platforms, so anything opaque here
+  // blacks out the picture — the build-7/8 "video never displays" bug. The
+  // register paints its own walnut; the player seat paints its own letterbox.
   room: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
   },
   pictureSeat: {
     width: '100%',
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
   },
   strip: {
     width: '100%',
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: walnut.void,
