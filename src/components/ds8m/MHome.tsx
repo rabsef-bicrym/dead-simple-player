@@ -2,9 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { playSound } from '../../utils/sound';
 import { timeToProse, countWord } from '../../utils/prose';
+import { FilamentLamp } from '../../ui/FilamentLamp';
+import {
+  BLOOM_RAMP_MS,
+  FILAMENT_WARM_EASE,
+  GEAR_CROSSBAR_MS,
+  GEAR_NEUTRAL_MS,
+  MECHANICAL_EASE_OUT,
+  REGISTER_LINKAGE_MS,
+  STAMP_MS,
+  STAMP_STAGGER_MS,
+  motionDuration,
+  useReducedMotion,
+} from '../../ui/motion';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -39,9 +53,10 @@ function Screw({ style }: { style?: object }) {
 }
 
 /** The amber jewel — this lamp means it's real. */
-function Jewel({ size = 7 }: { size?: number }) {
+function Jewel({ size = 7, amplitude = 0.035 }: { size?: number; amplitude?: number }) {
   return (
-    <View
+    <FilamentLamp
+      amplitude={amplitude}
       style={{
         width: size,
         height: size,
@@ -93,6 +108,7 @@ interface ShifterProps {
 }
 
 function Shifter({ channels, selectedIndex, onGate, scale }: ShifterProps) {
+  const reducedMotion = useReducedMotion();
   const slots = Math.max(1, Math.ceil(channels.length / 2));
   const spacing = slots > 1 ? (PLATE_W - 104) / (slots - 1) : 0;
   const slotX = (s: number) => 52 + s * spacing;
@@ -113,15 +129,23 @@ function Shifter({ channels, selectedIndex, onGate, scale }: ShifterProps) {
     const from = gatePos(prevIndex.current);
     const to = gatePos(selectedIndex);
     prevIndex.current = selectedIndex;
-    const leg = (x: number, y: number, ms: number) =>
-      Animated.timing(pos, { toValue: { x, y }, duration: ms, useNativeDriver: false });
+    pos.stopAnimation();
+    const leg = (x: number, y: number, ms: number) => Animated.timing(pos, {
+      toValue: { x, y },
+      duration: motionDuration(ms, reducedMotion),
+      easing: MECHANICAL_EASE_OUT,
+      useNativeDriver: true,
+    });
     Animated.sequence([
-      leg(from.x, RAIL_Y + 6, 90),
-      leg(to.x, RAIL_Y + 6, 110),
-      leg(to.x, to.y, 90),
-    ]).start(() => playSound('detent'));
+      leg(from.x, RAIL_Y + 6, GEAR_NEUTRAL_MS),
+      leg(to.x, RAIL_Y + 6, GEAR_CROSSBAR_MS),
+      leg(to.x, to.y, GEAR_NEUTRAL_MS),
+    ]).start(({ finished }) => {
+      if (finished) playSound('detent');
+    });
+    return () => pos.stopAnimation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIndex]);
+  }, [selectedIndex, reducedMotion]);
 
   return (
     <View style={{ width: PLATE_W * scale, height: PLATE_H * scale }}>
@@ -214,6 +238,7 @@ interface MHomeLandscapeProps {
 }
 
 export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPower, onService, onNotes, nowPlayingMap, upNextMap, clockNow, height }: MHomeLandscapeProps) {
+  const reducedMotion = useReducedMotion();
   const panelOpacity = useRef(new Animated.Value(1)).current;
   const selected = channels[Math.min(selectedIndex, channels.length - 1)];
   const now = selected ? nowPlayingMap.get(selected.id) : undefined;
@@ -221,8 +246,14 @@ export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPow
 
   useEffect(() => {
     panelOpacity.setValue(0.25);
-    Animated.timing(panelOpacity, { toValue: 1, duration: 350, useNativeDriver: true }).start();
-  }, [selectedIndex, panelOpacity]);
+    Animated.timing(panelOpacity, {
+      toValue: 1,
+      duration: motionDuration(BLOOM_RAMP_MS, reducedMotion),
+      easing: FILAMENT_WARM_EASE,
+      useNativeDriver: true,
+    }).start();
+    return () => panelOpacity.stopAnimation();
+  }, [selectedIndex, panelOpacity, reducedMotion]);
 
   const scale = Math.min(1, (height - 112) / PLATE_H);
   const meta = now
@@ -241,7 +272,7 @@ export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPow
           {selected && (
             <Pressable onPress={() => now && onNotes(now)}>
               <View style={styles.nowPlate}>
-                <Jewel />
+                <Jewel amplitude={0.03} />
                 <Text style={styles.nowPlateText}>NOW ON THE AIR — CHANNEL {selected.number}</Text>
               </View>
               <Text style={styles.panelTitle} numberOfLines={2}>{now?.title ?? selected.name}</Text>
@@ -282,7 +313,7 @@ interface MHomePortraitProps {
   channels: Channel[];
   /** The tuned station — wears the amber row and the lever. */
   tunedIndex: number;
-  onTune: (index: number) => void;
+  onTune: (index: number, origin?: 'register' | 'external') => void;
   nowPlayingMap: Map<string, Programme>;
   upNextMap: Map<string, Programme>;
   clockNow: Date;
@@ -290,6 +321,11 @@ interface MHomePortraitProps {
   dimmed?: boolean;
   /** Open the service panel from the receiver home. */
   onService?: () => void;
+  /** THIS EVENING is the portrait register's only footer control. */
+  onBoard?: () => void;
+  entrance?: 'none' | 'stamp' | 'expand';
+  expandFrom?: number;
+  selectionRequest?: { index: number; token: number } | null;
 }
 
 function nowLine(now?: Programme, next?: Programme): string {
@@ -301,12 +337,121 @@ function nowLine(now?: Programme, next?: Programme): string {
 interface MColumnRegisterProps {
   channels: Channel[];
   tunedIndex: number;
-  onTune: (index: number) => void;
+  onTune: (index: number, origin: 'register' | 'external') => void;
   nowPlayingMap: Map<string, Programme>;
   upNextMap: Map<string, Programme>;
   /** The watch composition gives the register the lower golden section. */
   compact?: boolean;
-  onService?: () => void;
+  /** False means the lever rests at a remembered position, but no station is live. */
+  engaged?: boolean;
+  stampOnMount?: boolean;
+  onBoard?: () => void;
+  selectionRequest?: { index: number; token: number } | null;
+}
+
+interface ColumnRowProps {
+  channel: Channel;
+  index: number;
+  now?: Programme;
+  next?: Programme;
+  active: boolean;
+  pending: boolean;
+  compact: boolean;
+  bloom: Animated.Value;
+  stampOnMount: boolean;
+  reducedMotion: boolean;
+  onPress: () => void;
+}
+
+function ColumnRow({
+  channel,
+  index,
+  now,
+  next,
+  active,
+  pending,
+  compact,
+  bloom,
+  stampOnMount,
+  reducedMotion,
+  onPress,
+}: ColumnRowProps) {
+  const stamp = useRef(new Animated.Value(1)).current;
+  const [printed, setPrinted] = useState(!stampOnMount || reducedMotion);
+
+  useEffect(() => {
+    if (!stampOnMount || reducedMotion) {
+      setPrinted(true);
+      stamp.setValue(1);
+      return;
+    }
+    const timer = setTimeout(() => {
+      stamp.setValue(1.035);
+      setPrinted(true);
+      Animated.timing(stamp, {
+        toValue: 1,
+        duration: STAMP_MS,
+        easing: MECHANICAL_EASE_OUT,
+        useNativeDriver: true,
+      }).start();
+    }, index * STAMP_STAGGER_MS);
+    return () => {
+      clearTimeout(timer);
+      stamp.stopAnimation();
+    };
+  }, [index, reducedMotion, stamp, stampOnMount]);
+
+  return (
+    <View style={styles.columnRowSlot}>
+      {printed && (
+        <Animated.View style={[styles.columnRowStamp, { transform: [{ scaleX: stamp }, { scaleY: stamp }] }]}>
+          <Pressable onPress={onPress} style={styles.columnRowPressable}>
+            <LinearGradient
+              colors={active ? ['#f2bd6b', '#d99b3f'] : ['#2e2013', '#171006']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={[styles.columnRow, compact && styles.columnRowCompact, active && styles.columnRowLit]}
+            >
+              {pending && (
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.columnBloom,
+                    { transform: [{ scaleX: bloom }] },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={['#f2bd6b', '#d99b3f']}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                </Animated.View>
+              )}
+              <Text style={[styles.columnNo, compact && styles.columnNoCompact, active && styles.columnInk]}>
+                {channel.number}
+              </Text>
+              <View style={styles.columnCopy}>
+                <Text
+                  style={[styles.columnName, compact && styles.columnNameCompact, active && styles.columnInk]}
+                  numberOfLines={1}
+                >
+                  {channel.name.toUpperCase()}
+                </Text>
+                <Text
+                  style={[styles.columnNow, compact && styles.columnNowCompact, active && styles.columnInkMuted]}
+                  numberOfLines={1}
+                >
+                  {nowLine(now, next)}
+                </Text>
+              </View>
+              {active && <Text style={[styles.columnOnAir, compact && styles.columnOnAirCompact]}>ON THE AIR</Text>}
+            </LinearGradient>
+          </Pressable>
+        </Animated.View>
+      )}
+    </View>
+  );
 }
 
 /** The portrait column register, shared by the un-tuned home and live watch seat. */
@@ -317,15 +462,86 @@ export function MColumnRegister({
   nowPlayingMap,
   upNextMap,
   compact = false,
-  onService,
+  engaged = true,
+  stampOnMount = false,
+  onBoard,
+  selectionRequest,
 }: MColumnRegisterProps) {
+  const reducedMotion = useReducedMotion();
   const [bodyH, setBodyH] = useState(0);
+  const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const pendingRef = useRef<number | null>(null);
+  const bloom = useRef(new Animated.Value(0)).current;
+  const knobY = useRef(new Animated.Value(-100)).current;
+  const knobReady = useRef(false);
   const safeTuned = Math.min(tunedIndex, channels.length - 1);
   const n = Math.max(1, channels.length);
   const gap = compact ? 4 : 7;
   const rowPitch = bodyH > 0 ? (bodyH - gap * (n - 1)) / n : 0;
   const knobSize = compact ? 28 : 36;
-  const knobCenter = rowPitch > 0 ? safeTuned * (rowPitch + gap) + rowPitch / 2 : -100;
+  const displayIndex = pendingIndex ?? safeTuned;
+  const knobCenter = rowPitch > 0 ? displayIndex * (rowPitch + gap) + rowPitch / 2 : -100;
+
+  useEffect(() => {
+    if (rowPitch <= 0 || pendingIndex !== null) return;
+    const center = safeTuned * (rowPitch + gap) + rowPitch / 2;
+    if (!knobReady.current) {
+      knobReady.current = true;
+      knobY.setValue(center);
+      return;
+    }
+    Animated.timing(knobY, {
+      toValue: center,
+      duration: motionDuration(REGISTER_LINKAGE_MS, reducedMotion),
+      easing: MECHANICAL_EASE_OUT,
+      useNativeDriver: true,
+    }).start();
+    return () => knobY.stopAnimation();
+  }, [gap, knobY, pendingIndex, reducedMotion, rowPitch, safeTuned]);
+
+  const selectRow = (index: number, origin: 'register' | 'external' = 'register') => {
+    pendingRef.current = index;
+    setPendingIndex(index);
+    bloom.stopAnimation();
+    knobY.stopAnimation();
+    bloom.setValue(0);
+    const center = rowPitch > 0 ? index * (rowPitch + gap) + rowPitch / 2 : knobCenter;
+    Animated.parallel([
+      Animated.timing(bloom, {
+        toValue: 1,
+        duration: motionDuration(BLOOM_RAMP_MS, reducedMotion),
+        easing: FILAMENT_WARM_EASE,
+        useNativeDriver: true,
+      }),
+      Animated.timing(knobY, {
+        toValue: center,
+        duration: motionDuration(BLOOM_RAMP_MS, reducedMotion),
+        easing: MECHANICAL_EASE_OUT,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished || pendingRef.current !== index) return;
+      playSound('detent');
+      pendingRef.current = null;
+      setPendingIndex(null);
+      onTune(index, origin);
+    });
+  };
+
+  const handledSelectionToken = useRef<number | null>(null);
+  useEffect(() => {
+    if (!selectionRequest || handledSelectionToken.current === selectionRequest.token) return;
+    handledSelectionToken.current = selectionRequest.token;
+    selectRow(selectionRequest.index, 'external');
+    // selectRow is deliberately interruptible and always uses current geometry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionRequest?.token]);
+
+  useEffect(() => () => {
+    pendingRef.current = null;
+    bloom.stopAnimation();
+    knobY.stopAnimation();
+  }, [bloom, knobY]);
 
   return (
     <View style={styles.register}>
@@ -339,81 +555,113 @@ export function MColumnRegister({
       >
         <View style={[styles.columnRail, compact && styles.columnRailCompact]} />
         {rowPitch > 0 && (
-          <>
-            <View
-              style={[
-                styles.columnKnob,
-                compact && styles.columnKnobCompact,
-                { top: knobCenter - knobSize / 2 },
-              ]}
-            />
-            <View
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.columnKnobMover,
+              compact && styles.columnKnobMoverCompact,
+              { transform: [{ translateY: knobY }] },
+            ]}
+          >
+            <View style={[styles.columnKnob, compact && styles.columnKnobCompact, { top: -knobSize / 2 }]} />
+            <FilamentLamp
+              lit={engaged || pendingIndex !== null}
+              amplitude={0.075}
               style={[
                 styles.columnKnobJewel,
                 compact && styles.columnKnobJewelCompact,
-                { top: knobCenter - (compact ? 3 : 4) },
+                { top: compact ? -3 : -4 },
               ]}
             />
-          </>
+          </Animated.View>
         )}
+
+        <View style={[styles.columnBumper, compact && styles.columnBumperCompact]} />
 
         <View style={[styles.columnRows, compact && styles.columnRowsCompact, { gap }]}>
           {channels.map((ch, i) => {
-            const active = i === safeTuned;
             const now = nowPlayingMap.get(ch.id);
             const next = upNextMap.get(ch.id);
             return (
-              <Pressable key={ch.id} onPress={() => onTune(i)} style={{ flex: 1 }}>
-                <LinearGradient
-                  colors={active ? ['#f2bd6b', '#d99b3f'] : ['#2e2013', '#171006']}
-                  start={{ x: 0.5, y: 0 }}
-                  end={{ x: 0.5, y: 1 }}
-                  style={[styles.columnRow, compact && styles.columnRowCompact, active && styles.columnRowLit]}
-                >
-                  <Text style={[styles.columnNo, compact && styles.columnNoCompact, active && { color: '#2a1a08' }]}>
-                    {ch.number}
-                  </Text>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text
-                      style={[styles.columnName, compact && styles.columnNameCompact, active && { color: '#2a1a08' }]}
-                      numberOfLines={1}
-                    >
-                      {ch.name.toUpperCase()}
-                    </Text>
-                    <Text
-                      style={[styles.columnNow, compact && styles.columnNowCompact, active && { color: 'rgba(42,26,8,0.75)' }]}
-                      numberOfLines={1}
-                    >
-                      {nowLine(now, next)}
-                    </Text>
-                  </View>
-                  {active && <Text style={[styles.columnOnAir, compact && styles.columnOnAirCompact]}>ON THE AIR</Text>}
-                </LinearGradient>
-              </Pressable>
+              <ColumnRow
+                key={ch.id}
+                channel={ch}
+                index={i}
+                now={now}
+                next={next}
+                active={engaged && i === safeTuned}
+                pending={pendingIndex === i}
+                compact={compact}
+                bloom={bloom}
+                stampOnMount={stampOnMount}
+                reducedMotion={reducedMotion}
+                onPress={() => selectRow(i)}
+              />
             );
           })}
         </View>
       </View>
 
-      <View style={[styles.portraitFoot, compact && styles.portraitFootCompact]}>
-        <Text style={styles.footHint}>TAP A POSITION TO TUNE</Text>
-        <Text style={styles.footHint}>·</Text>
-        <Text style={styles.footHint}>THIS EVENING — PULL DOWN</Text>
-        {onService && (
-          <Pressable onPress={onService} style={styles.portraitService}>
-            <Text style={styles.footService}>S · SERVICE</Text>
-          </Pressable>
-        )}
-      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Open This Evening"
+        disabled={!onBoard}
+        onPress={onBoard}
+        style={[styles.portraitFoot, compact && styles.portraitFootCompact]}
+      >
+        <Text style={[styles.footEvening, compact && styles.footEveningCompact]}>THIS EVENING</Text>
+      </Pressable>
     </View>
   );
 }
 
-export function MHomePortrait({ channels, tunedIndex, onTune, nowPlayingMap, upNextMap, clockNow, dimmed, onService }: MHomePortraitProps) {
+export function MHomePortrait({
+  channels,
+  tunedIndex,
+  onTune,
+  nowPlayingMap,
+  upNextMap,
+  clockNow,
+  dimmed,
+  onBoard,
+  entrance = 'none',
+  expandFrom = 180,
+  selectionRequest,
+}: MHomePortraitProps) {
+  const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
+  const entry = useRef(new Animated.Value(entrance === 'expand' && !reducedMotion ? 0 : 1)).current;
+
+  useEffect(() => {
+    if (entrance !== 'expand' || reducedMotion) {
+      entry.setValue(1);
+      return;
+    }
+    entry.setValue(0);
+    Animated.timing(entry, {
+      toValue: 1,
+      duration: REGISTER_LINKAGE_MS,
+      easing: MECHANICAL_EASE_OUT,
+      useNativeDriver: true,
+    }).start();
+    return () => entry.stopAnimation();
+  }, [entrance, entry, reducedMotion]);
+
   return (
     <View style={[styles.cabinet, dimmed && { opacity: 0.42 }]} pointerEvents={dimmed ? 'none' : 'auto'}>
       <CabinetLight portrait />
-      <View style={styles.portraitPad}>
+      <Animated.View
+        style={[
+          styles.portraitPad,
+          { paddingTop: insets.top },
+          entrance === 'expand' && {
+            transform: [
+              { translateY: entry.interpolate({ inputRange: [0, 1], outputRange: [expandFrom, 0] }) },
+              { scaleY: entry.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+            ],
+          },
+        ]}
+      >
         <Masthead clockNow={clockNow} compact />
         <MColumnRegister
           channels={channels}
@@ -421,9 +669,12 @@ export function MHomePortrait({ channels, tunedIndex, onTune, nowPlayingMap, upN
           onTune={onTune}
           nowPlayingMap={nowPlayingMap}
           upNextMap={upNextMap}
-          onService={onService}
+          engaged={false}
+          stampOnMount={entrance === 'stamp'}
+          onBoard={onBoard}
+          selectionRequest={selectionRequest}
         />
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -779,6 +1030,17 @@ const styles = StyleSheet.create({
     bottom: 6,
     width: 9,
   },
+  columnKnobMover: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 40,
+    height: 0,
+    zIndex: 3,
+  },
+  columnKnobMoverCompact: {
+    width: 28,
+  },
   columnKnob: {
     position: 'absolute',
     left: 2,
@@ -819,12 +1081,41 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
+  columnBumper: {
+    position: 'absolute',
+    right: 2,
+    top: 10,
+    bottom: 10,
+    width: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    backgroundColor: '#20150a',
+  },
+  columnBumperCompact: {
+    right: 0,
+    top: 6,
+    bottom: 6,
+    width: 28,
+    borderRadius: 14,
+  },
   columnRows: {
     flex: 1,
     marginLeft: 52,
+    marginRight: 52,
   },
   columnRowsCompact: {
     marginLeft: 38,
+    marginRight: 38,
+  },
+  columnRowSlot: {
+    flex: 1,
+  },
+  columnRowStamp: {
+    flex: 1,
+  },
+  columnRowPressable: {
+    flex: 1,
   },
   columnRow: {
     flex: 1,
@@ -835,6 +1126,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: walnut.void,
     borderRadius: 4,
+    overflow: 'hidden',
   },
   columnRowCompact: {
     gap: 8,
@@ -846,6 +1138,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 0 },
+  },
+  columnBloom: {
+    ...StyleSheet.absoluteFillObject,
+    transformOrigin: '0% 50%',
+  },
+  columnCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  columnInk: {
+    color: '#2a1a08',
+  },
+  columnInkMuted: {
+    color: 'rgba(42,26,8,0.75)',
   },
   columnNo: {
     fontFamily: fonts.plate,
@@ -891,37 +1197,34 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   portraitFoot: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    alignSelf: 'center',
+    minWidth: 180,
+    minHeight: 44,
     marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.8)',
-  },
-  portraitFootCompact: {
-    gap: 8,
-    marginTop: 6,
-    paddingTop: 7,
-  },
-  footHint: {
-    fontFamily: fonts.plate,
-    fontSize: 7,
-    letterSpacing: 1.8,
-    color: '#6e5f4b',
-  },
-  portraitService: {
-    paddingVertical: 6,
-    paddingHorizontal: 9,
-    backgroundColor: '#24180c',
+    paddingVertical: 9,
+    paddingHorizontal: 24,
     borderWidth: 1,
     borderColor: walnut.void,
+    borderRadius: 4,
+    backgroundColor: '#2a1c0e',
   },
-  footService: {
+  portraitFootCompact: {
+    minWidth: 154,
+    minHeight: 40,
+    marginTop: 6,
+    paddingVertical: 7,
+  },
+  footEvening: {
     fontFamily: fonts.plate,
-    fontSize: 7,
-    letterSpacing: 1.8,
-    color: brass.mid,
+    fontWeight: '700',
+    fontSize: 9.5,
+    letterSpacing: 2.2,
+    color: brass.bright,
+  },
+  footEveningCompact: {
+    fontSize: 9,
+    letterSpacing: 2,
   },
 });

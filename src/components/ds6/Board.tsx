@@ -7,6 +7,7 @@ import { Plate } from './Plate';
 import { STEP, flapChars, drumNeed, Cell } from './flap';
 import { playSound } from '../../utils/sound';
 import { dateProse } from '../../utils/prose';
+import { conjoinEvening, boardTitle } from '../../services/evening';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -64,9 +65,9 @@ function rowsFor(progs: Programme[], liveIdx: number, scroll: number): BoardRow[
     if (!p) return BLANK_ROW;
     return {
       time: clockShort(p.start),
-      title: p.title,
+      title: boardTitle(p),
       year: p.year ?? '',
-      note: p.description ?? p.subtitle ?? '',
+      note: p.description ?? '',
       live: idx === liveIdx,
       past: liveIdx >= 0 && idx < liveIdx,
       next: idx === liveIdx + 1,
@@ -101,23 +102,9 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
   const { width, height } = useWindowDimensions();
 
   const channel = channels[boardIndex];
-  // Interstitials are connective tissue, not programmes — the board
-  // lists the evening, not the glue between its parts.
-  const scheduled = programmes
-    .filter((p) => channel && p.channelId === channel.id && !/interstitial/i.test(p.title))
-    .sort((a, b) => a.start.getTime() - b.start.getTime());
-  // A short that plays three times running is one engagement, not three
-  // listings — conjoin back-to-back repeats of a title into a single row
-  // spanning the run. A reprise later in the evening stays its own row.
-  const progs: Programme[] = [];
-  for (const p of scheduled) {
-    const last = progs[progs.length - 1];
-    if (last && last.title === p.title && p.start.getTime() - last.stop.getTime() < 15 * 60_000) {
-      progs[progs.length - 1] = { ...last, stop: p.stop };
-    } else {
-      progs.push(p);
-    }
-  }
+  // Interstitial glue removed, same-AIRING repeats conjoined — identity is
+  // title+episode, not title alone (see conjoinEvening for the MST3K case).
+  const progs = conjoinEvening(programmes, channel?.id);
   const liveIdx = progs.findIndex((p) => p.start.getTime() <= clockNow.getTime() && p.stop.getTime() > clockNow.getTime());
   const target = rowsFor(progs, liveIdx, scroll);
   const targetKey = rowsKey(target);

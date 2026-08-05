@@ -17,7 +17,8 @@ import {
 } from 'expo-video';
 import type { PlayerError, PlayerMetadata, PlayerSurfaceHandle, PlayerSurfaceProps } from './types';
 
-function videoSource(sourceUrl: string, metadata?: PlayerMetadata): VideoSource {
+function videoSource(sourceUrl: string | null, metadata?: PlayerMetadata): VideoSource {
+  if (!sourceUrl) return null;
   return {
     uri: sourceUrl,
     contentType: 'hls',
@@ -62,6 +63,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     const replacementChain = useRef<Promise<void>>(Promise.resolve());
     const sourceRef = useRef(videoSource(sourceUrl, metadata));
     const playingRef = useRef(playing);
+    const mutedRef = useRef(muted);
     const callbacksRef = useRef({
       onReady,
       onBuffering,
@@ -70,6 +72,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     });
 
     playingRef.current = playing;
+    mutedRef.current = muted;
     viewAttachedRef.current = viewAttached;
     if (!viewAttached) nativeViewAttachedRef.current = false;
     callbacksRef.current = {
@@ -125,6 +128,9 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           if (!mountedRef.current || sourceGeneration.current !== generation) return;
           replaceInFlightGeneration.current = generation;
           try {
+            // Break the old audio signal before replacing its item. Static and
+            // cleared-source states must never carry sound between stations.
+            player.muted = mutedRef.current;
             await player.replaceAsync(source);
           } finally {
             if (replaceInFlightGeneration.current === generation) {
@@ -133,7 +139,8 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           }
           if (!mountedRef.current || sourceGeneration.current !== generation) return;
           settledGeneration.current = generation;
-          if (playingRef.current) player.play();
+          player.showNowPlayingNotification = source !== null;
+          if (source !== null && playingRef.current) player.play();
         });
       replacementChain.current = replacement.catch(() => {});
       return replacement;
@@ -239,9 +246,11 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       retryPending.current = false;
       retried.current = false;
       readyReported.current = false;
-      emitBuffering(true);
+      if (sourceUrl) emitBuffering(true);
+      else emitBuffering(false);
 
       const requestedSource = sourceRef.current;
+      if (!sourceUrl) player.pause();
       void replaceForGeneration(requestedSource, generation)
         .catch((error: unknown) => {
           if (!mountedRef.current || sourceGeneration.current !== generation) return;
@@ -265,9 +274,9 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
 
     useEffect(() => {
       if (!mountedRef.current) return;
-      if (playing) player.play();
+      if (playing && sourceUrl) player.play();
       else player.pause();
-    }, [player, playing]);
+    }, [player, playing, sourceUrl]);
 
     useEffect(() => {
       if (mountedRef.current) player.muted = muted;

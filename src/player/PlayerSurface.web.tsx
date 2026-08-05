@@ -140,6 +140,18 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       const video = videoRef.current;
       if (!video) return;
 
+      if (!sourceUrl) {
+        hlsRef.current?.destroy();
+        hlsRef.current = null;
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        callbacksRef.current.onBuffering(false);
+        callbacksRef.current.onPictureInPictureAvailabilityChange?.(false);
+        setSoundNeeded(false);
+        return;
+      }
+
       let disposed = false;
       let attachTimer: ReturnType<typeof setTimeout> | null = null;
       let rebuildTimer: ReturnType<typeof setTimeout> | null = null;

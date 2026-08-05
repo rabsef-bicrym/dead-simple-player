@@ -4,6 +4,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { STEP, flapChars, drumNeed, Cell } from '../ds6/flap';
 import { playSound } from '../../utils/sound';
+import { conjoinEvening, boardTitle } from '../../services/evening';
+import { FilamentLamp } from '../../ui/FilamentLamp';
+import {
+  MECHANICAL_EASE_OUT,
+  ROLLER_DOWN_MS,
+  ROLLER_RELEASE_EASE,
+  ROLLER_REWIND_EASE,
+  ROLLER_SETTLE_MS,
+  ROLLER_UP_MS,
+  motionDuration,
+  useReducedMotion,
+} from '../../ui/motion';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -43,22 +55,9 @@ function clock12(d: Date): string {
   return `${clockShort(d)} ${mer}`;
 }
 
-/** The evening, deduped of glue and conjoined of back-to-back repeats. */
+/** The evening, deduped of glue and conjoined of same-AIRING repeats. */
 function eveningFor(programmes: Programme[], channel?: Channel): Programme[] {
-  if (!channel) return [];
-  const scheduled = programmes
-    .filter((p) => p.channelId === channel.id && !/interstitial/i.test(p.title))
-    .sort((a, b) => a.start.getTime() - b.start.getTime());
-  const progs: Programme[] = [];
-  for (const p of scheduled) {
-    const last = progs[progs.length - 1];
-    if (last && last.title === p.title && p.start.getTime() - last.stop.getTime() < 15 * 60_000) {
-      progs[progs.length - 1] = { ...last, stop: p.stop };
-    } else {
-      progs.push(p);
-    }
-  }
-  return progs;
+  return conjoinEvening(programmes, channel?.id);
 }
 
 function rowsFor(progs: Programme[], liveIdx: number, scroll: number): MRow[] {
@@ -69,9 +68,9 @@ function rowsFor(progs: Programme[], liveIdx: number, scroll: number): MRow[] {
     if (!p) return BLANK;
     return {
       time: clockShort(p.start),
-      title: p.title,
+      title: boardTitle(p),
       year: p.year ?? '',
-      note: p.description ?? p.subtitle ?? '',
+      note: p.description ?? '',
       live: idx === liveIdx,
       past: liveIdx >= 0 && idx < liveIdx,
       next: idx === liveIdx + 1,
@@ -110,14 +109,20 @@ interface MBoardProps {
   clockNow: Date;
   /** Portrait: the shade's height in points. */
   height: number;
+  /** Portrait: the shade roller is seated at the top edge of the video. */
+  top?: number;
+  /** Parent gestures request the same sprung close used by the ring. */
+  closing?: boolean;
 }
 
-export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scroll, landscape, onTune, onClose, onNotes, clockNow, height }: MBoardProps) {
+export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scroll, landscape, onTune, onClose, onNotes, clockNow, height, top = 0, closing = false }: MBoardProps) {
+  const reducedMotion = useReducedMotion();
+  const [shadeSettled, setShadeSettled] = useState(landscape || reducedMotion);
   const LEN = landscape ? LEN_L : LEN_P;
   const channel = channels[boardIndex];
   const progs = eveningFor(programmes, channel);
   const liveIdx = progs.findIndex((p) => p.start.getTime() <= clockNow.getTime() && p.stop.getTime() > clockNow.getTime());
-  const target = rowsFor(progs, liveIdx, scroll);
+  const target = shadeSettled ? rowsFor(progs, liveIdx, scroll) : Array.from({ length: ROWS }, () => BLANK);
   const targetKey = rowsKey(target);
 
   // The drum machinery — same cadence as the console board.
@@ -142,6 +147,16 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
 
   useEffect(() => {
     if (targetKey !== keyRef.current) {
+      if (reducedMotion) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        prevRef.current = target;
+        curRef.current = target;
+        setTicks(Number.MAX_SAFE_INTEGER);
+        keyRef.current = targetKey;
+        causeRef.current = { boardIndex, scroll };
+        return;
+      }
       prevRef.current = curRef.current;
       curRef.current = target;
       needRef.current = maxNeed(prevRef.current, target, LEN);
@@ -161,7 +176,7 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
     }
     causeRef.current = { boardIndex, scroll };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetKey, boardIndex, scroll]);
+  }, [targetKey, boardIndex, scroll, reducedMotion]);
 
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -170,21 +185,55 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
   // The shade comes down when the board mounts in portrait.
   const shadeY = useRef(new Animated.Value(landscape ? 0 : -height)).current;
   useEffect(() => {
+    shadeY.stopAnimation();
     if (landscape) {
       shadeY.setValue(0);
+      setShadeSettled(true);
       return;
     }
-    Animated.spring(shadeY, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 140, mass: 0.9 }).start();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [landscape]);
+    setShadeSettled(reducedMotion);
+    shadeY.setValue(-height);
+    Animated.sequence([
+      Animated.timing(shadeY, {
+        toValue: reducedMotion ? 0 : 6,
+        duration: motionDuration(ROLLER_DOWN_MS - ROLLER_SETTLE_MS, reducedMotion),
+        easing: ROLLER_RELEASE_EASE,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shadeY, {
+        toValue: 0,
+        duration: motionDuration(ROLLER_SETTLE_MS, reducedMotion),
+        easing: MECHANICAL_EASE_OUT,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) setShadeSettled(true);
+    });
+    return () => shadeY.stopAnimation();
+  }, [height, landscape, reducedMotion, shadeY]);
 
   const rollHome = () => {
     if (landscape) {
       onClose();
       return;
     }
-    Animated.timing(shadeY, { toValue: -height, duration: 240, useNativeDriver: true }).start(() => onClose());
+    setShadeSettled(false);
+    shadeY.stopAnimation();
+    Animated.timing(shadeY, {
+      toValue: -height,
+      duration: motionDuration(ROLLER_UP_MS, reducedMotion),
+      easing: ROLLER_REWIND_EASE,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) onClose();
+    });
   };
+
+  useEffect(() => {
+    if (closing) rollHome();
+    // rollHome intentionally follows the current interrupted position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closing]);
 
   const prev = prevRef.current;
   const cur = curRef.current;
@@ -246,7 +295,9 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
             </View>
           </LinearGradient>
           <LinearGradient colors={rowBg} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.mainBoxL}>
-            <View style={[styles.jewel, jewelStyle]} />
+            {row.live
+              ? <FilamentLamp style={[styles.jewel, jewelStyle]} amplitude={0.028} />
+              : <View style={[styles.jewel, jewelStyle]} />}
             <View style={styles.cellRun}>
               {titleChars.map((c, j) => <Cell key={j} ch={c} w={10} h={17} fs={12} color={titleColor} />)}
             </View>
@@ -264,7 +315,9 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
       <Pressable key={r} onPress={onTune} onLongPress={() => row.prog && onNotes(row.prog)} style={{ flex: 1 }}>
         <LinearGradient colors={rowBg} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={[styles.rowP, { opacity: row.past ? 0.55 : 1 }]}>
           <View style={styles.rowPLine}>
-            <View style={[styles.jewel, jewelStyle]} />
+            {row.live
+              ? <FilamentLamp style={[styles.jewel, jewelStyle]} amplitude={0.028} />
+              : <View style={[styles.jewel, jewelStyle]} />}
             <View style={styles.cellRun}>
               {timeChars.map((c, j) => <Cell key={j} ch={c} w={8} h={14} fs={10.5} color={timeColor} />)}
             </View>
@@ -294,7 +347,10 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
             </LinearGradient>
           )}
           <View style={styles.onAir}>
-            <View style={[styles.jewel, { backgroundColor: amber.jewel, shadowColor: amber.glow, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }]} />
+            <FilamentLamp
+              amplitude={0.028}
+              style={[styles.jewel, { backgroundColor: amber.jewel, shadowColor: amber.glow, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }]}
+            />
             <Text style={styles.onAirText}>ON THE AIR — {clock12(clockNow)}</Text>
           </View>
         </View>
@@ -314,7 +370,7 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
   // Portrait: the shade, over whatever the room was showing.
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <Animated.View style={[styles.shade, { height, transform: [{ translateY: shadeY }] }]}>
+      <Animated.View style={[styles.shade, { top, height, transform: [{ translateY: shadeY }] }]}>
         <View style={styles.headerP}>
           <Text style={styles.titleP}>THIS EVENING</Text>
           <Text style={styles.clockP}>{clock12(clockNow)}</Text>
@@ -524,7 +580,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    top: 0,
     backgroundColor: '#170e07',
     paddingHorizontal: 16,
     paddingTop: 18,

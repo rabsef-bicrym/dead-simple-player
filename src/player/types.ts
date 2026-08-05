@@ -27,7 +27,8 @@ export interface PlayerMediaSessionControls {
 export type PlayerViewport = 'contain' | 'cover' | 'stretch';
 
 export interface PlayerSurfaceProps {
-  sourceUrl: string;
+  /** Null leaves the persistent player seated but clears its current signal. */
+  sourceUrl: string | null;
   playing: boolean;
   muted: boolean;
   style?: StyleProp<ViewStyle>;
