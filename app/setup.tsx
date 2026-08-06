@@ -84,7 +84,10 @@ export default function SetupScreen() {
         <View style={styles.column}>
           {router.canGoBack() && (
             <Pressable onPress={() => router.back()} style={styles.back}>
-              <Text style={styles.backText}>◀ BACK TO THE PANEL</Text>
+              <View style={styles.backArrowChip}>
+                <View style={styles.backArrow} />
+              </View>
+              <Text style={styles.backText}>BACK TO THE PANEL</Text>
             </Pressable>
           )}
 
@@ -115,7 +118,7 @@ export default function SetupScreen() {
                       <Text style={styles.wiredName}>{server.name.toUpperCase()}</Text>
                       <Text style={styles.wiredHost}>{server.host}:{server.port}</Text>
                     </View>
-                    <Text style={styles.wiredGo}>⏎ USE THIS ONE</Text>
+                    <Text style={styles.wiredGo}>USE THIS ONE</Text>
                   </LinearGradient>
                 </Pressable>
               ))}
@@ -148,7 +151,7 @@ export default function SetupScreen() {
           </LinearGradient>
 
           <View style={styles.connectRow}>
-            <PlateButton label={connecting ? 'CONNECTING…' : '⏎  CONNECT'} onPress={handleConnect} lit disabled={connecting} />
+            <PlateButton label={connecting ? 'CONNECTING…' : 'CONNECT'} onPress={handleConnect} lit disabled={connecting} />
           </View>
 
           <View style={styles.lampRow}>
@@ -185,7 +188,30 @@ const styles = StyleSheet.create({
   },
   back: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     marginBottom: 18,
+  },
+  backArrowChip: {
+    width: 26,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: walnut.void,
+    borderRadius: 4,
+    backgroundColor: walnut.raised,
+  },
+  backArrow: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 5,
+    borderBottomWidth: 5,
+    borderRightWidth: 7,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderRightColor: brass.bright,
   },
   backText: {
     fontFamily: fonts.plate,

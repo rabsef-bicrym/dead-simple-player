@@ -125,7 +125,9 @@ export default function SettingsScreen() {
           {/* Header */}
           <View style={styles.header}>
             <Pressable onPress={() => router.back()} style={styles.backRow}>
-              <Text style={styles.backKey}>◀</Text>
+              <View style={styles.backKey}>
+                <View style={styles.backArrow} />
+              </View>
               <Text style={styles.backText}>BACK TO THE DIAL</Text>
             </Pressable>
             <View style={styles.titleShell}>
@@ -195,7 +197,7 @@ export default function SettingsScreen() {
                       ) : (
                         <>
                           <Text style={styles.standby}>STANDBY</Text>
-                          <Text style={styles.switchOver}>⏎ SWITCH OVER</Text>
+                          <Text style={styles.switchOver}>SWITCH OVER</Text>
                         </>
                       )}
                     </View>
@@ -220,7 +222,10 @@ export default function SettingsScreen() {
 
           {/* Wire a new aerial */}
           <Pressable onPress={() => router.push('/setup')} style={styles.wireBay}>
-            <Text style={styles.wireKey}>+</Text>
+            <View style={styles.wireKey}>
+              <View style={styles.wireKeyHorizontal} />
+              <View style={styles.wireKeyVertical} />
+            </View>
             <Text style={styles.wireText}>WIRE A NEW AERIAL</Text>
           </Pressable>
 
@@ -286,17 +291,24 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   backKey: {
-    fontFamily: fonts.plate,
-    fontWeight: '700',
-    fontSize: 11,
-    color: brass.bright,
     backgroundColor: walnut.raised,
     borderWidth: 1,
     borderColor: walnut.void,
     borderRadius: 4,
-    paddingVertical: 3,
-    paddingHorizontal: 7,
-    overflow: 'hidden',
+    width: 26,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backArrow: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 5,
+    borderBottomWidth: 5,
+    borderRightWidth: 7,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderRightColor: brass.bright,
   },
   backText: {
     fontFamily: fonts.plate,
@@ -430,18 +442,28 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   wireKey: {
-    fontFamily: fonts.plate,
-    fontWeight: '700',
-    fontSize: 12,
-    color: amber.needle,
     backgroundColor: walnut.raised,
     borderWidth: 1,
     borderColor: walnut.void,
     borderRadius: 4,
     width: 20,
     height: 20,
-    textAlign: 'center',
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wireKeyHorizontal: {
+    position: 'absolute',
+    width: 10,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: amber.needle,
+  },
+  wireKeyVertical: {
+    position: 'absolute',
+    width: 2,
+    height: 10,
+    borderRadius: 1,
+    backgroundColor: amber.needle,
   },
   wireText: {
     fontFamily: fonts.plate,
