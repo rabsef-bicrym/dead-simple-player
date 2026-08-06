@@ -130,7 +130,7 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
             ) : (
               <Text style={styles.mBody}>The library offers no notes for this programme.</Text>
             )}
-            <Text style={styles.mReadOn}>↓ READ ON — TAP THE PICTURE TO RETURN</Text>
+            <Text style={styles.mReadOn}>CONTINUE READING — TAP THE PICTURE TO RETURN</Text>
           </ScrollView>
         </View>
 
@@ -195,7 +195,7 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
             <Text style={styles.body}>The library offers no notes for this programme.</Text>
           )}
 
-          <Text style={styles.hint}>↕ READ ON · N RETURNS TO THE PICTURE</Text>
+          <Text style={styles.hint}>READ ON · N RETURNS TO THE PICTURE</Text>
         </View>
       </ScrollView>
 

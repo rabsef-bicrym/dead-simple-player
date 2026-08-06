@@ -226,12 +226,12 @@ export function Home({ channels, selectedIndex, tunedIndex, onSelect, onTune, on
           </View>
           <View style={styles.registerBody}>
             {registerWindowed && (
-              <Text
+              <View
                 accessibilityLabel={windowStart > 0 ? 'More stations above' : undefined}
                 style={[styles.registerIndicator, windowStart === 0 && styles.registerIndicatorHidden]}
               >
-                ▲
-              </Text>
+                <View style={[styles.registerArrow, styles.registerArrowUp]} />
+              </View>
             )}
             <View style={styles.registerPlates}>
               {visibleChannels.map((channel, visibleIndex) => {
@@ -254,15 +254,15 @@ export function Home({ channels, selectedIndex, tunedIndex, onSelect, onTune, on
               })}
             </View>
             {registerWindowed && (
-              <Text
+              <View
                 accessibilityLabel={windowStart + visibleCount < channels.length ? 'More stations below' : undefined}
                 style={[
                   styles.registerIndicator,
                   windowStart + visibleCount >= channels.length && styles.registerIndicatorHidden,
                 ]}
               >
-                ▼
-              </Text>
+                <View style={[styles.registerArrow, styles.registerArrowDown]} />
+              </View>
             )}
           </View>
         </View>
@@ -319,11 +319,11 @@ export function Home({ channels, selectedIndex, tunedIndex, onSelect, onTune, on
         />
         <View style={styles.hints}>
           <View style={styles.hint}>
-            <Plate label="◀ ▶" compact labelSize={10} />
+            <Plate label="DIAL" compact labelSize={10} />
             <Text style={styles.hintText}>TUNE</Text>
           </View>
           <Pressable style={styles.hint} onPress={() => onTune(selectedIndex)}>
-            <Plate label="⏎" compact labelSize={10} />
+            <Plate label="TUNE" compact labelSize={10} />
             <Text style={styles.hintText}>WATCH</Text>
           </Pressable>
           <Pressable style={styles.hint} onPress={onBoard}>
@@ -418,14 +418,24 @@ const styles = StyleSheet.create({
   },
   registerIndicator: {
     height: REGISTER_INDICATOR_HEIGHT,
-    lineHeight: REGISTER_INDICATOR_HEIGHT,
-    textAlign: 'center',
-    fontFamily: fonts.plate,
-    fontSize: 9,
-    color: brass.mid,
-    textShadowColor: 'rgba(0,0,0,0.75)',
-    textShadowRadius: 1,
-    textShadowOffset: { width: 0, height: 1 },
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  registerArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+  },
+  registerArrowUp: {
+    borderBottomWidth: 7,
+    borderBottomColor: brass.mid,
+  },
+  registerArrowDown: {
+    borderTopWidth: 7,
+    borderTopColor: brass.mid,
   },
   registerIndicatorHidden: {
     opacity: 0,

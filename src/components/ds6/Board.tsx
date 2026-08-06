@@ -91,7 +91,7 @@ interface BoardProps {
   /** The receiver reads the cursor's programme from here when N is pressed. */
   cursorProgRef: MutableRefObject<Programme | null>;
   onNotes: (p: Programme) => void;
-  /** Tune to the board's channel — the ⏎ plate in the footer, tapped. */
+  /** Tune to the board's channel — the TUNE plate in the footer, tapped. */
   onTune?: () => void;
   /** Fold the board away — the G plate in the footer, tapped. */
   onClose?: () => void;
@@ -197,7 +197,9 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
       {/* Channel tabs */}
       <View style={styles.tabs}>
         <Pressable onPress={() => onSelectChannel((boardIndex - 1 + channels.length) % channels.length)} hitSlop={10}>
-          <Text style={styles.tabArrow}>◀</Text>
+          <View style={styles.tabArrowChip}>
+            <View style={[styles.tabArrowTri, styles.tabArrowTriLeft]} />
+          </View>
         </Pressable>
         {channels.map((ch, i) => {
           const active = i === boardIndex;
@@ -217,9 +219,11 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
           );
         })}
         <Pressable onPress={() => onSelectChannel((boardIndex + 1) % channels.length)} hitSlop={10}>
-          <Text style={styles.tabArrow}>▶</Text>
+          <View style={styles.tabArrowChip}>
+            <View style={[styles.tabArrowTri, styles.tabArrowTriRight]} />
+          </View>
         </Pressable>
-        <Text style={styles.tabHint}>◀ ▶ CHANGES THE CHANNEL</Text>
+        <Text style={styles.tabHint}>THE ARROWS CHANGE THE CHANNEL</Text>
       </View>
 
       {/* The rows */}
@@ -294,12 +298,12 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
       {/* Footer */}
       <View style={styles.footer}>
         <View style={styles.hint}>
-          <Plate label="↕" compact labelSize={10} />
+          <Plate label="PAGE" compact labelSize={10} />
           <Text style={styles.hintText}>THROUGH THE EVENING</Text>
         </View>
         <Pressable style={styles.hint} onPress={onTune}>
-          <Plate label="⏎" compact labelSize={10} />
-          <Text style={styles.hintText}>TUNE</Text>
+          <Plate label="TUNE" compact labelSize={10} />
+          <Text style={styles.hintText}>WATCH</Text>
         </Pressable>
         <View style={styles.hint}>
           <Plate label="N" compact labelSize={10} />
@@ -354,12 +358,34 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 16,
   },
-  tabArrow: {
-    fontFamily: fonts.plate,
-    fontSize: 9,
-    letterSpacing: 2.3,
-    color: '#6e5f4b',
+  // Drawn triangles, not typeset ones — Besley has no U+25C0/25B6, so iOS
+  // substitutes a system glyph that breaks the printed-legend aesthetic.
+  tabArrowChip: {
+    width: 34,
+    height: 30,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    backgroundColor: walnut.grain,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginHorizontal: 6,
+  },
+  tabArrowTri: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 6,
+    borderBottomWidth: 6,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+  },
+  tabArrowTriLeft: {
+    borderRightWidth: 9,
+    borderRightColor: brass.mid,
+  },
+  tabArrowTriRight: {
+    borderLeftWidth: 9,
+    borderLeftColor: brass.mid,
   },
   tab: {
     borderRadius: 2,
