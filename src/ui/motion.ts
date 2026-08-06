@@ -45,7 +45,6 @@ export const FILAMENT_RECOVER_MS = 170;
 export const FILAMENT_PAUSE_MIN_MS = 500;
 export const FILAMENT_PAUSE_JITTER_MS = 950;
 export const FLAP_STEP_MS = 55;
-export const STATIC_FPS = 12;
 
 export const MECHANICAL_EASE_OUT = Easing.bezier(0.18, 0.78, 0.22, 1);
 export const ROLLER_RELEASE_EASE = Easing.bezier(0.16, 0.76, 0.18, 1);
