@@ -88,6 +88,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       metadata,
       mediaSessionControls,
       onReady,
+      onFirstFrame,
       onBuffering,
       onError,
       onPictureInPictureAvailabilityChange,
@@ -99,12 +100,12 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     const playingRef = useRef(playing);
     const mutedRef = useRef(muted);
     const needsSoundRef = useRef(false);
-    const callbacksRef = useRef({ onReady, onBuffering, onError, onPictureInPictureAvailabilityChange });
+    const callbacksRef = useRef({ onReady, onFirstFrame, onBuffering, onError, onPictureInPictureAvailabilityChange });
     const [needsSound, setNeedsSound] = useState(false);
 
     playingRef.current = playing;
     mutedRef.current = muted;
-    callbacksRef.current = { onReady, onBuffering, onError, onPictureInPictureAvailabilityChange };
+    callbacksRef.current = { onReady, onFirstFrame, onBuffering, onError, onPictureInPictureAvailabilityChange };
 
     const setSoundNeeded = useCallback((needed: boolean) => {
       needsSoundRef.current = needed;
@@ -346,6 +347,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       const onWaiting = () => callbacksRef.current.onBuffering(true);
       const onTimeUpdate = () => callbacksRef.current.onBuffering(false);
       const onPlay = () => { void acquireWakeLock(); };
+      const onPlaying = () => callbacksRef.current.onFirstFrame?.();
       const onPause = () => releaseWakeLock();
       const onLoadedMetadata = () => {
         callbacksRef.current.onPictureInPictureAvailabilityChange?.(supportsPictureInPicture(video));
@@ -378,6 +380,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       video.addEventListener('waiting', onWaiting);
       video.addEventListener('timeupdate', onTimeUpdate);
       video.addEventListener('play', onPlay);
+      video.addEventListener('playing', onPlaying, { once: true });
       video.addEventListener('pause', onPause);
       video.addEventListener('ended', onPause);
       video.addEventListener('error', handleNativeError);
@@ -398,6 +401,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         video.removeEventListener('waiting', onWaiting);
         video.removeEventListener('timeupdate', onTimeUpdate);
         video.removeEventListener('play', onPlay);
+        video.removeEventListener('playing', onPlaying);
         video.removeEventListener('pause', onPause);
         video.removeEventListener('ended', onPause);
         video.removeEventListener('error', handleNativeError);

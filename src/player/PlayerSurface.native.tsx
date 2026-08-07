@@ -42,6 +42,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       metadata,
       viewAttached = true,
       onReady,
+      onFirstFrame,
       onBuffering,
       onError,
       onPictureInPictureAvailabilityChange,
@@ -57,6 +58,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     const retryPending = useRef(false);
     const retried = useRef(false);
     const readyReported = useRef(false);
+    const firstFrameReported = useRef(false);
     const sourceGeneration = useRef(0);
     const settledGeneration = useRef(0);
     const replaceInFlightGeneration = useRef<number | null>(null);
@@ -66,6 +68,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     const mutedRef = useRef(muted);
     const callbacksRef = useRef({
       onReady,
+      onFirstFrame,
       onBuffering,
       onError,
       onPictureInPictureAvailabilityChange,
@@ -77,6 +80,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     if (!viewAttached) nativeViewAttachedRef.current = false;
     callbacksRef.current = {
       onReady,
+      onFirstFrame,
       onBuffering,
       onError,
       onPictureInPictureAvailabilityChange,
@@ -117,6 +121,16 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         readyReported.current = true;
         callbacksRef.current.onReady();
       }
+    }, [callbackIsLive]);
+
+    const reportFirstFrame = useCallback(() => {
+      if (
+        !callbackIsLive(true)
+        || settledGeneration.current !== sourceGeneration.current
+        || firstFrameReported.current
+      ) return;
+      firstFrameReported.current = true;
+      callbacksRef.current.onFirstFrame?.();
     }, [callbackIsLive]);
 
     // expo-video cancels its native loader when replaceAsync calls overlap. Keep
@@ -246,6 +260,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       retryPending.current = false;
       retried.current = false;
       readyReported.current = false;
+      firstFrameReported.current = false;
       if (sourceUrl) emitBuffering(true);
       else emitBuffering(false);
 
@@ -356,7 +371,10 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         allowsFullscreen={false}
         allowsPictureInPicture
         startsPictureInPictureAutomatically={playing && viewAttached}
-        onFirstFrameRender={() => reportReady(true)}
+        onFirstFrameRender={() => {
+          reportReady(true);
+          reportFirstFrame();
+        }}
       />
     );
   },

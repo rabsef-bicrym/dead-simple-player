@@ -38,6 +38,7 @@ export interface PlayerSurfaceProps {
   /** Keep the player alive while detaching its native picture surface. */
   viewAttached?: boolean;
   onReady: () => void;
+  onFirstFrame?: () => void;
   onBuffering: (buffering: boolean) => void;
   onError: (error: PlayerError) => void;
   onPictureInPictureAvailabilityChange?: (available: boolean) => void;
