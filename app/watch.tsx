@@ -48,7 +48,6 @@ import {
   FLASH_COOL_MS,
   FLASH_DWELL_MS,
   FLASH_STAMP_MS,
-  FIRST_FRAME_BACKSTOP_MS,
   GEAR_COMMIT_MS,
   MECHANICAL_EASE_OUT,
   REGISTER_LINKAGE_MS,
@@ -163,7 +162,6 @@ export default function WatchScreen() {
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopHomeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const firstFrameBackstopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastProgressAt = useRef<number>(0);
   const bufferingRef = useRef(buffering);
   const currentStreamUrlRef = useRef<string | null>(null);
@@ -188,12 +186,10 @@ export default function WatchScreen() {
     if (revealTimer.current) clearTimeout(revealTimer.current);
     if (stopCollapseTimer.current) clearTimeout(stopCollapseTimer.current);
     if (stopHomeTimer.current) clearTimeout(stopHomeTimer.current);
-    if (firstFrameBackstopTimer.current) clearTimeout(firstFrameBackstopTimer.current);
     gateTimer.current = null;
     revealTimer.current = null;
     stopCollapseTimer.current = null;
     stopHomeTimer.current = null;
-    firstFrameBackstopTimer.current = null;
     return transitionGen.current;
   }, []);
 
@@ -664,7 +660,6 @@ export default function WatchScreen() {
     if (revealTimer.current) clearTimeout(revealTimer.current);
     if (stopCollapseTimer.current) clearTimeout(stopCollapseTimer.current);
     if (stopHomeTimer.current) clearTimeout(stopHomeTimer.current);
-    if (firstFrameBackstopTimer.current) clearTimeout(firstFrameBackstopTimer.current);
     hudTravel.stopAnimation();
     flashOpacity.stopAnimation();
     flashScale.stopAnimation();
@@ -989,27 +984,19 @@ export default function WatchScreen() {
 
   // ── Playback plumbing ──
   const handlePlaybackStarted = useCallback(() => {
-    const generation = transitionGen.current;
-    const sourceUrl = currentStreamUrlRef.current;
     lastProgressAt.current = Date.now();
     bufferingRef.current = false;
     setBuffering(false);
     setShowBufferingOverlay(false);
     setPlayerError(null);
-    if (firstFrameBackstopTimer.current) clearTimeout(firstFrameBackstopTimer.current);
-    firstFrameBackstopTimer.current = setTimeout(() => {
-      firstFrameBackstopTimer.current = null;
-      if (
-        transitionGen.current === generation
-        && currentStreamUrlRef.current === sourceUrl
-        && !bufferingRef.current
-      ) setSourceReady(true);
-    }, FIRST_FRAME_BACKSTOP_MS);
   }, []);
 
+  // The ONLY successful end of the tuning static. onFirstFrameRender is a KVO
+  // on the presentation view's isReadyForDisplay and re-fires per replaced
+  // item (VideoView.swift:62,182 — no latch), so no backstop timer: readiness
+  // events mean data, this event means pixels. A stream that never paints
+  // keeps the static, and the error path owns that ending.
   const handleFirstFrame = useCallback(() => {
-    if (firstFrameBackstopTimer.current) clearTimeout(firstFrameBackstopTimer.current);
-    firstFrameBackstopTimer.current = null;
     setSourceReady(true);
   }, []);
 
