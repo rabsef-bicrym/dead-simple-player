@@ -1,3 +1,5 @@
+jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+
 import { STORAGE_KEYS } from '../../constants/storage';
 import { fetchIptvData, fetchIptvGuide } from '../iptv';
 
@@ -23,6 +25,10 @@ function memoryStorage() {
   return {
     values,
     getItem: jest.fn(async (key: string) => values.get(key) ?? null),
+    getAllKeys: jest.fn(async () => [...values.keys()]),
+    removeItem: jest.fn(async (key: string) => {
+      values.delete(key);
+    }),
     setItem: jest.fn(async (key: string, value: string) => {
       values.set(key, value);
     }),
@@ -53,6 +59,8 @@ describe('IPTV guide resilience', () => {
 
   it('caches a good guide and uses it after a later XMLTV failure', async () => {
     const storage = memoryStorage();
+    const oldCacheKey = `${STORAGE_KEYS.GUIDE_CACHE_PREFIX}old.local:8409`;
+    storage.values.set(oldCacheKey, xmltv);
     global.fetch = jest.fn(async () => response(xmltv)) as unknown as typeof fetch;
 
     const fresh = await fetchIptvGuide(config, storage);
@@ -63,6 +71,8 @@ describe('IPTV guide resilience', () => {
       `${STORAGE_KEYS.GUIDE_CACHE_PREFIX}tv.local:8409`,
       xmltv,
     );
+    expect(storage.removeItem).toHaveBeenCalledWith(oldCacheKey);
+    expect(storage.values.has(oldCacheKey)).toBe(false);
 
     global.fetch = jest.fn(async () => response('guide offline', 503)) as unknown as typeof fetch;
     const cached = await fetchIptvGuide(config, storage);

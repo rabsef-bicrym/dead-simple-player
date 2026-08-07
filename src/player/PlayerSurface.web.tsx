@@ -158,6 +158,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
       let hiddenAt: number | null = document.visibilityState === 'hidden' ? Date.now() : null;
       let recoveryState: HlsRecoveryState = { ...initialHlsRecoveryState };
+      let manifestParsed = false;
       let needsLiveEdge = false;
       let wakeLock: WakeLockSentinelLike | null = null;
       let readyReported = false;
@@ -243,7 +244,11 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       };
 
       const recoverFrom = (fatal: boolean, type: HlsFailureType, instance: Hls | null) => {
-        const decision = decideHlsRecovery(recoveryState, { fatal, type }, Date.now());
+        const decision = decideHlsRecovery(
+          recoveryState,
+          { fatal, type, manifestParsed },
+          Date.now(),
+        );
         recoveryState = decision.state;
 
         switch (decision.action.type) {
@@ -269,6 +274,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
 
       createPipeline = () => {
         if (disposed) return;
+        manifestParsed = false;
         callbacksRef.current.onBuffering(true);
 
         if (Hls.isSupported()) {
@@ -282,14 +288,62 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
             enableWorker: true,
             abrEwmaDefaultEstimate: 10_000_000,
             capLevelToPlayerSize: true,
-            manifestLoadingMaxRetry: 6,
-            levelLoadingMaxRetry: 6,
-            fragLoadingMaxRetry: 6,
+            manifestLoadPolicy: {
+              default: {
+                maxTimeToFirstByteMs: Infinity,
+                maxLoadTimeMs: 20_000,
+                timeoutRetry: {
+                  maxNumRetry: 6,
+                  retryDelayMs: 0,
+                  maxRetryDelayMs: 0,
+                },
+                errorRetry: {
+                  maxNumRetry: 6,
+                  retryDelayMs: 1_000,
+                  maxRetryDelayMs: 8_000,
+                },
+              },
+            },
+            playlistLoadPolicy: {
+              default: {
+                maxTimeToFirstByteMs: 10_000,
+                maxLoadTimeMs: 20_000,
+                timeoutRetry: {
+                  maxNumRetry: 6,
+                  retryDelayMs: 0,
+                  maxRetryDelayMs: 0,
+                },
+                errorRetry: {
+                  maxNumRetry: 6,
+                  retryDelayMs: 1_000,
+                  maxRetryDelayMs: 8_000,
+                },
+              },
+            },
+            fragLoadPolicy: {
+              default: {
+                maxTimeToFirstByteMs: 10_000,
+                maxLoadTimeMs: 120_000,
+                timeoutRetry: {
+                  maxNumRetry: 6,
+                  retryDelayMs: 0,
+                  maxRetryDelayMs: 0,
+                },
+                errorRetry: {
+                  maxNumRetry: 6,
+                  retryDelayMs: 1_000,
+                  maxRetryDelayMs: 8_000,
+                },
+              },
+            },
           });
           hlsRef.current = instance;
 
           instance.on(Hls.Events.MEDIA_ATTACHED, () => {
             if (hlsRef.current === instance) clearAttachTimer();
+          });
+          instance.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (hlsRef.current === instance) manifestParsed = true;
           });
           instance.on(Hls.Events.FRAG_BUFFERED, () => {
             if (hlsRef.current !== instance) return;

@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { parseM3U } from '../parsers/m3u';
 import { parseXMLTV } from '../parsers/xmltv';
 import { STORAGE_KEYS } from '../constants/storage';
@@ -24,10 +25,15 @@ export interface IptvGuide {
 
 interface GuideStorage {
   getItem(key: string): Promise<string | null>;
+  getAllKeys(): Promise<readonly string[]>;
+  removeItem(key: string): Promise<unknown>;
   setItem(key: string, value: string): Promise<unknown>;
 }
 
 const EMPTY_EPG: EpgData = { channels: [], programmes: [] };
+const MAX_WEB_GUIDE_CACHE_CHARS = 3_000_000;
+let guideCacheWritesDisabled = false;
+let guideCacheWarningLogged = false;
 
 /** Build a normalized http URL for a server + path. */
 function buildServerUrl(config: ServerConfig, path: string): string {
@@ -48,6 +54,40 @@ function parseGuide(raw: string, config: ServerConfig): EpgData {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'XMLTV request failed';
+}
+
+async function guideCacheKeys(storage: GuideStorage): Promise<readonly string[]> {
+  const keys = await storage.getAllKeys();
+  return keys.filter((key) => key.startsWith(STORAGE_KEYS.GUIDE_CACHE_PREFIX));
+}
+
+async function evictGuideCaches(storage: GuideStorage, keepKey?: string): Promise<void> {
+  const keys = await guideCacheKeys(storage);
+  await Promise.all(keys.filter((key) => key !== keepKey).map((key) => storage.removeItem(key)));
+}
+
+async function cacheGuide(storage: GuideStorage, cacheKey: string, xmltvText: string): Promise<void> {
+  if (guideCacheWritesDisabled) return;
+
+  try {
+    if (Platform.OS === 'web' && xmltvText.length > MAX_WEB_GUIDE_CACHE_CHARS) {
+      await evictGuideCaches(storage);
+      return;
+    }
+    await evictGuideCaches(storage, cacheKey);
+    await storage.setItem(cacheKey, xmltvText);
+  } catch (error) {
+    guideCacheWritesDisabled = true;
+    if (!guideCacheWarningLogged) {
+      guideCacheWarningLogged = true;
+      console.warn('[iptv] guide cache disabled after a storage failure', error);
+    }
+    try {
+      await evictGuideCaches(storage);
+    } catch {
+      // Storage may remain unavailable; the live guide is still usable.
+    }
+  }
 }
 
 /** Fetch text with timeout and endpoint-specific error messages. */
@@ -99,7 +139,7 @@ export async function fetchIptvGuide(
   try {
     const xmltvText = await fetchTextWithTimeout(xmltvUrl, 'XMLTV');
     const epg = parseGuide(xmltvText, config);
-    await storage.setItem(cacheKey, xmltvText).catch(() => {});
+    await cacheGuide(storage, cacheKey, xmltvText);
     return { epg, state: 'fresh' };
   } catch (error) {
     const errorText = errorMessage(error);
