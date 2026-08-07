@@ -1,11 +1,13 @@
 export const MEDIA_RECOVERY_LIMIT = 3;
 export const MEDIA_RECOVERY_WINDOW_MS = 60_000;
+export const NETWORK_RESTART_LIMIT = 3;
 export const REBUILD_LIMIT_BEFORE_ERROR = 5;
 export const REBUILD_BASE_DELAY_MS = 4_000;
 export const REBUILD_MAX_DELAY_MS = 30_000;
 
 export interface HlsRecoveryState {
   mediaRecoveryTimes: number[];
+  networkRestartAttempts: number;
   rebuildAttempts: number;
 }
 
@@ -29,6 +31,7 @@ export interface HlsRecoveryDecision {
 
 export const initialHlsRecoveryState: HlsRecoveryState = {
   mediaRecoveryTimes: [],
+  networkRestartAttempts: 0,
   rebuildAttempts: 0,
 };
 
@@ -40,15 +43,29 @@ export const initialHlsRecoveryState: HlsRecoveryState = {
  */
 export function decideHlsRecovery(
   state: HlsRecoveryState,
-  failure: { fatal: boolean; type: HlsFailureType },
+  failure: { fatal: boolean; type: HlsFailureType; manifestParsed: boolean },
   nowMs: number,
 ): HlsRecoveryDecision {
   if (!failure.fatal) return { state, action: { type: 'ignore' } };
-  if (failure.type === 'network') return { state, action: { type: 'start-load' } };
 
   const recentMediaRecoveries = state.mediaRecoveryTimes.filter(
     (time) => nowMs - time < MEDIA_RECOVERY_WINDOW_MS,
   );
+
+  if (
+    failure.type === 'network'
+    && failure.manifestParsed
+    && state.networkRestartAttempts < NETWORK_RESTART_LIMIT
+  ) {
+    return {
+      state: {
+        ...state,
+        mediaRecoveryTimes: recentMediaRecoveries,
+        networkRestartAttempts: state.networkRestartAttempts + 1,
+      },
+      action: { type: 'start-load' },
+    };
+  }
 
   if (failure.type === 'media' && recentMediaRecoveries.length < MEDIA_RECOVERY_LIMIT) {
     return {
@@ -64,6 +81,7 @@ export function decideHlsRecovery(
   return {
     state: {
       mediaRecoveryTimes: recentMediaRecoveries,
+      networkRestartAttempts: 0,
       rebuildAttempts,
     },
     action: {
@@ -86,6 +104,7 @@ export function markHlsPlaybackHealthy(
     mediaRecoveryTimes: state.mediaRecoveryTimes.filter(
       (time) => nowMs - time < MEDIA_RECOVERY_WINDOW_MS,
     ),
+    networkRestartAttempts: 0,
     rebuildAttempts: 0,
   };
 }

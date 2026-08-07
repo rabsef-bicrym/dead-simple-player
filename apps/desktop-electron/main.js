@@ -41,6 +41,27 @@ let mainWindow;
 let staticServer;
 let displaySleepBlocker;
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
+
+function startDisplaySleepBlocker() {
+  if (
+    displaySleepBlocker !== undefined
+    && powerSaveBlocker.isStarted(displaySleepBlocker)
+  ) return;
+  displaySleepBlocker = powerSaveBlocker.start('prevent-display-sleep');
+}
+
+function stopDisplaySleepBlocker() {
+  if (
+    displaySleepBlocker !== undefined
+    && powerSaveBlocker.isStarted(displaySleepBlocker)
+  ) {
+    powerSaveBlocker.stop(displaySleepBlocker);
+  }
+  displaySleepBlocker = undefined;
+}
+
 function webBuildRoot() {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'web-dist')
@@ -195,8 +216,11 @@ function createMainWindow(origin) {
       console.log(`[desktop] renderer console errors after load: ${rendererErrorCount}`);
     }, 2000);
   });
+  mainWindow.webContents.on('media-started-playing', startDisplaySleepBlocker);
+  mainWindow.webContents.on('media-paused', stopDisplaySleepBlocker);
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.on('closed', () => {
+    stopDisplaySleepBlocker();
     mainWindow = undefined;
     app.quit();
   });
@@ -218,20 +242,26 @@ ipcMain.on('dsp-shell:power-off', (event) => {
   }
 });
 
-app.whenReady().then(async () => {
-  displaySleepBlocker = powerSaveBlocker.start('prevent-display-sleep');
-  const origin = await startStaticServer();
-  createMainWindow(origin);
-}).catch((error) => {
-  console.error('[desktop] startup failed:', error);
-  app.quit();
-});
+if (hasSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  app.whenReady().then(async () => {
+    const origin = await startStaticServer();
+    createMainWindow(origin);
+  }).catch((error) => {
+    console.error('[desktop] startup failed:', error);
+    app.quit();
+  });
+}
 
 app.on('before-quit', () => {
   staticServer?.close();
-  if (displaySleepBlocker !== undefined && powerSaveBlocker.isStarted(displaySleepBlocker)) {
-    powerSaveBlocker.stop(displaySleepBlocker);
-  }
+  stopDisplaySleepBlocker();
 });
 
 app.on('window-all-closed', () => app.quit());

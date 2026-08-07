@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { brass, walnut } from '../../constants/ds6';
@@ -12,13 +12,27 @@ interface VideoHardwareControlsProps {
 // restores the OS's own auto-rotation — the set must never trap a form factor.
 let landscapeLocked = false;
 
+function isLandscapeLock(lock: ScreenOrientation.OrientationLock): boolean {
+  return lock === ScreenOrientation.OrientationLock.LANDSCAPE
+    || lock === ScreenOrientation.OrientationLock.LANDSCAPE_LEFT
+    || lock === ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT;
+}
+
+async function refreshOrientationTruth(): Promise<void> {
+  try {
+    landscapeLocked = isLandscapeLock(await ScreenOrientation.getOrientationLockAsync());
+  } catch {
+    // If the OS cannot report its lock, retain the last settled truth we have.
+  }
+}
+
 export async function releaseOrientation(): Promise<void> {
   if (!landscapeLocked) return;
-  landscapeLocked = false;
   try {
     await ScreenOrientation.unlockAsync();
+    landscapeLocked = false;
   } catch {
-    // Web has no lock; a native OS may decline. Either way we hold no lock.
+    await refreshOrientationTruth();
   }
 }
 
@@ -31,13 +45,17 @@ async function toggleLandscape(): Promise<void> {
     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     landscapeLocked = true;
   } catch {
-    // The plate is absent on web; a native OS may still decline the request.
+    await refreshOrientationTruth();
   }
 }
 
 /** Hardware plates over the glass; every glyph is drawn from cabinet parts. */
 export function VideoHardwareControls({ onStop, onActivity }: VideoHardwareControlsProps) {
   const [orientationLocked, setOrientationLocked] = useState(landscapeLocked);
+
+  useEffect(() => () => {
+    void releaseOrientation();
+  }, []);
 
   const handleOrientationPress = async () => {
     await toggleLandscape();
