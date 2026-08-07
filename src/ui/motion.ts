@@ -13,6 +13,7 @@ export const FLASH_COOL_MS = 400;
 
 export const BLOOM_RAMP_MS = 250;
 export const REGISTER_LINKAGE_MS = 280;
+export const FIRST_FRAME_BACKSTOP_MS = 2000;
 export const GEAR_NEUTRAL_MS = 90;
 export const GEAR_CROSSBAR_MS = 110;
 export const GEAR_COMMIT_MS = 340;
