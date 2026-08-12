@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -122,6 +122,18 @@ export default function SettingsScreen() {
 
   const refreshTuneTrace = useCallback(() => {
     setTuneTraces(getTuneTraceSnapshot());
+  }, []);
+
+  const [traceCopied, setTraceCopied] = useState(false);
+  const traceCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTuneTrace = useCallback(() => {
+    void Clipboard.setStringAsync(serializeTuneTraces(getTuneTraceSnapshot()));
+    setTraceCopied(true);
+    if (traceCopiedTimer.current) clearTimeout(traceCopiedTimer.current);
+    traceCopiedTimer.current = setTimeout(() => setTraceCopied(false), 1400);
+  }, []);
+  useEffect(() => () => {
+    if (traceCopiedTimer.current) clearTimeout(traceCopiedTimer.current);
   }, []);
 
   if (loading) {
@@ -272,10 +284,8 @@ export default function SettingsScreen() {
             <View style={styles.traceHeader}>
               <Text style={styles.traceTitle}>TUNE TRACE</Text>
               <PlateButton
-                label="COPY"
-                onPress={() => {
-                  void Clipboard.setStringAsync(serializeTuneTraces(getTuneTraceSnapshot()));
-                }}
+                label={traceCopied ? 'COPIED' : 'COPY'}
+                onPress={copyTuneTrace}
                 compact
               />
               <PlateButton label="AGAIN" onPress={refreshTuneTrace} compact />

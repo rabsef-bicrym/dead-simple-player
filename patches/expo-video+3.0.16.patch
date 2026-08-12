@@ -28,7 +28,7 @@ index 847500d..0363dd8 100644
    }
  
 diff --git a/node_modules/expo-video/ios/VideoView.swift b/node_modules/expo-video/ios/VideoView.swift
-index 3f285fb..80f24bc 100644
+index 3f285fb..1a02a3c 100644
 --- a/node_modules/expo-video/ios/VideoView.swift
 +++ b/node_modules/expo-video/ios/VideoView.swift
 @@ -8,7 +8,9 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
@@ -41,7 +41,7 @@ index 3f285fb..80f24bc 100644
      }
    }
  
-@@ -39,6 +41,11 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+@@ -39,6 +41,13 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
    let onFirstFrameRender = EventDispatcher()
  
    var firstFrameObserver: NSKeyValueObservation?
@@ -50,10 +50,12 @@ index 3f285fb..80f24bc 100644
 +  weak var firstFramePlayerItem: AVPlayerItem?
 +  var lastReadyValue = false
 +  var hasEmittedFirstFrame = false
++  var firstFrameOutput: AVPlayerItemVideoOutput?
++  var firstFrameLink: CADisplayLink?
  
    public override var bounds: CGRect {
      didSet {
-@@ -65,6 +72,7 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+@@ -65,6 +74,7 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
  
    deinit {
      VideoManager.shared.unregister(videoView: self)
@@ -61,7 +63,7 @@ index 3f285fb..80f24bc 100644
      removeFirstFrameObserver()
    }
  
-@@ -181,11 +189,87 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+@@ -181,11 +191,111 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
  
    private func addFirstFrameObserver() {
      firstFrameObserver = playerViewController.observe(\.isReadyForDisplay, changeHandler: { [weak self] playerViewController, _ in
@@ -80,24 +82,53 @@ index 3f285fb..80f24bc 100644
 +        return
 +      }
 +
-+      emitFirstFrameIfEarned()
++      // readyForDisplay is kept only as bookkeeping; emission now rides the
++      // pixel-buffer witness below. (Two builds of device traces proved this
++      // flag reports true 8-90ms after item swaps with no frame for seconds.)
      })
    }
 +
-+  // A first frame is earned only when BOTH native witnesses agree: the
-+  // presentation view says a frame is ready for display AND the current
-+  // item's own status is readyToPlay. AVKit renotifies isReadyForDisplay
-+  // transiently at item swaps (observed on live HLS ~40-90ms after
-+  // replaceCurrentItem, well before readyToPlay); the status gate rejects
-+  // that lie. Whichever witness arrives second triggers the emit.
-+  private func emitFirstFrameIfEarned() {
++  // The only witness that IS the frame: AVPlayerItemVideoOutput answers
++  // "does a decoded video buffer exist for the item's current time?" —
++  // ground truth, unlike isReadyForDisplay/readyToPlay, both of which
++  // device traces caught reporting readiness seconds before any pixels.
++  // A display link polls until the first buffer exists, emits once for
++  // the item, and tears itself down.
++  private func armFirstFrameWitness(for item: AVPlayerItem?) {
++    disarmFirstFrameWitness()
++    guard let item else {
++      return
++    }
++    let output = AVPlayerItemVideoOutput()
++    item.add(output)
++    firstFrameOutput = output
++    // The link retains its target until invalidated; every arm path is
++    // paired with a disarm (next item, player unset, deinit, or emission).
++    let link = CADisplayLink(target: self, selector: #selector(pollFirstFrame))
++    link.add(to: .main, forMode: .common)
++    firstFrameLink = link
++  }
++
++  private func disarmFirstFrameWitness() {
++    firstFrameLink?.invalidate()
++    firstFrameLink = nil
++    if let firstFrameOutput, let firstFramePlayerItem {
++      firstFramePlayerItem.remove(firstFrameOutput)
++    }
++    firstFrameOutput = nil
++  }
++
++  @objc private func pollFirstFrame() {
 +    guard
 +      !hasEmittedFirstFrame,
 +      let firstFramePlayerItem,
 +      firstFramePlayerItem === player?.ref.currentItem,
-+      firstFramePlayerItem.status == .readyToPlay,
-+      playerViewController.isReadyForDisplay
++      let firstFrameOutput
 +    else {
++      return
++    }
++    let itemTime = firstFrameOutput.itemTime(forHostTime: CACurrentMediaTime())
++    guard itemTime.isValid, firstFrameOutput.hasNewPixelBuffer(forItemTime: itemTime) else {
 +      return
 +    }
 +    hasEmittedFirstFrame = true
@@ -109,6 +140,7 @@ index 3f285fb..80f24bc 100644
 +    } else {
 +      onFirstFrameRender()
 +    }
++    disarmFirstFrameWitness()
 +  }
 +
 +  private func addCurrentItemObserver() {
@@ -127,14 +159,7 @@ index 3f285fb..80f24bc 100644
 +
 +      itemStatusObserver?.invalidate()
 +      itemStatusObserver = nil
-+      if let item = player.currentItem {
-+        itemStatusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-+          guard let self, item === firstFramePlayerItem, item.status == .readyToPlay else {
-+            return
-+          }
-+          emitFirstFrameIfEarned()
-+        }
-+      }
++      armFirstFrameWitness(for: player.currentItem)
 +    }
 +  }
 +
@@ -143,6 +168,7 @@ index 3f285fb..80f24bc 100644
 +    currentItemObserver = nil
 +    itemStatusObserver?.invalidate()
 +    itemStatusObserver = nil
++    disarmFirstFrameWitness()
 +    firstFramePlayerItem = nil
 +    lastReadyValue = false
 +    hasEmittedFirstFrame = false
