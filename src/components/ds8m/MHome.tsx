@@ -351,6 +351,8 @@ interface MColumnRegisterProps {
   engaged?: boolean;
   stampOnMount?: boolean;
   onBoard?: () => void;
+  /** Long-press on the footer: the little door on the back of the set. */
+  onService?: () => void;
   selectionRequest?: { index: number; token: number } | null;
 }
 
@@ -470,6 +472,7 @@ export function MColumnRegister({
   engaged = true,
   stampOnMount = false,
   onBoard,
+  onService,
   selectionRequest,
 }: MColumnRegisterProps) {
   const reducedMotion = useReducedMotion();
@@ -619,8 +622,10 @@ export function MColumnRegister({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Open This Evening"
+        accessibilityHint="Press and hold for the service panel"
         disabled={!onBoard}
         onPress={onBoard}
+        onLongPress={onService}
         style={[styles.portraitFoot, compact && styles.portraitFootCompact]}
       >
         <Text style={[styles.footEvening, compact && styles.footEveningCompact]}>THIS EVENING</Text>
@@ -638,6 +643,7 @@ export function MHomePortrait({
   clockNow,
   dimmed,
   onBoard,
+  onService,
   entrance = 'none',
   expandFrom = 180,
   selectionRequest,
@@ -686,6 +692,7 @@ export function MHomePortrait({
           engaged={false}
           stampOnMount={entrance === 'stamp'}
           onBoard={onBoard}
+          onService={onService}
           selectionRequest={selectionRequest}
         />
       </Animated.View>

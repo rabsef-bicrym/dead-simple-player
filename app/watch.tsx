@@ -1259,6 +1259,7 @@ export default function WatchScreen() {
               upNextMap={upNextMap}
               clockNow={clockNow}
               onBoard={() => openBoard(dialIndex)}
+              onService={openServicePanel}
               entrance={homeEntrance}
               expandFrom={(winW * 9) / 16}
               selectionRequest={registerTuneRequest}

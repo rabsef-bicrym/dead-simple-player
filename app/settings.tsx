@@ -11,8 +11,16 @@ import { ServiceLabel, TerminalInput, PlateButton, Lamp } from '../src/component
 import { setSoundMuted, isSoundMuted, setSignoffTone, getSignoffTone } from '../src/utils/sound';
 import { timeToProse } from '../src/utils/prose';
 import { useCabinet } from '../src/hooks/useCabinet';
-import { getTuneTraceSnapshot } from '../src/services/tuneTrace';
+import * as Clipboard from 'expo-clipboard';
+import { getTuneTraceSnapshot, type TuneTrace } from '../src/services/tuneTrace';
 import type { SavedServer } from '../src/types';
+
+function serializeTuneTraces(traces: TuneTrace[]): string {
+  return traces.map((tune) => [
+    `TUNE ${tune.channelName} @ ${new Date(tune.startedAt).toISOString()}`,
+    ...tune.events.map((e) => `  +${e.offsetMs}ms ${e.name}${e.detail ? ` ${e.detail}` : ''}`),
+  ].join('\n')).join('\n\n');
+}
 
 /**
  * Settings — the service panel (8b).
@@ -263,6 +271,13 @@ export default function SettingsScreen() {
           <LinearGradient colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.traceCard}>
             <View style={styles.traceHeader}>
               <Text style={styles.traceTitle}>TUNE TRACE</Text>
+              <PlateButton
+                label="COPY"
+                onPress={() => {
+                  void Clipboard.setStringAsync(serializeTuneTraces(getTuneTraceSnapshot()));
+                }}
+                compact
+              />
               <PlateButton label="AGAIN" onPress={refreshTuneTrace} compact />
             </View>
             {tuneTraces.length === 0 ? (
