@@ -18,6 +18,7 @@ import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
 import { fetchIptvChannels, fetchIptvGuide, type GuideState } from '../src/services/iptv';
 import { restoreLastChannelIndex } from '../src/services/channelStorage';
+import { traceEvent, traceTuneStart } from '../src/services/tuneTrace';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { Apron } from '../src/components/ds6/Apron';
@@ -498,6 +499,7 @@ export default function WatchScreen() {
       if (origin !== 'register' && !tuning) flashChannel();
       return;
     }
+    traceTuneStart(channels[index]?.name ?? `CHANNEL ${index + 1}`);
     const openingPicture = !playbackActiveRef.current;
     playbackActiveRef.current = true;
     setPlaybackActive(true);
@@ -541,7 +543,7 @@ export default function WatchScreen() {
       watchReveal.setValue(1);
       setWatchRevealDone(true);
     }
-  }, [beginTransition, cancelFlash, flashChannel, isLandscape, isPhone, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, showPortraitControls, tuning, watchReveal]);
+  }, [beginTransition, cancelFlash, channels, flashChannel, isLandscape, isPhone, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, showPortraitControls, tuning, watchReveal]);
 
   const requestTune = useCallback((index: number, origin: TuneOrigin) => {
     if (isPhone && !isLandscape) {
@@ -646,7 +648,10 @@ export default function WatchScreen() {
   }, [currentChannel?.streamUrl]);
 
   useEffect(() => {
-    if (tuning && sourceReady && watchRevealDone) setTuning(false);
+    if (tuning && sourceReady && watchRevealDone) {
+      traceEvent('static unmount', 'tuning cleared');
+      setTuning(false);
+    }
   }, [sourceReady, tuning, watchRevealDone]);
 
   useEffect(() => () => {
@@ -991,12 +996,13 @@ export default function WatchScreen() {
     setPlayerError(null);
   }, []);
 
-  // The ONLY successful end of the tuning static. onFirstFrameRender is a KVO
-  // on the presentation view's isReadyForDisplay and re-fires per replaced
-  // item (VideoView.swift:62,182 — no latch), so no backstop timer: readiness
-  // events mean data, this event means pixels. A stream that never paints
-  // keeps the static, and the error path owns that ending.
+  // The ONLY successful end of the tuning static. The patched native
+  // onFirstFrameRender binds a real isReadyForDisplay edge to the current
+  // item's source URI, so no backstop timer: readiness events mean data, this
+  // event means attributable pixels. A stream that never paints keeps the
+  // static, and the error path owns that ending.
   const handleFirstFrame = useCallback(() => {
+    traceEvent('sourceReady set');
     setSourceReady(true);
   }, []);
 

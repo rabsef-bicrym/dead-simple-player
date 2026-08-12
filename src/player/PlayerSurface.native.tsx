@@ -15,7 +15,22 @@ import {
   type VideoSource,
   type VideoView as VideoViewInstance,
 } from 'expo-video';
+import { traceEvent } from '../services/tuneTrace';
 import type { PlayerError, PlayerMetadata, PlayerSurfaceHandle, PlayerSurfaceProps } from './types';
+
+interface PatchedFirstFrameEvent {
+  sourceUri?: string;
+  nativeEvent?: { sourceUri?: string };
+}
+
+function normalizeUrlString(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  try {
+    return new URL(uri).toString();
+  } catch {
+    return uri;
+  }
+}
 
 function videoSource(sourceUrl: string | null, metadata?: PlayerMetadata): VideoSource {
   if (!sourceUrl) return null;
@@ -59,11 +74,13 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     const retried = useRef(false);
     const readyReported = useRef(false);
     const firstFrameReported = useRef(false);
+    const timeUpdateTracedGeneration = useRef(0);
     const sourceGeneration = useRef(0);
     const settledGeneration = useRef(0);
     const replaceInFlightGeneration = useRef<number | null>(null);
     const replacementChain = useRef<Promise<void>>(Promise.resolve());
     const sourceRef = useRef(videoSource(sourceUrl, metadata));
+    const sourceUrlRef = useRef(sourceUrl);
     const playingRef = useRef(playing);
     const mutedRef = useRef(muted);
     const callbacksRef = useRef({
@@ -86,6 +103,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       onPictureInPictureAvailabilityChange,
     };
     sourceRef.current = videoSource(sourceUrl, metadata);
+    sourceUrlRef.current = sourceUrl;
 
     const player = useVideoPlayer(null, (createdPlayer) => {
       createdPlayer.staysActiveInBackground = true;
@@ -136,6 +154,9 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     // expo-video cancels its native loader when replaceAsync calls overlap. Keep
     // exactly one request in flight; stale queued generations become no-ops.
     const replaceForGeneration = useCallback((source: VideoSource, generation: number) => {
+      const requestedUri = typeof source === 'object' && source?.uri
+        ? source.uri
+        : 'source absent';
       const replacement = replacementChain.current
         .catch(() => {})
         .then(async () => {
@@ -145,7 +166,9 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
             // Break the old audio signal before replacing its item. Static and
             // cleared-source states must never carry sound between stations.
             player.muted = mutedRef.current;
+            traceEvent('replaceAsync start', requestedUri);
             await player.replaceAsync(source);
+            traceEvent('replaceAsync resolve', requestedUri);
           } finally {
             if (replaceInFlightGeneration.current === generation) {
               replaceInFlightGeneration.current = null;
@@ -167,6 +190,8 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         || settledGeneration.current !== sourceGeneration.current
       ) return;
 
+      traceEvent('playerError', `${error.kind}: ${error.message}`);
+
       // ErsatzTV can briefly serve an empty cold-start playlist. Reload the
       // same HLS source once, after the established four-second grace period.
       if (!retried.current) {
@@ -185,12 +210,16 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           readyReported.current = false;
           settledGeneration.current = 0;
           void replaceForGeneration(sourceRef.current, generation)
-            .catch((replacementError: unknown) => emitFinalError({
-              kind: 'media',
-              message: replacementError instanceof Error
-                ? replacementError.message
-                : 'Native HLS retry failed',
-            }));
+            .catch((replacementError: unknown) => {
+              const error = {
+                kind: 'media' as const,
+                message: replacementError instanceof Error
+                  ? replacementError.message
+                  : 'Native HLS retry failed',
+              };
+              traceEvent('playerError', `${error.kind}: ${error.message}`);
+              emitFinalError(error);
+            });
         }, 4000);
         return;
       }
@@ -199,6 +228,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     }, [callbackIsLive, emitBuffering, emitFinalError, replaceForGeneration]);
 
     useEventListener(player, 'statusChange', ({ status, error }) => {
+      traceEvent('statusChange', error?.message ? `${status}: ${error.message}` : status);
       if (!callbackIsLive()) return;
       if (status === 'loading') {
         emitBuffering(true);
@@ -221,10 +251,16 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     });
 
     useEventListener(player, 'playingChange', ({ isPlaying }) => {
+      traceEvent('playingChange', String(isPlaying));
       if (isPlaying) reportReady();
     });
 
-    useEventListener(player, 'timeUpdate', () => {
+    useEventListener(player, 'timeUpdate', ({ currentTime }) => {
+      const generation = sourceGeneration.current;
+      if (timeUpdateTracedGeneration.current !== generation) {
+        timeUpdateTracedGeneration.current = generation;
+        traceEvent('first timeUpdate', `${currentTime.toFixed(3)}s · ${sourceUrlRef.current ?? 'source absent'}`);
+      }
       reportReady();
     });
 
@@ -371,10 +407,21 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         allowsFullscreen={false}
         allowsPictureInPicture
         startsPictureInPictureAutomatically={playing && viewAttached}
-        onFirstFrameRender={() => {
+        onFirstFrameRender={((event?: PatchedFirstFrameEvent) => {
+          // expo-video's public type is still `() => void`; the patch adds a
+          // sourceUri payload on iOS, while Android/web remain payload-free.
+          const receivedUri = event?.sourceUri ?? event?.nativeEvent?.sourceUri;
+          const expectedUri = sourceUrlRef.current;
+          const matched = receivedUri === undefined
+            || normalizeUrlString(receivedUri) === normalizeUrlString(expectedUri);
+          traceEvent(
+            'onFirstFrameRender',
+            `sourceUri=${receivedUri ?? 'absent'} · matched=${matched ? 'yes' : 'no'}`,
+          );
+          if (!matched) return;
           reportReady(true);
           reportFirstFrame();
-        }}
+        }) as () => void}
       />
     );
   },

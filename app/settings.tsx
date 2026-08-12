@@ -11,6 +11,7 @@ import { ServiceLabel, TerminalInput, PlateButton, Lamp } from '../src/component
 import { setSoundMuted, isSoundMuted, setSignoffTone, getSignoffTone } from '../src/utils/sound';
 import { timeToProse } from '../src/utils/prose';
 import { useCabinet } from '../src/hooks/useCabinet';
+import { getTuneTraceSnapshot } from '../src/services/tuneTrace';
 import type { SavedServer } from '../src/types';
 
 /**
@@ -33,6 +34,7 @@ export default function SettingsScreen() {
   const [flashStyle, setFlashStyle] = useState<'brief' | 'six'>('brief');
   const [silent, setSilent] = useState(isSoundMuted());
   const [signoff, setSignoff] = useState<'soft' | 'silent'>(getSignoffTone());
+  const [tuneTraces, setTuneTraces] = useState(getTuneTraceSnapshot);
   const { isPhone } = useCabinet();
 
   useEffect(() => {
@@ -109,6 +111,10 @@ export default function SettingsScreen() {
     setSignoff(next);
     setSignoffTone(next);
   }, [signoff]);
+
+  const refreshTuneTrace = useCallback(() => {
+    setTuneTraces(getTuneTraceSnapshot());
+  }, []);
 
   if (loading) {
     return <View style={styles.cabinet} />;
@@ -253,6 +259,25 @@ export default function SettingsScreen() {
               </LinearGradient>
             </Pressable>
           </View>
+
+          <LinearGradient colors={['#2b1d10', '#1c1108']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.traceCard}>
+            <View style={styles.traceHeader}>
+              <Text style={styles.traceTitle}>TUNE TRACE</Text>
+              <PlateButton label="AGAIN" onPress={refreshTuneTrace} compact />
+            </View>
+            {tuneTraces.length === 0 ? (
+              <Text style={styles.traceEmpty}>NO TUNES HAVE REACHED THE BENCH.</Text>
+            ) : tuneTraces.map((tune, tuneIndex) => (
+              <View key={`${tune.startedAt}-${tune.channelName}-${tuneIndex}`} style={tuneIndex === 0 ? undefined : styles.traceTuneOlder}>
+                <Text style={styles.traceChannel}>{tune.channelName.toUpperCase()}</Text>
+                {tune.events.map((event, eventIndex) => (
+                  <Text key={`${event.offsetMs}-${event.name}-${eventIndex}`} style={styles.traceLine} selectable>
+                    +{event.offsetMs}ms {event.name}{event.detail ? ` ${event.detail}` : ''}
+                  </Text>
+                ))}
+              </View>
+            ))}
+          </LinearGradient>
 
           <Text style={styles.foot}>
             {isPhone
@@ -493,6 +518,52 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     color: cream,
     marginTop: 5,
+  },
+  traceCard: {
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: walnut.void,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 26,
+  },
+  traceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  traceTitle: {
+    fontFamily: fonts.plate,
+    fontSize: 9,
+    letterSpacing: 3,
+    color: brass.mid,
+  },
+  traceEmpty: {
+    fontFamily: fonts.plate,
+    fontSize: 7.5,
+    letterSpacing: 1.4,
+    color: '#6e5f4b',
+  },
+  traceChannel: {
+    fontFamily: fonts.plate,
+    fontSize: 8,
+    letterSpacing: 1.5,
+    color: amber.needle,
+    marginBottom: 5,
+  },
+  traceLine: {
+    fontFamily: fonts.plate,
+    fontSize: 7.5,
+    lineHeight: 12,
+    letterSpacing: 0.35,
+    color: brass.etch,
+  },
+  traceTuneOlder: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.6)',
+    marginTop: 12,
+    paddingTop: 12,
   },
   foot: {
     fontFamily: fonts.plate,

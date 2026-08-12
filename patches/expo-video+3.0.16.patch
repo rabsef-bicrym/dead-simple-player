@@ -1,0 +1,119 @@
+diff --git a/node_modules/expo-video/ios/VideoPlayer.swift b/node_modules/expo-video/ios/VideoPlayer.swift
+index 847500d..0363dd8 100644
+--- a/node_modules/expo-video/ios/VideoPlayer.swift
++++ b/node_modules/expo-video/ios/VideoPlayer.swift
+@@ -257,13 +257,18 @@ internal final class VideoPlayer: SharedRef<AVPlayer>, Hashable, VideoPlayerObse
+     // The current item has to be replaced from the main thread. When replacing from other queues
+     // sometimes the KVOs will try to deliver updates after the item has been changed or player deallocated,
+     // which causes crashes.
+-    DispatchQueue.main.async { [weak self] in
+-      guard let self else {
+-        return
++    // Do not resolve replaceAsync until the requested item is actually current.
++    await withCheckedContinuation { continuation in
++      DispatchQueue.main.async { [weak self] in
++        guard let self else {
++          continuation.resume()
++          return
++        }
++        self.ref.replaceCurrentItem(with: playerItem)
++        dangerousPropertiesStore.ownerIsReplacing = false
++        dangerousPropertiesStore.applyProperties(to: self)
++        continuation.resume()
+       }
+-      self.ref.replaceCurrentItem(with: playerItem)
+-      dangerousPropertiesStore.ownerIsReplacing = false
+-      dangerousPropertiesStore.applyProperties(to: self)
+     }
+   }
+ 
+diff --git a/node_modules/expo-video/ios/VideoView.swift b/node_modules/expo-video/ios/VideoView.swift
+index 3f285fb..e87ca7d 100644
+--- a/node_modules/expo-video/ios/VideoView.swift
++++ b/node_modules/expo-video/ios/VideoView.swift
+@@ -8,7 +8,9 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+ 
+   weak var player: VideoPlayer? {
+     didSet {
++      removeCurrentItemObserver()
+       playerViewController.player = player?.ref
++      addCurrentItemObserver()
+     }
+   }
+ 
+@@ -39,6 +41,9 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+   let onFirstFrameRender = EventDispatcher()
+ 
+   var firstFrameObserver: NSKeyValueObservation?
++  var currentItemObserver: NSKeyValueObservation?
++  weak var firstFramePlayerItem: AVPlayerItem?
++  var lastReadyValue = false
+ 
+   public override var bounds: CGRect {
+     didSet {
+@@ -65,6 +70,7 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+ 
+   deinit {
+     VideoManager.shared.unregister(videoView: self)
++    removeCurrentItemObserver()
+     removeFirstFrameObserver()
+   }
+ 
+@@ -181,11 +187,55 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+ 
+   private func addFirstFrameObserver() {
+     firstFrameObserver = playerViewController.observe(\.isReadyForDisplay, changeHandler: { [weak self] playerViewController, _ in
+-      if playerViewController.isReadyForDisplay {
+-        self?.onFirstFrameRender()
++      guard
++        let self,
++        let firstFramePlayerItem,
++        firstFramePlayerItem === player?.ref.currentItem
++      else {
++        return
++      }
++
++      let readyValue = playerViewController.isReadyForDisplay
++      defer { lastReadyValue = readyValue }
++
++      // Item identity and a real false-to-true edge keep an old frame's KVO
++      // notification from testifying for a newly requested source.
++      guard !lastReadyValue && readyValue else {
++        return
++      }
++
++      let sourceUri = (firstFramePlayerItem as? VideoPlayerItem)?.videoSource.uri?.absoluteString
++        ?? (firstFramePlayerItem.asset as? AVURLAsset)?.url.absoluteString
++      if let sourceUri {
++        onFirstFrameRender(["sourceUri": sourceUri])
++      } else {
++        onFirstFrameRender()
+       }
+     })
+   }
++
++  private func addCurrentItemObserver() {
++    guard let player = player?.ref else {
++      return
++    }
++    currentItemObserver = player.observe(\.currentItem, options: [.initial, .new]) { [weak self] player, _ in
++      guard let self else {
++        return
++      }
++      firstFramePlayerItem = player.currentItem
++      // Preserve the view's value at the item boundary. If AVKit carries a
++      // stale `true` across replacement, it must become false before re-arming.
++      lastReadyValue = playerViewController.isReadyForDisplay
++    }
++  }
++
++  private func removeCurrentItemObserver() {
++    currentItemObserver?.invalidate()
++    currentItemObserver = nil
++    firstFramePlayerItem = nil
++    lastReadyValue = false
++  }
++
+   private func removeFirstFrameObserver() {
+     firstFrameObserver?.invalidate()
+     firstFrameObserver = nil
