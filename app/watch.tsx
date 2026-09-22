@@ -12,6 +12,7 @@ import {
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
+import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
@@ -81,7 +82,7 @@ const BUFFERING_OVERLAY_DELAY_MS = 800;
 const BUFFER_STALL_WINDOW_MS = 1500;
 const CLOCK_TICK_MS = 30000;
 const GUIDE_REFRESH_MS = 30 * 60 * 1000;
-type TuneOrigin = 'register' | 'swipe' | 'board' | 'remote' | 'gate';
+type TuneOrigin = 'register' | 'swipe' | 'board' | 'remote' | 'gate' | 'link';
 
 export default function WatchScreen() {
   const { activeConfig, loading: configLoading, reload: reloadServerConfig } = useServerConfig();
@@ -635,6 +636,41 @@ export default function WatchScreen() {
       setBuffering(true);
     }
   }, [welcome, indexRestored, channels.length, safeIndex, openHome, isPhone, isLandscape]);
+
+  // ── Magic links ──
+  // deadsimpleplayer://watch?channel=19 — another program (a note from
+  // Scout, a text from the house) can point the set at a station. A link
+  // tunes a channel, never a program: whatever is on when it is tapped is
+  // what plays. The request is held until the dial has been restored, so a
+  // cold launch lands on the linked station instead of the remembered one;
+  // a link arriving while the set is on tunes at once. Every arrival counts,
+  // even a repeat of the same station, so the listener carries a token
+  // rather than trusting route params to change.
+  const linkedChannel = useRef<number | null>(null);
+  const [linkToken, setLinkToken] = useState(0);
+  useEffect(() => {
+    const take = (url: string | null) => {
+      if (!url) return;
+      const m = /[?&]channel=(\d+)/.exec(url);
+      if (!m) return;
+      linkedChannel.current = Number(m[1]);
+      setLinkToken((t) => t + 1);
+    };
+    Linking.getInitialURL().then(take).catch(() => {});
+    const sub = Linking.addEventListener('url', ({ url }) => take(url));
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    if (!linkToken || !indexRestored || channels.length === 0) return;
+    const number = linkedChannel.current;
+    linkedChannel.current = null;
+    if (number == null) return;
+    const index = channels.findIndex((c) => c.number === number);
+    if (index < 0) return;
+    traceEvent(`link → channel ${number}`);
+    welcomed.current = true;
+    tuneTo(index, 'link');
+  }, [linkToken, indexRestored, channels, tuneTo]);
 
   // Reset playback state for the pending source. The static interstitial owns
   // the wait; the flash is an input acknowledgment and is triggered by origin.
