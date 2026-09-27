@@ -233,15 +233,17 @@ decision (`src/player/__tests__/firstFrameGate.test.ts` replays them).
 Native envelope (every `onTrace` payload): `{ t, g, i, name, detail }` —
 `t` = `CACurrentMediaTime()*1000` (host ms; orders rows natively regardless of
 JS arrival), `g` = the bound item's generation (or the pending expectation's,
-or −1: printed only when positive), `i` = the item's short id (omitted when
-`-`). The card prints `+<JS offset>ms <name> <detail> [g=<g>] [i=<i>] (n+<t − nativeT0>)`.
+or −1: printed only when positive) — except `N expect`, which wears the
+expectation's generation while the old item is still bound, so it files under
+the tune that asked (check 11); its `i=` and `current=` name that old item.
+`i` = the item's short id (omitted when `-`). The card prints `+<JS offset>ms <name> <detail> [g=<g>] [i=<i>] (n+<t − nativeT0>)`.
 
 | Row | When | `detail` |
 |---|---|---|
 | `N view init` | view created | — |
 | `N attach` | `setPlayer` (identity-guarded) | `tcs= rate= waits= item=nil\|set ext=` |
 | `N detach` | player unset/replaced | `<reason>` — the deinit teardown runs the same detach with no row (the Fabric handler that would carry it holds the view weakly and is already nil) |
-| `N expect` | JS `expect(g, uri)` | `g= uri= rate=<after pause> current=<item\|none>` |
+| `N expect` | JS `expect(g, uri)` | `g= uri= rate=<after pause> current=<item\|none>` — stamped `g=<expectation>`; the `N rate`/`N tcs` rows of the pause before it are the old item's |
 | `N item` | non-nil `currentItem` KVO | `id= status=unknown\|ready\|failed uriMatch=yes\|no\|no-expectation g= rfd0= rate= tcs= prev=` |
 | `N item nil` | nil `currentItem` KVO | `rate= tcs= prev= pending=<g\|0>` |
 | `N config` | after the live-offset write, same KVO | `configured= recommended= preserve=no fwd= waits= seekable=[a,b]` |

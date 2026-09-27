@@ -215,7 +215,9 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
   func expect(generation: Int, uri: String) {
     if let p = player, p.rate != 0 { p.pause() }
     pending = Expectation(generation: generation, uri: uri)
-    row("N expect", "g=\(generation) uri=\(uri) rate=\(player?.rate ?? -1) current=\(bound?.tag ?? "none")")
+    // Stamped with the expectation's generation, not the still-bound old item's: the row belongs to the
+    // tune that asked (ff-spec §10.11 reads it inside the rejoin's sequence); `i=`/`current=` name the old item.
+    row("N expect", "g=\(generation) uri=\(uri) rate=\(player?.rate ?? -1) current=\(bound?.tag ?? "none")", g: generation)
   }
 
   private func installPlayerObservers(_ p: AVPlayer) {
@@ -645,14 +647,15 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
 
   // MARK: rows and helpers
 
-  private func row(_ name: String, _ detail: String, _ b: BoundItem? = nil) {
+  /// `g` overrides the envelope's generation (the bound item's, else the pending expectation's, else -1).
+  private func row(_ name: String, _ detail: String, _ b: BoundItem? = nil, g: Int? = nil) {
     guard !tearingDown else { return }
     if let t0 = createdAt {
       createdAt = nil
       onTrace(["t": t0, "g": -1, "i": "-", "name": "N view", "detail": "init"])
     }
     let bb = b ?? bound
-    onTrace(["t": CACurrentMediaTime() * 1000, "g": bb?.generation ?? (pending?.generation ?? -1), "i": bb?.tag ?? "-", "name": name, "detail": detail])
+    onTrace(["t": CACurrentMediaTime() * 1000, "g": g ?? bb?.generation ?? (pending?.generation ?? -1), "i": bb?.tag ?? "-", "name": name, "detail": detail])
   }
   private func onMain(_ f: @escaping () -> Void) {
     if Thread.isMainThread { f() } else { DispatchQueue.main.async(execute: f) }
