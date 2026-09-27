@@ -74,6 +74,8 @@ export interface TuneTrace {
   gens: number[];
   events: TuneTraceEvent[];
   after: TuneTraceEvent[];
+  /** Rows a full bucket did not keep; printed after the bucket, never silent. */
+  truncated?: { events: number; after: number };
   closed?: { offsetMs: number; reason: TuneTraceCloseReason };
 }
 
@@ -188,8 +190,15 @@ export function traceEvent(name: string, detail?: string, tag?: TuneTraceTag): v
       tune.events.push({ offsetMs: 0, name: UNTRACED_START });
     }
   }
-  const bucket = tune.closed ? tune.after : tune.events;
-  if (bucket.length >= (tune.closed ? MAX_AFTER : MAX_EVENTS)) return;
+  const closed = tune.closed != null;
+  const bucket = closed ? tune.after : tune.events;
+  if (bucket.length >= (closed ? MAX_AFTER : MAX_EVENTS)) {
+    // A full bucket still counts, so the paste reads "+N not kept", not silence.
+    const truncated = tune.truncated ?? (tune.truncated = { events: 0, after: 0 });
+    truncated[closed ? 'after' : 'events'] += 1;
+    persistWanted = true;
+    return;
+  }
   const row: TuneTraceEvent = { offsetMs: Math.max(0, now() - tune.startedAt), name };
   if (detail !== undefined) row.detail = detail;
   const g = taggedGeneration(tag);
@@ -232,6 +241,7 @@ export function getTuneTraceSnapshot(limit: number = MAX_TUNES): TuneTrace[] {
     gens: [...tune.gens],
     events: tune.events.map((event) => ({ ...event })),
     after: tune.after.map((event) => ({ ...event })),
+    truncated: tune.truncated ? { ...tune.truncated } : undefined,
     closed: tune.closed ? { ...tune.closed } : undefined,
   }));
 }
@@ -259,6 +269,10 @@ export function describeTuneTrace(tune: TuneTrace): string {
   return meta;
 }
 
+function describeNotKept(count: number): string {
+  return `-- +${count} rows not kept --`;
+}
+
 /** The rows, the closed marker, then the after bucket — no indentation. */
 export function serializeTuneTraceRows(tune: TuneTrace): string[] {
   const nativeRows = [...tune.events, ...tune.after].filter((event) => event.nativeT != null);
@@ -266,9 +280,11 @@ export function serializeTuneTraceRows(tune: TuneTrace): string[] {
     ? Math.min(...nativeRows.map((event) => event.nativeT as number))
     : null;
   const lines = tune.events.map((event) => formatRow(event, nativeT0));
+  if (tune.truncated?.events) lines.push(describeNotKept(tune.truncated.events));
   if (tune.closed) {
     lines.push(`-- closed: ${tune.closed.reason} @ +${tune.closed.offsetMs}ms --`);
     lines.push(...tune.after.map((event) => formatRow(event, nativeT0)));
+    if (tune.truncated?.after) lines.push(describeNotKept(tune.truncated.after));
   }
   return lines;
 }
@@ -345,6 +361,9 @@ function reviveTune(value: unknown): TuneTrace | null {
     events,
     after,
   };
+  if (raw.truncated && typeof raw.truncated.events === 'number' && typeof raw.truncated.after === 'number') {
+    tune.truncated = { events: raw.truncated.events, after: raw.truncated.after };
+  }
   if (raw.closed && typeof raw.closed.offsetMs === 'number' && isCloseReason(raw.closed.reason)) {
     tune.closed = { offsetMs: raw.closed.offsetMs, reason: raw.closed.reason };
   } else {
