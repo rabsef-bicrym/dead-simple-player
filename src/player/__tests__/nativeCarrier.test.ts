@@ -1,0 +1,153 @@
+/**
+ * The native carrier, pinned as text (there is no Xcode on the box that runs
+ * this; EAS is the compile gate — docs/native-witness.md §4.6): the one patch
+ * hunk, the local module's shape, the Swift invariants a grep can hold, and
+ * the surface's discipline about play() and timers.
+ */
+import * as fs from 'fs';
+import * as path from 'path';
+
+const root = path.join(__dirname, '..', '..', '..');
+const read = (...parts: string[]) => fs.readFileSync(path.join(root, ...parts), 'utf8');
+/** Swift with its comments removed, so a word in prose cannot pass for a symbol. */
+const code = (swift: string) => swift.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+describe('patches/expo-video+3.0.16.patch — one hunk, the continuation', () => {
+  const patch = read('patches', 'expo-video+3.0.16.patch');
+
+  it('touches VideoPlayer.swift and nothing else', () => {
+    const files = [...patch.matchAll(/^diff --git a\/(\S+) b\//gm)].map((m) => m[1]);
+    expect(files).toEqual(['node_modules/expo-video/ios/VideoPlayer.swift']);
+  });
+
+  it('makes replaceAsync resolve only after the item is current', () => {
+    expect(patch).toMatch(/^\+\s*await withCheckedContinuation \{ continuation in$/m);
+    expect(patch).toMatch(/^\+\s*self\.ref\.replaceCurrentItem\(with: playerItem\)$/m);
+    expect(patch).toMatch(/^\+\s*continuation\.resume\(\)$/m);
+  });
+
+  it('carries no witness: the view-level Swift lives in modules/dsp-picture', () => {
+    expect(patch).not.toMatch(/VideoView\.swift/);
+    expect(patch).not.toMatch(/armFirstFrameWitness|CADisplayLink|onFirstFrameRender/);
+  });
+});
+
+describe('modules/dsp-picture — the local module', () => {
+  const dir = ['modules', 'dsp-picture'];
+  const module = read(...dir, 'ios', 'DSPPictureModule.swift');
+  const picture = read(...dir, 'ios', 'DSPPictureView.swift');
+  const staticView = read(...dir, 'ios', 'DSPStaticView.swift');
+  const index = read(...dir, 'index.ts');
+
+  const eventsDeclared = (swift: string, view: string): string[] => {
+    const block = swift.slice(swift.indexOf(`View(${view}.self)`));
+    const m = /Events\(([^)]*)\)/.exec(block);
+    return m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : [];
+  };
+  const dispatchers = (swift: string): string[] => [...swift.matchAll(/^\s*let (\w+) = EventDispatcher\(\)/gm)].map((m) => m[1]);
+
+  it('is Apple-only (decision 5) and names its module', () => {
+    const config = JSON.parse(read(...dir, 'expo-module.config.json')) as { platforms: string[]; apple: { modules: string[] } };
+    expect(config.platforms).toEqual(['apple']);
+    expect(config.apple.modules).toEqual(['DSPPictureModule']);
+    expect(module).toMatch(/Name\("DSPPicture"\)/);
+  });
+
+  it('declares each view\'s events by the exact names of its EventDispatcher properties (the Mirror match)', () => {
+    expect(eventsDeclared(module, 'DSPPictureView').sort()).toEqual(dispatchers(picture).sort());
+    expect(eventsDeclared(module, 'DSPStaticView').sort()).toEqual(dispatchers(staticView).sort());
+    expect(eventsDeclared(module, 'DSPPictureView')).toEqual(['onTrace', 'onFirstFrame', 'onItemLost', 'onItemFailed', 'onPictureInPictureChange']);
+  });
+
+  it('exports the two views under the names index.ts requires', () => {
+    expect(module).toMatch(/View\(DSPPictureView\.self\)/);
+    expect(module).toMatch(/View\(DSPStaticView\.self\)/);
+    expect(index).toMatch(/tryRequire<.+>\('DSPPictureView'\);/);
+    expect(index).toMatch(/tryRequire<.+>\('DSPStaticView'\);/);
+    expect(index).toMatch(/requireNativeViewManager<P>\('DSPPicture', view\)/);
+  });
+
+  it('runs every view function on main and offers exactly the handle index.ts types', () => {
+    const fns = [...module.matchAll(/AsyncFunction\("(\w+)"\)/g)].map((m) => m[1]);
+    expect(fns).toEqual(['expect', 'startPlayback', 'startPictureInPicture', 'stopPictureInPicture', 'status']);
+    expect((module.match(/\.runOnQueue\(\.main\)/g) ?? []).length).toBe(fns.length);
+    for (const fn of fns) expect(index).toMatch(new RegExp(`^\\s+${fn}\\(`, 'm'));
+  });
+
+  it('the witness decides on nothing wall-clock: no display link, no timer, the item\'s own clock samples', () => {
+    expect(code(picture)).not.toMatch(/CADisplayLink|Timer\.|asyncAfter|DispatchWorkItem/);
+    expect(picture).toMatch(/addPeriodicTimeObserver\(forInterval: CMTime\(value: 1, timescale: 30\), queue: \.main\)/);
+    expect(picture).toMatch(/removeTimeObserver/);
+  });
+
+  it('the witness reads the conjuncts the design names', () => {
+    expect(picture).toMatch(/timeControlStatus == \.playing && p\.rate > 0 && tb > 0/);          // C4
+    expect(picture).toMatch(/CMTimeCompare\(cur, prev\) > 0/);                                     // C5
+    expect(picture).toMatch(/copyPixelBuffer\(forItemTime: itemTime, itemTimeForDisplay: &display\)/); // C6
+    expect(picture).toMatch(/rfdNow && \(rfdKvo \|\| displayAdvanced\)/);                          // C3
+    expect(picture).toMatch(/applicationState == \.background/);                                   // C7
+    expect(picture).toMatch(/isExternalPlaybackActive/);                                           // external
+    expect(picture).toMatch(/running && advanced && b\.copyOK && c3 && screen/);
+  });
+
+  it('rate 0 across the swap; playImmediately is the one starter; the output is removed only at unbind', () => {
+    expect(picture).toMatch(/func expect\(generation: Int, uri: String\) \{\s*\n\s*if let p = player, p\.rate != 0 \{ p\.pause\(\) \}/);
+    expect((picture.match(/playImmediately\(atRate: 1\.0\)/g) ?? []).length).toBe(1);
+    expect(code(picture)).not.toMatch(/\bp\.play\(\)|player\?\.play\(\)|player\.play\(\)/);
+    expect((picture.match(/\.remove\(b\.output\)/g) ?? []).length).toBe(1);
+  });
+
+  it('the live offset is written in the item KVO and printed, never assumed (decision 6d)', () => {
+    expect(picture).toMatch(/newItem\.configuredTimeOffsetFromLive = CMTime\(seconds: liveOffsetSeconds, preferredTimescale: 600\)/);
+    expect(picture).toMatch(/row\("N config", "configured=/);
+  });
+
+  it('setPlayer is identity-guarded and nothing re-arms on layout (FF-13)', () => {
+    expect(picture).toMatch(/if let newRef, let current = playerRef, current === newRef \{ return \}/);
+    const layout = picture.slice(picture.indexOf('public override func layoutSubviews()'), picture.indexOf('public override func willMove'));
+    expect(layout).not.toMatch(/expect|installPlayerObservers|setPlayer|BoundItem/);
+  });
+
+  it('the static is a keyframe animation whose liveness rows come from the delegate and the presentation layer', () => {
+    expect(staticView).toMatch(/CAKeyframeAnimation\(keyPath: "contentsRect"\)/);
+    expect(staticView).toMatch(/a\.calculationMode = \.discrete/);
+    expect(staticView).toMatch(/func animationDidStart\(_ anim: CAAnimation\)/);
+    expect(staticView).toMatch(/snow\.presentation\(\)\?\.contentsRect/);
+    expect(staticView).not.toMatch(/setCompletionBlock/);
+    expect(staticView).toMatch(/backgroundColor = \.black/);
+  });
+});
+
+describe('PlayerSurface.native.tsx — no play() before the first frame, one timer', () => {
+  const source = read('src', 'player', 'PlayerSurface.native.tsx');
+
+  it('never imports expo-video\'s VideoView or its patched event', () => {
+    expect(source).not.toMatch(/\bVideoView\b|onFirstFrameRender/);
+    expect(source).toMatch(/from '\.\.\/\.\.\/modules\/dsp-picture'/);
+  });
+
+  it('calls player.play() in one place, only for a settled generation', () => {
+    const plays = source.match(/player\.play\(\)/g) ?? [];
+    expect(plays).toHaveLength(1);
+    const at = source.indexOf('player.play()');
+    const before = source.slice(Math.max(0, at - 400), at);
+    expect(before).toMatch(/settledGeneration === 0 \|\| settledGeneration !== sourceGeneration\) return;/);
+  });
+
+  it('has exactly one setTimeout — the ladder\'s, which starts a fetch', () => {
+    expect(source.match(/setTimeout\(/g) ?? []).toHaveLength(1);
+    expect(source).not.toMatch(/setInterval\(/);
+    const at = source.indexOf('setTimeout(');
+    expect(source.slice(at, at + 200)).toMatch(/dispatch\(\{ type: 'retry-fired', g \}\)/);
+  });
+
+  it('the chain: muted, expect, replaceAsync, settle in the same continuation, then startPlayback', () => {
+    const order = ['player.muted = mutedRef.current', 'picture.expect(generation, uri)', "traceEvent('replaceAsync start'", 'await player.replaceAsync(source)', "traceEvent('replaceAsync resolve'", "dispatch({ type: 'settle', g: generation })", 'started.startPlayback(generation, uri)'];
+    let last = -1;
+    for (const step of order) {
+      const at = source.indexOf(step);
+      expect(at).toBeGreaterThan(last);
+      last = at;
+    }
+  });
+});
