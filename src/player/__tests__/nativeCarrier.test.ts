@@ -97,6 +97,12 @@ describe('modules/dsp-picture — the local module', () => {
     expect((picture.match(/\.remove\(b\.output\)/g) ?? []).length).toBe(1);
   });
 
+  it('N expect wears the expectation\'s generation, not the still-bound item\'s (ff-spec §10.11 reads it under the new tune)', () => {
+    expect(picture).toMatch(/row\("N expect", "g=\\\(generation\) .*", g: generation\)/);
+    expect(picture).toMatch(/_ b: BoundItem\? = nil, g: Int\? = nil\)/);
+    expect(picture).toMatch(/"g": g \?\? bb\?\.generation \?\? \(pending\?\.generation \?\? -1\)/);
+  });
+
   it('the live offset is written in the item KVO and printed, never assumed (decision 6d)', () => {
     expect(picture).toMatch(/newItem\.configuredTimeOffsetFromLive = CMTime\(seconds: liveOffsetSeconds, preferredTimescale: 600\)/);
     expect(picture).toMatch(/row\("N config", "configured=/);
