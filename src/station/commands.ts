@@ -74,5 +74,3 @@ export type Command =
   | { type: 'HUD_TOGGLE' }
   /** p / P: PICTURE OUT when the cabinet offers it. */
   | { type: 'PICTURE_OUT' };
-
-export type CommandType = Command['type'];

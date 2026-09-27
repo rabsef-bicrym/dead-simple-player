@@ -19,6 +19,7 @@ import {
   decisionOf,
   surfacesToday,
   type InputRow,
+  type MatrixEvent,
   type Scene,
   type StationRow,
 } from '../matrix';
@@ -107,7 +108,8 @@ describe('dial ends by input site (decision 9)', () => {
 
 // ── Station rows a pure helper can answer today ──
 
-function arrival(given: Scene, event: Command): ArrivalScene {
+function arrival(given: Scene, event: MatrixEvent | null): ArrivalScene {
+  if (!event) throw new Error('not an arrival: a sequence');
   if (event.type !== 'TUNE' && event.type !== 'LINK') throw new Error(`not an arrival: ${event.type}`);
   const picture = given.picture ?? 'live';
   return {
@@ -120,7 +122,8 @@ function arrival(given: Scene, event: Command): ArrivalScene {
   };
 }
 
-const single = (row: StationRow): Command | null => (Array.isArray(row.event) || !('type' in row.event) ? null : (row.event as Command));
+/** One event, or null for a sequence (the reducer's, WP-07). */
+const single = (row: StationRow): MatrixEvent | null => (Array.isArray(row.event) ? null : row.event);
 
 describe('gap §4 — a same-channel arrival by picture state × origin', () => {
   const asis = STATION_ROWS.filter((r) => r.section === 'gap §4 same-channel arrival' && r.tag === 'asis');
@@ -132,13 +135,13 @@ describe('gap §4 — a same-channel arrival by picture state × origin', () => 
   });
 
   it.each(asis.map((r) => [r.id, r] as const))('%s (today)', (_id, row) => {
-    const result = sameChannelArrival(arrival(row.given, single(row) as Command));
+    const result = sameChannelArrival(arrival(row.given, single(row)));
     expect(result.kind).toBe(row.expect.retune ? 'full-tune' : 'chrome-only');
     expect(result.flash).toBe(row.expect.flash);
   });
 
   it.each(ruled.map((r) => [r.id, r] as const))('%s (today vs. decision 16)', (_id, row) => {
-    const s = arrival(row.given, single(row) as Command);
+    const s = arrival(row.given, single(row));
     expect(sameChannelArrival(s).kind).toBe(row.today?.retune ? 'full-tune' : 'chrome-only');
     expect(sameChannelArrivalRuled16(s).kind).toBe(row.expect.retune ? 'full-tune' : 'chrome-only');
   });

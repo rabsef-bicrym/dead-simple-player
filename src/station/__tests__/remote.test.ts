@@ -1,4 +1,4 @@
-import type { Cabinet } from '../commands';
+import { CABINETS, MODES } from '../matrix';
 import {
   DIAL_END_POLICY,
   SWIPE_THRESHOLD,
@@ -8,18 +8,12 @@ import {
   mediaSessionToCommand,
   stepIndex,
   swipeToCommand,
-  type Mode,
   type TuneStepOrigin,
 } from '../remote';
 
-const CONSOLE: Cabinet = { isPhone: false, landscape: true };
-const PHONE_L: Cabinet = { isPhone: true, landscape: true };
-const PHONE_P: Cabinet = { isPhone: true, landscape: false };
-
-const at = { index: 3, dial: 5, boardIndex: 7, count: 10 };
-const watching: Mode = { base: 'watching', board: false, notes: false, ...at };
-const home: Mode = { base: 'home', board: false, notes: false, ...at };
-const board: Mode = { base: 'watching', board: true, notes: false, ...at };
+// The net's own fixtures (tuned 3, dial 5, board 7, ten channels), under the names the rows below read best with.
+const { console: CONSOLE, 'phone-landscape': PHONE_L, 'phone-portrait': PHONE_P } = CABINETS;
+const { watching, home, board } = MODES;
 
 describe('keyboardShouldIgnore (PW-01)', () => {
   it('ignores everything when the screen is not focused (the Service Panel keeps watch mounted beneath it)', () => {

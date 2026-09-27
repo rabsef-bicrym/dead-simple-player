@@ -24,6 +24,7 @@
 import { CURSOR_HOME, ROWS_DS6, ROWS_DS8M, SCROLL_MAX, SCROLL_MIN } from './board';
 import type { Cabinet, Command, Dir, Entrance, Shell, TuneOrigin } from './commands';
 import type { MediaSessionAction, Mode, Swipe, TuneStepOrigin } from './remote';
+import { watching } from './transitions';
 
 // ── Tags ──
 
@@ -1242,17 +1243,13 @@ export interface Surfaces {
   blank: boolean;
 }
 
-export function watchingOf(v: StationView): boolean {
-  return v.playbackActive && !v.homeVisible && !v.signOff;                 // :147
-}
-
 export function surfacesToday(v: StationView): Surfaces {
   const isPhone = v.cabinet !== 'console';
   const portrait = v.cabinet === 'phone-portrait';
   const warming = v.dataLoading;                                            // :1069
   const card = !warming && v.dataError;                                     // :1078
   const tree = !warming && !card;
-  const w = tree && watchingOf(v);
+  const w = tree && watching(v);
   const portraitWatching = portrait && w;                                   // :148
   const home = tree && v.homeVisible && (isPhone ? !v.signOff : true);      // :1271, :1344
   const board = tree && v.boardVisible && (isPhone ? !v.signOff : true);    // :1307, :1365
@@ -1290,9 +1287,9 @@ export const UNREACHABLE: readonly Unreachable[] = [
   { id: 'U-07', combination: 'boardClosing && !boardVisible', why: 'a shade rolling home with no board', guard: 'writers', cite: 'watch.tsx:1319-1322; MBoard.tsx:235 (un-cancelled onClose)', present: (v) => v.boardClosing && !v.boardVisible },
   { id: 'U-08', combination: '!revealDone && !tuning', why: 'a reveal hold with nothing to reveal', guard: 'writers', cite: 'watch.tsx:528, 545 (the next tune rewrites it)', present: (v) => !v.revealDone && !v.tuning },
   { id: 'U-09', combination: 'registerRequest && !(phone portrait)', why: 'a bloom with no register mounted', guard: 'unguarded', cite: 'watch.tsx:549-557; MHome.tsx:483-485 (WS-11)', present: (v) => v.registerRequest && v.cabinet !== 'phone-portrait' },
-  { id: 'U-10', combination: 'hudVisible && portraitWatching', why: 'the apron only renders on the console and in landscape', guard: 'allowed', cite: 'watch.tsx:418-427 (primes the landscape apron on rotation), 1225', present: (v) => v.hudVisible && v.cabinet === 'phone-portrait' && watchingOf(v) },
+  { id: 'U-10', combination: 'hudVisible && portraitWatching', why: 'the apron only renders on the console and in landscape', guard: 'allowed', cite: 'watch.tsx:418-427 (primes the landscape apron on rotation), 1225', present: (v) => v.hudVisible && v.cabinet === 'phone-portrait' && watching(v) },
   { id: 'U-11', combination: 'flashVisible && !playbackActive', why: 'a plate for no picture', guard: 'render', cite: 'watch.tsx:1168 (openHome/openBoard do not cancelFlash)', present: (v) => v.flashVisible && !v.playbackActive },
-  { id: 'U-12', combination: 'controlsVisible && !portraitWatching', why: 'portrait plates off portrait', guard: 'writers', cite: 'watch.tsx:441-449', present: (v) => v.controlsVisible && !(v.cabinet === 'phone-portrait' && watchingOf(v)) },
+  { id: 'U-12', combination: 'controlsVisible && !portraitWatching', why: 'portrait plates off portrait', guard: 'writers', cite: 'watch.tsx:441-449', present: (v) => v.controlsVisible && !(v.cabinet === 'phone-portrait' && watching(v)) },
   { id: 'U-13', combination: 'signOff && playbackActive && tuning', why: 'a tune inside sign-off (the link swallowed by wake)', guard: 'render', cite: 'watch.tsx:640-651, 147 (WS-21)', present: (v) => v.signOff && v.playbackActive && v.tuning },
 ];
 
@@ -1309,26 +1306,26 @@ export interface Invariant {
 
 function baseCount(v: StationView): number {
   const s = surfacesToday(v);
-  const bases = [s.warming, s.card, s.home, watchingOf(v) && !s.warming && !s.card, v.stopping && !s.warming && !s.card, s.signoff];
+  const bases = [s.warming, s.card, s.home, watching(v) && !s.warming && !s.card, v.stopping && !s.warming && !s.card, s.signoff];
   return bases.filter(Boolean).length;
 }
 
 export const INVARIANTS: readonly Invariant[] = [
   { n: 1, name: 'one base', text: 'Exactly one base at all times; base is never blank.', cite: 'watch-state.md §g.3 1', todayViolatedBy: ['WS-01', 'WS-02'], check: (v) => baseCount(v) === 1 && !surfacesToday(v).blank },
-  { n: 2, name: 'static under watching', text: 'The static shows only under watching; it ends iff firstFrame && revealDone — no other path, no timer.', cite: 'watch.tsx:686-691, 1152', todayViolatedBy: ['WS-21'], check: (v) => !v.tuning || watchingOf(v) },
+  { n: 2, name: 'static under watching', text: 'The static shows only under watching; it ends iff firstFrame && revealDone — no other path, no timer.', cite: 'watch.tsx:686-691, 1152', todayViolatedBy: ['WS-21'], check: (v) => !v.tuning || watching(v) },
   { n: 3, name: 'one writer of firstFrame', text: 'firstFrame is set only by FIRST_FRAME carrying the current generation; TUNE resets it.', cite: 'watch.tsx:1040-1043, 507', todayViolatedBy: [] },
   { n: 4, name: 'home has no picture', text: 'home ⇒ no live picture.', cite: 'watch.tsx:560-573', todayViolatedBy: [], check: (v) => !v.homeVisible || !v.playbackActive },
   { n: 5, name: 'signoff is bare', text: 'signoff ⇒ no board, no notes, no register request.', cite: 'watch.tsx:592-600', todayViolatedBy: ['WS-21'], check: (v) => !v.signOff || (!v.boardVisible && !v.notes && !v.registerRequest) },
   { n: 6, name: 'stopping is bounded', text: 'stopping exits only by COLLAPSE_DONE or by another base transition that itself produces a complete base.', cite: 'watch.tsx:841-911', todayViolatedBy: ['WS-01'], check: (v) => !v.stopping || (v.collapseArmed && !v.homeVisible && !v.boardVisible && !v.playbackActive) },
-  { n: 7, name: 'board over home or watching', text: 'board ⇒ base ∈ {home, watching}; board.closing ⇒ phone portrait.', cite: 'watch.tsx:576-585; MBoard.tsx:235', todayViolatedBy: [], check: (v) => (!v.boardVisible || v.homeVisible || watchingOf(v)) && (!v.boardClosing || v.cabinet === 'phone-portrait') },
+  { n: 7, name: 'board over home or watching', text: 'board ⇒ base ∈ {home, watching}; board.closing ⇒ phone portrait.', cite: 'watch.tsx:576-585; MBoard.tsx:235', todayViolatedBy: [], check: (v) => (!v.boardVisible || v.homeVisible || watching(v)) && (!v.boardClosing || v.cabinet === 'phone-portrait') },
   { n: 8, name: 'board bounds', text: `cursor ∈ [0, rows-1], scroll ∈ [${SCROLL_MIN}, ${SCROLL_MAX}]; a horizontal move resets scroll 0, cursor ${CURSOR_HOME}.`, cite: 'watch.tsx:926-941', todayViolatedBy: [], check: (v) => v.cursor >= 0 && v.cursor <= ROWS_DS6 - 1 && v.scroll >= SCROLL_MIN && v.scroll <= SCROLL_MAX },
   { n: 9, name: 'register request needs a register', text: 'registerRequest ⇒ phone portrait with a register mounted; consumed by TUNE or cancelled by any base/orientation change.', cite: 'watch.tsx:549-557', todayViolatedBy: ['WS-11'], check: (v) => !v.registerRequest || v.cabinet === 'phone-portrait' },
-  { n: 10, name: 'notes over home or watching', text: 'notes ⇒ base ∈ {home, watching} (or board open); every base transition clears them.', cite: 'watch.tsx:832-834', todayViolatedBy: [], check: (v) => !v.notes || v.homeVisible || watchingOf(v) || v.boardVisible },
+  { n: 10, name: 'notes over home or watching', text: 'notes ⇒ base ∈ {home, watching} (or board open); every base transition clears them.', cite: 'watch.tsx:832-834', todayViolatedBy: [], check: (v) => !v.notes || v.homeVisible || watching(v) || v.boardVisible },
   { n: 11, name: 'chrome never gates', text: 'hud, controls and flash never block a base transition, and every base transition resets chrome.', cite: 'watch.tsx:372-427, 459-486', todayViolatedBy: ['WS-07'] },
   { n: 12, name: 'deferred writes settle', text: 'Each deferred write belongs to one generation; a bump both cancels it and leaves the state complete without it.', cite: 'watch.tsx:185-196', todayViolatedBy: ['WS-01', 'WS-22'] },
   { n: 13, name: 'one writer of channel', text: 'channel changes only by TUNE or INDEX_RESTORED; LAST_CHANNEL_ID mirrors it.', cite: 'watch.tsx:312-329, 514', todayViolatedBy: [] },
   { n: 14, name: 'no mirror refs', text: 'playbackActiveRef, bufferingRef, currentStreamUrlRef do not exist; handlers read one latest ref.', cite: 'watch.tsx:168-183', todayViolatedBy: ['WS-05'] },
-  { n: 15, name: 'the player stays mounted while watching', text: 'PlayerSurface mounts iff watching; no early return above the tree may unmount it while watching.', cite: 'watch.tsx:1069, 1215', todayViolatedBy: ['WS-16'], check: (v) => !watchingOf(v) || surfacesToday(v).player },
+  { n: 15, name: 'the player stays mounted while watching', text: 'PlayerSurface mounts iff watching; no early return above the tree may unmount it while watching.', cite: 'watch.tsx:1069, 1215', todayViolatedBy: ['WS-16'], check: (v) => !watching(v) || surfacesToday(v).player },
 ];
 
 /** `watch-state.md` §b.2 as today's flags, with the surfaces each must show. */
@@ -1362,17 +1359,6 @@ export const REACHABLE: readonly ReachableView[] = [
   { id: 'R-switch-while-watching', how: 'a server switch or TRY AGAIN with the picture live (web history Forward into /settings)', view: view({ playbackActive: true, sourceReady: true, dataLoading: true }), surfaces: { warming: true, player: false }, violates: [15], tag: 'fix:WS-16' },
   { id: 'R-signoff-link', how: 'a link during sign-off', view: view({ cabinet: 'phone-landscape', signOff: true, playbackActive: true, tuning: true }), surfaces: { signoff: true, player: false, static: false }, violates: [2], tag: 'fix:WS-21' },
 ];
-
-// ── The whole net, for anyone who wants to count it ──
-
-export const MATRIX = {
-  input: INPUT_ROWS,
-  dial: DIAL_ROWS,
-  station: STATION_ROWS,
-  reachable: REACHABLE,
-  unreachable: UNREACHABLE,
-  invariants: INVARIANTS,
-} as const;
 
 /** Every tag in the net (rows of every kind). */
 export function allTags(): Tag[] {
