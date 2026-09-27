@@ -9,16 +9,19 @@ import { walnut, FONT_ASSETS } from '../src/constants/ds6';
 import { flushTuneTrace, hydrateTuneTrace, setTuneTraceBuild } from '../src/services/tuneTrace';
 
 /**
- * Every tune the bench records says which build it came from. EAS assigns
- * the build number remotely (eas.json `appVersionSource`) and writes it to
- * Info.plist only — app.json carries no `ios.buildNumber` — so the deprecated
- * `nativeBuildVersion` is the one place the number lives; its replacement,
- * expo-application, is not a dependency (rule 5). The web has neither native
- * field and reports the config's version alone.
+ * Every tune the bench records says which build it came from. The number is
+ * Info.plist's CFBundleVersion, which expo-constants publishes as
+ * `platform.ios.buildNumber` (EXConstantsService.m:52-59); EAS writes it
+ * there (eas.json `appVersionSource: remote`) and app.json carries no
+ * `ios.buildNumber`, so the config's copy is only a fallback for a local
+ * build that sets one. `nativeBuildVersion` is gone since expo-constants 16
+ * (#26329) and tsc accepted it only through the `Record<string, any>` tail;
+ * its replacement, expo-application, is not a dependency (rule 5). The web
+ * has no native platform manifest and reports the config's version alone.
  */
 function describeBuild(): string | undefined {
-  const appVersion = Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? null;
-  const buildNumber = Constants.nativeBuildVersion ?? Constants.expoConfig?.ios?.buildNumber ?? null;
+  const appVersion = Constants.expoConfig?.version ?? null;
+  const buildNumber = Constants.platform?.ios?.buildNumber ?? Constants.expoConfig?.ios?.buildNumber ?? null;
   if (!appVersion) return undefined;
   return buildNumber ? `${appVersion} (${buildNumber})` : appVersion;
 }
