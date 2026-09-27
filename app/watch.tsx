@@ -19,7 +19,7 @@ import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
 import { fetchIptvChannels, fetchIptvGuide, type GuideState } from '../src/services/iptv';
 import { restoreLastChannelIndex } from '../src/services/channelStorage';
-import { traceCloseTune, traceEvent, traceTuneStart, type TuneTraceCloseReason } from '../src/services/tuneTrace';
+import { flushTuneTrace, traceCloseTune, traceEvent, traceTuneStart, type TuneTraceCloseReason } from '../src/services/tuneTrace';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { CURSOR_HOME, ROWS_DS6, SCROLL_MAX, SCROLL_MIN } from '../src/station/board';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
@@ -616,6 +616,10 @@ export default function WatchScreen() {
     beginTransition();
     setHomeVisible(false);
     if (typeof window !== 'undefined') {
+      // The shell exits the process; the ring's tail (rows since the last
+      // debounced write) would otherwise wait on a background edge that
+      // never comes. The web store writes synchronously inside the promise.
+      void flushTuneTrace();
       (window as typeof window & { dspShell?: { powerOff(): void } }).dspShell?.powerOff();
     }
   }, [beginTransition]);
