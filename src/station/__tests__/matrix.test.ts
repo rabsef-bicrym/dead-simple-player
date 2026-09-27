@@ -268,6 +268,8 @@ describe('watch.tsx has not drifted from the tables', () => {
     expect(source).not.toMatch(/Math\.min\(s \+ 1, 30\)/);
     expect(source).not.toMatch(/Math\.max\(s - 1, -8\)/);
     expect(source).not.toMatch(/boardCursor < 7\b/);
+    expect(source).not.toMatch(/setBoardCursor\(2\)/);
+    expect(source).not.toMatch(/setBoardCursor\] = useState\(2\)/);
   });
 
   it('keeps the keys the table transcribes', () => {
