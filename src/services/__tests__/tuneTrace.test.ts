@@ -411,6 +411,26 @@ describe('tuneTrace persistence', () => {
     expect(getTuneTraceSnapshot()[1].closed).toEqual({ offsetMs: 0, reason: 'superseded' });
   });
 
+  it('hydration under an open tune schedules no write; the tune\'s ending does', async () => {
+    const storage = memoryStorage();
+    // The console: the power tune opens while the ring is still being read,
+    // and Music supersedes it before the read lands. Neither is an ending.
+    traceTuneStart('Oddities', { origin: 'power', opening: true });
+    clock.advance(300);
+    const music = traceTuneStart('Music', { origin: 'remote', opening: false });
+    await hydrateTuneTrace(storage);
+    await jest.advanceTimersByTimeAsync(PERSIST_DEBOUNCE_MS * 2);
+    expect(storage.setItem).not.toHaveBeenCalled();
+
+    clock.advance(1300);
+    traceCloseTune(music, 'first-frame');
+    await jest.advanceTimersByTimeAsync(PERSIST_DEBOUNCE_MS);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    const written = JSON.parse(storage.values.get(STORAGE_KEYS.TUNE_TRACE) as string);
+    expect(written.map((t: { channelName: string; closed: { reason: string } }) => [t.channelName, t.closed.reason]))
+      .toEqual([['Music', 'first-frame'], ['Oddities', 'superseded']]);
+  });
+
   it('a write before hydration waits for it, so the persisted ring is never clobbered', async () => {
     const storage = memoryStorage({ [STORAGE_KEYS.TUNE_TRACE]: JSON.stringify([{ id: T0 - 5000, channelName: 'Ghibli', startedAt: T0 - 5000, gens: [], events: [{ offsetMs: 0, name: 'TUNE START', detail: 'Ghibli' }], after: [], closed: { offsetMs: 1, reason: 'first-frame' } }]) });
     const id = traceTuneStart('Movies');
