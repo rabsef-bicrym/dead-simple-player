@@ -23,7 +23,12 @@ export const ROWS_DS8M = 7;
 export const SCROLL_MIN = -8;
 /** Paging cap. `watch.tsx:757, 759, 794, 937`. */
 export const SCROLL_MAX = 30;
-/** Where the cursor rests when the drums roll to a new channel. `watch.tsx:117, 580, 791, 928, 933, 1372`. */
+/**
+ * Where the cursor rests when the drums roll to a new channel. Six sites —
+ * `watch.tsx:117, 580, 791, 928, 933, 1372` — all read this constant now
+ * (the `useState` initialiser included); `matrix.test.ts` fails the build
+ * if a literal comes back.
+ */
 export const CURSOR_HOME = 2;
 
 

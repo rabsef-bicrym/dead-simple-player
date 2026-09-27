@@ -115,7 +115,7 @@ export default function WatchScreen() {
   const [registerTuneRequest, setRegisterTuneRequest] = useState<{ index: number; token: number } | null>(null);
   const [boardIndex, setBoardIndex] = useState(0);
   const [boardScroll, setBoardScroll] = useState(0);
-  const [boardCursor, setBoardCursor] = useState(2);
+  const [boardCursor, setBoardCursor] = useState(CURSOR_HOME);
   const boardCursorProg = useRef<Programme | null>(null);
   const [detailProgramme, setDetailProgramme] = useState<Programme | null>(null);
 
@@ -578,7 +578,7 @@ export default function WatchScreen() {
     beginTransition();
     setBoardIndex(atIndex);
     setBoardScroll(0);
-    setBoardCursor(2);
+    setBoardCursor(CURSOR_HOME);
     if (playbackActiveRef.current) setHomeVisible(false);
     setDetailProgramme(null);
     setBoardClosing(false);
@@ -789,7 +789,7 @@ export default function WatchScreen() {
         const dir = translationX < 0 ? 1 : -1;
         setBoardIndex((i) => (i + dir + channels.length) % channels.length);
         setBoardScroll(0);
-        setBoardCursor(2);
+        setBoardCursor(CURSOR_HOME);
       } else if (translationY < -SWIPE_THRESHOLD) {
         if (boardCursor < ROWS_DS6 - 1) setBoardCursor(boardCursor + 1);
         else setBoardScroll((s) => Math.min(s + 1, SCROLL_MAX));
@@ -1370,7 +1370,7 @@ export default function WatchScreen() {
             onSelectChannel={(i) => {
               setBoardIndex(i);
               setBoardScroll(0);
-              setBoardCursor(2);
+              setBoardCursor(CURSOR_HOME);
             }}
             programmes={programmes}
             scroll={boardScroll}
