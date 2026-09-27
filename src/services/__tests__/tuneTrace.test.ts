@@ -81,15 +81,17 @@ describe('tuneTrace routing', () => {
     ].join('\n'));
   });
 
-  it('(a\') a tuneId routes the same way, and a foreign id is printed', () => {
+  it('(a\') a tuneId routes to its own tune and is not reprinted on the row', () => {
     const id1 = traceTuneStart('Oddities');
     clock.advance(100);
     traceTuneStart('Music');
     clock.advance(100);
     traceEvent('sourceReady set', undefined, { tuneId: id1 });
-    const [, tune1] = getTuneTraceSnapshot();
+    const [tune2, tune1] = getTuneTraceSnapshot();
     expect(tune1.after).toEqual([{ offsetMs: 200, name: 'sourceReady set', late: true }]);
-    expect(serializeTuneTrace(tune1)).not.toContain('tuneId=');
+    expect(tune2.events).toHaveLength(1);
+    expect(serializeTuneTrace(tune1)).toContain('  +200ms sourceReady set late');
+    expect(serializeTuneTrace(tune1)).not.toContain('tuneId');
   });
 
   it('(a\'\') a generation of 0 or less is no tag: the row goes to the newest tune and prints no g=', () => {

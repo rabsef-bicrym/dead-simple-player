@@ -6,19 +6,31 @@
  *
  *   - `tuneId` (the id `traceTuneStart` returned) routes to that tune;
  *   - `g` (a surface generation bound with `traceBindGeneration`) routes to
- *     the tune the generation was bound under — a superseded `replaceAsync
- *     resolve`, an old item's late frame, all land where they belong;
- *   - an untagged row goes to the newest tune;
+ *     the tune of this launch the generation was bound under;
+ *   - an untagged row (no tag, or `g` ≤ 0) goes to the newest tune;
  *   - a positive tag no tune knows is counted in `dropped`, never filed under
  *     the newest tune (H-L);
  *   - a row with no tune at all opens a synthetic UNTRACED START tune
  *     instead of being dropped (NP-10).
  *
- * A row for a tune that is not the newest is marked `late`; a row arriving
- * after a tune closed goes to its `after` bucket, so a tune's `events` are
- * the tune and nothing else. Native rows carry the host clock (`nativeT`,
- * ms) and print `(n+<ms since the tune's first native row>)` so they order
- * natively regardless of JS arrival.
+ * What `g=` on a row means: the surface's generation when the row was
+ * written. Only `replaceAsync start/resolve` and the retry's `playerError`
+ * carry the generation of the item they describe (they were started for
+ * it); `statusChange`, `playingChange`, `first timeUpdate` and
+ * `onFirstFrameRender` are stamped with the generation current at arrival,
+ * because the shared player's payloads name no item until WP-03 puts one in
+ * the native envelope (ff-spec §7) — so an old item's late frame files under
+ * the new tune, with the new g, and is told apart by `matched=no`. Item
+ * identity on a native row is WP-03's `i=`.
+ *
+ * Reading a paste: a row for a tune that is not the newest is marked `late`;
+ * a row arriving after a tune closed goes to its `after` bucket, so a tune's
+ * `events` are the tune and nothing else. Native rows carry the host clock
+ * (`nativeT`, ms) and print `(n+<ms>)` relative to the earliest host time
+ * among the tune's native rows, `after` included — a judgment call (R52):
+ * JS arrival can reorder native rows, and a row delivered after the close
+ * may still be the tune's first native row; ff-spec §6.3 anchors n on the
+ * first native row to *arrive* instead, which is the owner's to prefer.
  *
  * The ring persists (last MAX_TUNES) one second after a tune closes and on
  * demand (`flushTuneTrace`, wired to the AppState background edge in the
@@ -36,9 +48,7 @@ export interface TuneTraceEvent {
   offsetMs: number;
   name: string;
   detail?: string;
-  /** Set when the row carried a tune id that is not the tune it sits under. */
-  tuneId?: number;
-  /** The surface generation the row was stamped with. */
+  /** The surface generation current when the row was written (see the header). */
   g?: number;
   /** Host clock (ms) of a native row; `n` is derived from it at print time. */
   nativeT?: number;
@@ -182,7 +192,6 @@ export function traceEvent(name: string, detail?: string, tag?: TuneTraceTag): v
   if (bucket.length >= (tune.closed ? MAX_AFTER : MAX_EVENTS)) return;
   const row: TuneTraceEvent = { offsetMs: Math.max(0, now() - tune.startedAt), name };
   if (detail !== undefined) row.detail = detail;
-  if (tag?.tuneId != null && tag.tuneId !== tune.id) row.tuneId = tag.tuneId;
   const g = taggedGeneration(tag);
   if (g != null) row.g = g;
   if (tag?.nativeT != null) row.nativeT = tag.nativeT;
@@ -233,7 +242,6 @@ function formatRow(event: TuneTraceEvent, nativeT0: number | null): string {
   let line = `+${event.offsetMs}ms ${event.name}`;
   if (event.detail) line += ` ${event.detail}`;
   if (event.late) line += ' late';
-  if (event.tuneId != null) line += ` tuneId=${event.tuneId}`;
   if (event.g != null) line += ` g=${event.g}`;
   if (event.item != null) line += ` i=${event.item}`;
   if (event.nativeT != null && nativeT0 != null) line += ` (n+${Math.round(event.nativeT - nativeT0)})`;
