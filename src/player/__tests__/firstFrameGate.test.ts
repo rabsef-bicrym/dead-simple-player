@@ -31,7 +31,7 @@ function harness(start = 0) {
     dispatch,
     get state() { return state; },
     get actions() { return actions; },
-    take: () => actions.splice(0, actions.length),
+    drain: () => actions.splice(0, actions.length),
     names: () => actions.map((a) => (a.type === 'trace' ? `${a.name}${a.detail ? ' ' + a.detail : ''}` : a.type)),
     of: <T extends GateAction['type']>(type: T) => actions.filter((a): a is Extract<GateAction, { type: T }> => a.type === type),
   };
@@ -61,12 +61,12 @@ describe('generations', () => {
   it('invalidate() allocates synchronously and the source effect takes that number instead of a new one', () => {
     const h = harness(6);
     h.dispatch({ type: 'take', reason: 'source' });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'invalidate' });
     expect(h.state.sourceGeneration).toBe(8);
     expect(h.state.pendingTuneGeneration).toBe(8);
     expect(h.names()).toEqual(['bind-generation', 'gen invalidated g=8']);
-    h.take();
+    h.drain();
     h.dispatch({ type: 'take', reason: 'source' });
     expect(h.state.sourceGeneration).toBe(8);
     expect(h.state.pendingTuneGeneration).toBeNull();
@@ -78,7 +78,7 @@ describe('generations', () => {
     h.dispatch({ type: 'take', reason: 'source' });          // g=1
     h.dispatch({ type: 'settle', g: 1 });
     h.dispatch({ type: 'invalidate' });                       // g=2, effect not yet flushed
-    h.take();
+    h.drain();
     h.dispatch({ type: 'native-first-frame', g: 1, item: '9c02', via: 'rfdKvo' });
     expect(h.of('first-frame')).toHaveLength(0);
     expect(h.names()).toEqual(['firstFrame i=9c02 via=rfdKvo accepted=stale current=2']);
@@ -103,7 +103,7 @@ describe('generations', () => {
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
     h.dispatch({ type: 'unmount' });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'native-first-frame', g: 1, item: 'x', via: 'rfdKvo' });
     expect(h.of('first-frame')).toHaveLength(0);
     expect(h.state.sourceGeneration).toBe(2);
@@ -116,7 +116,7 @@ describe('the first frame — latch and replay (FF-03)', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'native-first-frame', g: 1, item: '3f1a', via: 'rfdKvo' });
     expect(h.names()).toEqual(['firstFrame i=3f1a via=rfdKvo accepted=yes', 'buffering', 'ready', 'buffering', 'first-frame']);
     expect(h.of('first-frame')).toEqual([{ type: 'first-frame', g: 1 }]);
@@ -125,18 +125,18 @@ describe('the first frame — latch and replay (FF-03)', () => {
   it('a fire before settle is latched and replayed exactly once by the settle', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'native-first-frame', g: 1, item: '3f1a', via: 'advanced' });
     expect(h.state.pendingFirstFrame).toBe(1);
     expect(h.of('first-frame')).toHaveLength(0);
     expect(h.names()).toEqual(['firstFrame i=3f1a via=advanced accepted=latched']);
-    h.take();
+    h.drain();
     h.dispatch({ type: 'settle', g: 1 });
     expect(h.of('first-frame')).toEqual([{ type: 'first-frame', g: 1 }]);
     expect(h.names()[0]).toBe('firstFrame replay latched fire delivered after settle');
     expect(h.state.pendingFirstFrame).toBeNull();
     // a second settle (impossible, but cheap to pin) replays nothing
-    h.take();
+    h.drain();
     h.dispatch({ type: 'settle', g: 1 });
     expect(h.of('first-frame')).toHaveLength(0);
   });
@@ -159,7 +159,7 @@ describe('the first frame — latch and replay (FF-03)', () => {
       if (clear === 'invalidate') h.dispatch({ type: 'invalidate' });
       else h.dispatch({ type: 'take', reason: clear });
       expect(h.state.pendingFirstFrame).toBeNull();
-      h.take();
+      h.drain();
       h.dispatch({ type: 'settle', g: h.state.sourceGeneration });
       expect(h.of('first-frame')).toHaveLength(0);
     }
@@ -173,7 +173,7 @@ describe('the first frame — latch and replay (FF-03)', () => {
     expect(h.state.failures).toBe(1);
     h.dispatch({ type: 'retry-fired', g: 1 });
     h.dispatch({ type: 'settle', g: 2 });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'ready' });
     h.dispatch({ type: 'ready' });
     expect(h.of('first-frame')).toHaveLength(0);
@@ -184,7 +184,7 @@ describe('the first frame — latch and replay (FF-03)', () => {
   it('ready before settle reports nothing (the old item is still current)', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'ready' });
     expect(h.actions).toEqual([]);
   });
@@ -194,11 +194,11 @@ describe('errors — latch, ladder, health', () => {
   it('a native item failure before settle is latched and replayed at settle', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'native-item-failed', g: 1, item: 'a', error: media('early') });
     expect(h.state.pendingError).toEqual({ g: 1, error: media('early') });
     expect(h.names()).toEqual(['playerError latched (settle pending): early']);
-    h.take();
+    h.drain();
     h.dispatch({ type: 'settle', g: 1 });
     expect(h.names()).toEqual([
       'error replay latched error delivered after settle',
@@ -216,12 +216,12 @@ describe('errors — latch, ladder, health', () => {
     h.dispatch({ type: 'settle', g: 1 });
     h.dispatch({ type: 'invalidate' });                       // g=2; the old item is still current natively
     h.dispatch({ type: 'take', reason: 'source' });
-    h.take();
+    h.drain();
     // The old item's error, stamped at arrival with the new generation.
     h.dispatch({ type: 'status-error', g: 2, error: media('old item died') });
     expect(h.names()).toEqual(['playerError dropped (settle pending): old item died']);
     expect(h.state.pendingError).toBeNull();
-    h.take();
+    h.drain();
     h.dispatch({ type: 'settle', g: 2 });
     expect(h.actions).toEqual([]);                            // nothing replays; attempt #1 stands
     expect(h.state.failures).toBe(0);
@@ -234,7 +234,7 @@ describe('errors — latch, ladder, health', () => {
   it('a chain rejection settles then reaches the ladder (race-2 R6)', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'chain-rejected', g: 1, message: 'load failed' });
     expect(h.state.settledGeneration).toBe(1);
     expect(h.names()).toEqual([
@@ -255,7 +255,7 @@ describe('errors — latch, ladder, health', () => {
     for (let i = 1; i <= 8; i += 1) {
       const g = h.state.sourceGeneration;
       h.dispatch({ type: 'settle', g });
-      h.take();
+      h.drain();
       h.dispatch({ type: 'status-error', g, error: media(`e${i}`) });
       seen.push(h.of('schedule-retry')[0].delayMs);
       h.dispatch({ type: 'retry-fired', g });
@@ -269,7 +269,7 @@ describe('errors — latch, ladder, health', () => {
     for (let i = 1; i <= 4; i += 1) {
       const g = h.state.sourceGeneration;
       h.dispatch({ type: 'settle', g });
-      h.take();
+      h.drain();
       h.dispatch({ type: 'native-item-failed', g, item: 'i', error: media(`e${i}`) });
       const errors = h.of('error');
       if (i < SURFACE_ERROR_AFTER) expect(errors).toHaveLength(0);
@@ -285,7 +285,7 @@ describe('errors — latch, ladder, health', () => {
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
     h.dispatch({ type: 'status-error', g: 1, error: media('a') });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'status-error', g: 1, error: media('b') });
     expect(h.actions).toEqual([]);
     expect(h.state.failures).toBe(1);
@@ -295,7 +295,7 @@ describe('errors — latch, ladder, health', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'status-error', g: 7, error: media('old') });
     expect(h.names()).toEqual(['playerError stale g=7: old']);
     expect(h.state.failures).toBe(0);
@@ -308,7 +308,7 @@ describe('errors — latch, ladder, health', () => {
     h.dispatch({ type: 'status-error', g: 1, error: media('a') });
     h.dispatch({ type: 'invalidate' });                 // cancels the retry (cancel-retry action)
     expect(h.of('cancel-retry')).toHaveLength(1);
-    h.take();
+    h.drain();
     h.dispatch({ type: 'retry-fired', g: 1 });
     expect(h.actions).toEqual([]);
   });
@@ -319,7 +319,7 @@ describe('FF-14 — attempts that end without a frame', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'start-result', g: 1, result: 'unbound' });
     expect(h.names()).toEqual([
       'startPlayback unbound',
@@ -329,7 +329,7 @@ describe('FF-14 — attempts that end without a frame', () => {
       'schedule-retry',
     ]);
     expect(h.of('schedule-retry')[0]).toEqual({ type: 'schedule-retry', g: 1, delayMs: 0, reason: 'no-item' });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'retry-fired', g: 1 });
     expect(h.names()).toEqual(['bind-generation', 'attempt #2 reason=no-item', 'buffering', 'replace']);
     expect(h.state.sourceGeneration).toBe(2);
@@ -340,7 +340,7 @@ describe('FF-14 — attempts that end without a frame', () => {
       const h = harness();
       h.dispatch({ type: 'take', reason: 'source' });
       h.dispatch({ type: 'settle', g: 1 });
-      h.take();
+      h.drain();
       h.dispatch({ type: 'start-result', g: 1, result });
       expect(h.names()).toEqual([`startPlayback ${result}`]);
     }
@@ -350,7 +350,7 @@ describe('FF-14 — attempts that end without a frame', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'start-result', g: 1, result: 'stale' });
     expect(h.of('schedule-retry')).toHaveLength(1);
   });
@@ -359,7 +359,7 @@ describe('FF-14 — attempts that end without a frame', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'start-result', g: 1, result: 'failed' });
     expect(h.names()).toEqual([
       'startPlayback failed',
@@ -375,7 +375,7 @@ describe('FF-14 — attempts that end without a frame', () => {
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'native-item-failed', g: 1, item: 'a', error: media('died') });   // latched
     h.dispatch({ type: 'settle', g: 1 });                                                 // replayed: the retry is armed
-    h.take();
+    h.drain();
     h.dispatch({ type: 'start-result', g: 1, result: 'failed' });
     expect(h.names()).toEqual(['startPlayback failed']);
     expect(h.state.failures).toBe(1);
@@ -386,7 +386,7 @@ describe('FF-14 — attempts that end without a frame', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'native-item-lost', g: 1, item: '3f1a' });
     expect(h.names()[0]).toBe('item lost i=3f1a');
     expect(h.of('schedule-retry')[0].reason).toBe('item-lost');
@@ -397,7 +397,7 @@ describe('FF-14 — attempts that end without a frame', () => {
   it('an item lost for a stale generation is only a row', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'native-item-lost', g: 9, item: 'old' });
     expect(h.names()).toEqual(['item lost i=old']);
   });
@@ -409,7 +409,7 @@ describe('rejoin', () => {
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
     h.dispatch({ type: 'status-error', g: 1, error: media('a') });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'take', reason: 'rejoin', detail: 'rejoin:retune' });
     expect(h.names()).toEqual(['cancel-retry', 'bind-generation', 'attempt #2 reason=rejoin:retune', 'buffering', 'replace']);
     expect(h.state.sourceGeneration).toBe(2);
@@ -420,7 +420,7 @@ describe('rejoin', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'invalidate' });
     h.dispatch({ type: 'take', reason: 'rejoin', detail: 'rejoin:retune' });
     expect(h.of('replace').map((a) => a.g)).toEqual([2]);
@@ -431,7 +431,7 @@ describe('rejoin', () => {
   it('rejoin with no source replaces nothing', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source', hasSource: false });
-    h.take();
+    h.drain();
     h.dispatch({ type: 'take', reason: 'rejoin', detail: 'rejoin:resume' });
     expect(h.of('replace')).toHaveLength(0);
   });

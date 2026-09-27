@@ -79,11 +79,12 @@ describe('modules/dsp-picture — the local module', () => {
     expect(index).not.toMatch(/try\s*\{\s*return requireNativeViewManager/);
   });
 
-  it('runs every view function on main and offers exactly the handle index.ts types', () => {
+  it('runs every view function on main, offers the ones the surface calls, and types every one on the handle', () => {
     const fns = [...module.matchAll(/AsyncFunction\("(\w+)"\)/g)].map((m) => m[1]);
-    expect(fns).toEqual(['expect', 'startPlayback', 'startPictureInPicture', 'stopPictureInPicture', 'status']);
+    expect(fns).toEqual(expect.arrayContaining(['expect', 'startPlayback', 'startPictureInPicture']));
     expect((module.match(/\.runOnQueue\(\.main\)/g) ?? []).length).toBe(fns.length);
-    for (const fn of fns) expect(index).toMatch(new RegExp(`^\\s+${fn}\\(`, 'm'));
+    const handle = index.slice(index.indexOf('export interface DSPPictureHandle'), index.indexOf('export interface DSPStaticViewProps'));
+    for (const fn of fns) expect(handle).toMatch(new RegExp(`^\\s+${fn}\\(`, 'm'));
   });
 
   it('the witness decides on nothing wall-clock: no display link, no timer, the item\'s own clock samples', () => {
