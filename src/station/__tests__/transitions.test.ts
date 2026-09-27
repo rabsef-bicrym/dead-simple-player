@@ -3,7 +3,7 @@ import {
   portraitWatching,
   preemptedTerminal,
   sameChannelArrival,
-  sameChannelArrivalRuled16,
+  sameChannelArrivalBead381,
   staticEnds,
   stopAccepted,
   watching,
@@ -16,53 +16,58 @@ function scene(over: Partial<ArrivalScene>): ArrivalScene {
   return { playbackActive: true, sameIndex: true, tuning: false, sourceReady: true, playerError: null, origin: 'link', ...over };
 }
 
-describe('sameChannelArrival — today (watch.tsx:495-502)', () => {
-  it('is chrome-only whenever the set is on and the index is the tuned one, whatever the picture', () => {
-    const states: Array<Partial<ArrivalScene>> = [
+describe('sameChannelArrival — since WP-03 (watch.tsx tuneTo; ff-spec §6.2; decision 16)', () => {
+  it('is chrome-only when the set is on, the index is the tuned one and the channel is not in error', () => {
+    const healthy: Array<Partial<ArrivalScene>> = [
       { tuning: true, sourceReady: false, playerError: null },
-      { tuning: true, sourceReady: false, playerError: 'THE SIGNAL WILL NOT JOIN' },
-      { tuning: false, sourceReady: true, playerError: 'THE PICTURE IS HAVING DIFFICULTY' },
       { tuning: false, sourceReady: true, playerError: null },
     ];
-    for (const s of states) {
+    for (const s of healthy) {
       for (const origin of ORIGINS) {
         expect(sameChannelArrival(scene({ ...s, origin })).kind).toBe('chrome-only');
       }
     }
   });
 
+  it('re-tunes a channel in error, under the static or live (WS-20)', () => {
+    expect(sameChannelArrival(scene({ tuning: true, sourceReady: false, playerError: 'THE SIGNAL WILL NOT JOIN' })).kind).toBe('full-tune');
+    expect(sameChannelArrival(scene({ playerError: 'THE PICTURE IS HAVING DIFFICULTY' })).kind).toBe('full-tune');
+  });
+
+  it('never restarts a healthy tune in progress (a second cold master GET can throttle the session)', () => {
+    expect(sameChannelArrival(scene({ tuning: true, sourceReady: false, playerError: null })).kind).toBe('chrome-only');
+  });
+
   it('flashes unless the tune came from the register or the static is up', () => {
     expect(sameChannelArrival(scene({ origin: 'link' })).flash).toBe(true);
     expect(sameChannelArrival(scene({ origin: 'register' })).flash).toBe(false);
     expect(sameChannelArrival(scene({ origin: 'link', tuning: true, sourceReady: false })).flash).toBe(false);
-    expect(sameChannelArrival(scene({ origin: 'link', playerError: 'x' })).flash).toBe(true);
   });
 
-  it('takes the full branch when the set is off or the index differs', () => {
+  it('takes the full branch when the set is off or the index differs; power never flashes (decision 4)', () => {
     expect(sameChannelArrival(scene({ playbackActive: false }))).toEqual({ kind: 'full-tune', flash: true });
     expect(sameChannelArrival(scene({ sameIndex: false }))).toEqual({ kind: 'full-tune', flash: true });
     expect(sameChannelArrival(scene({ sameIndex: false, origin: 'register' }))).toEqual({ kind: 'full-tune', flash: false });
+    expect(sameChannelArrival(scene({ playbackActive: false, origin: 'power' }))).toEqual({ kind: 'full-tune', flash: false });
   });
 });
 
-describe('sameChannelArrivalRuled16 — decision 16 / WS-20', () => {
-  it('re-tunes a channel in error, under the static, or both', () => {
-    expect(sameChannelArrivalRuled16(scene({ tuning: true, sourceReady: false })).kind).toBe('full-tune');
-    expect(sameChannelArrivalRuled16(scene({ tuning: true, sourceReady: false, playerError: 'x' })).kind).toBe('full-tune');
-    expect(sameChannelArrivalRuled16(scene({ playerError: 'x' })).kind).toBe('full-tune');
+describe('sameChannelArrivalBead381 — the rule before WP-03, the matrix\'s today: oracle', () => {
+  it('was chrome-only whatever the picture', () => {
+    for (const origin of ORIGINS) {
+      expect(sameChannelArrivalBead381(scene({ origin, playerError: 'x' })).kind).toBe('chrome-only');
+      expect(sameChannelArrivalBead381(scene({ origin, tuning: true, sourceReady: false, playerError: 'x' })).kind).toBe('chrome-only');
+    }
   });
 
-  it('keeps the chrome-only arrival and its flash for a live, healthy picture', () => {
-    expect(sameChannelArrivalRuled16(scene({}))).toEqual({ kind: 'chrome-only', flash: true });
-    expect(sameChannelArrivalRuled16(scene({ origin: 'register' }))).toEqual({ kind: 'chrome-only', flash: false });
-  });
-
-  it('agrees with today on everything but the failing and static cases', () => {
+  it('agrees with the live rule on everything but the failing cases', () => {
     for (const origin of ORIGINS) {
       const live = scene({ origin });
-      expect(sameChannelArrivalRuled16(live)).toEqual(sameChannelArrival(live));
+      expect(sameChannelArrivalBead381(live)).toEqual(sameChannelArrival(live));
+      const under = scene({ origin, tuning: true, sourceReady: false });
+      expect(sameChannelArrivalBead381(under)).toEqual(sameChannelArrival(under));
       const off = scene({ origin, playbackActive: false });
-      expect(sameChannelArrivalRuled16(off)).toEqual(sameChannelArrival(off));
+      expect(sameChannelArrivalBead381(off)).toEqual(sameChannelArrival(off));
     }
   });
 });
