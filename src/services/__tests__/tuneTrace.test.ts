@@ -6,6 +6,7 @@ import {
   PERSIST_DEBOUNCE_MS,
   __resetTuneTraceForTests,
   describeTuneTrace,
+  describeTuneTraceDropped,
   flushTuneTrace,
   getTuneTraceDroppedCount,
   getTuneTraceSnapshot,
@@ -206,6 +207,7 @@ describe('tuneTrace routing', () => {
     traceEvent('statusChange', 'idle', { g: 999 });
     expect(getTuneTraceDroppedCount()).toBe(3);
     expect(getTuneTraceSnapshot()[0].events).toHaveLength(1);
+    expect(describeTuneTraceDropped(3)).toBe('-- dropped: 3 rows carried a tag no tune knows --');
     expect(serializeTuneTraces(getTuneTraceSnapshot(1), getTuneTraceDroppedCount()))
       .toMatch(/^-- dropped: 3 rows carried a tag no tune knows --\n\nTUNE CHANNEL 21/);
   });

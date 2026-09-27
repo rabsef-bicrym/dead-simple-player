@@ -14,6 +14,7 @@ import { useCabinet } from '../src/hooks/useCabinet';
 import * as Clipboard from 'expo-clipboard';
 import {
   describeTuneTrace,
+  describeTuneTraceDropped,
   getTuneTraceDroppedCount,
   getTuneTraceSnapshot,
   serializeTuneTraceRows,
@@ -299,9 +300,7 @@ export default function SettingsScreen() {
               <PlateButton label="AGAIN" onPress={refreshTuneTrace} compact />
             </View>
             {tuneTrace.dropped > 0 && (
-              <Text style={styles.traceLine} selectable>
-                -- dropped: {tuneTrace.dropped} rows carried a tag no tune knows --
-              </Text>
+              <Text style={styles.traceLine} selectable>{describeTuneTraceDropped(tuneTrace.dropped)}</Text>
             )}
             {tuneTrace.tunes.length === 0 ? (
               <Text style={styles.traceEmpty}>NO TUNES HAVE REACHED THE BENCH.</Text>
