@@ -30,7 +30,13 @@ import { watching } from './transitions';
 
 export type Tag = 'asis' | `ruled:${number}` | `fix:${string}`;
 
-/** `04-decisions.md`, one line each, so a `ruled:<n>` tag can be checked against the file's numbering. */
+/**
+ * `04-decisions.md`, one line each, so a `ruled:<n>` tag can be checked
+ * against the file's numbering. A mirror of the file dated 2026-09-26 (the
+ * reviews tree lives outside this repo); re-sync on any renumbering.
+ * `matrix.test.ts` diffs the numbering against the file itself whenever
+ * `DSP_REVIEWS_DIR` points at the tree.
+ */
 export const DECISIONS: Readonly<Record<number, string>> = {
   1: 'Auto-PiP on background: keep, never while tuning; subscribe to PiP events',
   2: 'iPad: keep Split View; hide the rotate plate when orientation lock is unsupported',
@@ -537,6 +543,8 @@ export interface Outcome {
   difficultyPlate?: boolean;
   /** `PlayerSurface` is mounted. */
   player?: boolean;
+  /** The apron is up (`:1225`). */
+  hud?: boolean;
   flash?: boolean;
   /** The full tune branch ran (`traceTuneStart`, new source). */
   retune?: boolean;
@@ -710,10 +718,10 @@ export const STATION_ROWS: readonly StationRow[] = [
     given: { base: 'watching', picture: 'live', count: 10 },
     event: { type: 'DATA_READY', count: 0 },
     today: { card: true, watching: true, player: false },
-    expect: { card: true },
+    expect: { card: true, watching: false, player: false },
     tag: 'fix:WS-16',
-    cite: 'watch.tsx:245, 1078; gap-degenerate DG-07',
-    note: 'zero channels while on drops to the card with playbackActive still true; the next successful load remounts the picture with no static',
+    cite: 'watch.tsx:245, 1078; gap-degenerate DG-07; 05-PLAN.md WP-07 (no channels → the difficulty base)',
+    note: 'today zero channels while on drops to the card with playbackActive still true, so the next successful load remounts the picture with no static; the reducer makes the card a base of its own — nothing is on beneath it',
   },
   // ── gap §3: a guide refresh mid board-paging ──
   {
@@ -1181,6 +1189,23 @@ export const STATION_ROWS: readonly StationRow[] = [
     expect: { watching: true, static: true, index: 6, flash: true },
     tag: 'asis', cite: 'watch.tsx:612-619, 520-524',
   },
+  // ── the plates no key or swipe reaches ──
+  {
+    id: 'PL-01', section: 'plates',
+    given: { base: 'watching', picture: 'live' },
+    event: { type: 'HUD_TOGGLE' },
+    expect: { watching: true, hud: true, player: true },
+    tag: 'asis', cite: 'watch.tsx:824-831, 1219-1225',
+    note: 'a tap on the picture raises the apron; the same tap lowers it and cancels its four seconds',
+  },
+  {
+    id: 'PL-02', section: 'plates',
+    given: { base: 'home', dial: 5 },
+    event: { type: 'DIAL_SET', index: 8 },
+    expect: { home: true, dial: 8, watching: false, player: false },
+    tag: 'asis', cite: 'watch.tsx:1350 (Home onSelect = setDialIndex); Home.tsx:249, 274',
+    note: 'a station plate rests the dial on it; the second press tunes (Home.tsx onTune)',
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1304,9 +1329,16 @@ export interface Invariant {
   check?: (v: StationView) => boolean;
 }
 
+/**
+ * How many bases a view shows at once. `stopping` is a base only while its
+ * collapse is armed (`:907-910`): a `stopping` whose timer was cancelled
+ * has nothing coming and is no base at all — that is WS-01's blank, and
+ * why R13b and R13c break invariant 1 as well as 6.
+ */
 function baseCount(v: StationView): number {
   const s = surfacesToday(v);
-  const bases = [s.warming, s.card, s.home, watching(v) && !s.warming && !s.card, v.stopping && !s.warming && !s.card, s.signoff];
+  const tree = !s.warming && !s.card;
+  const bases = [s.warming, s.card, s.home, tree && watching(v), tree && v.stopping && v.collapseArmed, s.signoff];
   return bases.filter(Boolean).length;
 }
 
@@ -1353,8 +1385,8 @@ export const REACHABLE: readonly ReachableView[] = [
   { id: 'R11', how: 'error before first frame', view: view({ playbackActive: true, tuning: true, playerError: true }), surfaces: { player: true, static: true, difficultyPlate: false }, violates: [], tag: 'asis' },
   { id: 'R12', how: 'requestTune on phone portrait, 270 ms', view: view({ cabinet: 'phone-portrait', playbackActive: true, sourceReady: true, registerRequest: true }), surfaces: { player: true, static: false }, violates: [], tag: 'asis' },
   { id: 'R13a', how: 'powerOffDesktop on plain web', view: view({}), surfaces: { blank: true }, violates: [1], tag: 'fix:WS-02' },
-  { id: 'R13b', how: 'stopPlayback → openBoard → board Escape: the collapse timer is gone, the charge line stays', view: view({ stopping: true }), surfaces: { crtLine: true, home: false, board: false, player: false }, violates: [6], tag: 'fix:WS-01' },
-  { id: 'R13c', how: 'stopPlayback → openBoard (within 380 ms)', view: view({ stopping: true, boardVisible: true }), surfaces: { board: true, crtLine: true }, violates: [6, 7], tag: 'fix:WS-01' },
+  { id: 'R13b', how: 'stopPlayback → openBoard → board Escape: the collapse timer is gone, the charge line stays', view: view({ stopping: true }), surfaces: { crtLine: true, home: false, board: false, player: false }, violates: [1, 6], tag: 'fix:WS-01' },
+  { id: 'R13c', how: 'stopPlayback → openBoard (within 380 ms)', view: view({ stopping: true, boardVisible: true }), surfaces: { board: true, crtLine: true }, violates: [1, 6, 7], tag: 'fix:WS-01' },
   { id: 'R14', how: 'a link on web with no gesture', view: view({ playbackActive: true, tuning: true }), surfaces: { player: true, static: true }, violates: [], tag: 'asis' },
   { id: 'R-switch-while-watching', how: 'a server switch or TRY AGAIN with the picture live (web history Forward into /settings)', view: view({ playbackActive: true, sourceReady: true, dataLoading: true }), surfaces: { warming: true, player: false }, violates: [15], tag: 'fix:WS-16' },
   { id: 'R-signoff-link', how: 'a link during sign-off', view: view({ cabinet: 'phone-landscape', signOff: true, playbackActive: true, tuning: true }), surfaces: { signoff: true, player: false, static: false }, violates: [2], tag: 'fix:WS-21' },
