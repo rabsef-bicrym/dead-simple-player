@@ -355,6 +355,33 @@ describe('FF-14 — attempts that end without a frame', () => {
     expect(h.of('schedule-retry')).toHaveLength(1);
   });
 
+  it('startPlayback → failed is a failure on the ladder: an adopted item that died before settle has no other word', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.dispatch({ type: 'settle', g: 1 });
+    h.take();
+    h.dispatch({ type: 'start-result', g: 1, result: 'failed' });
+    expect(h.names()).toEqual([
+      'startPlayback failed',
+      'playerError media: item failed before start failures=1',
+      'buffering',
+      'retry scheduled in=0ms',
+      'schedule-retry',
+    ]);
+  });
+
+  it('startPlayback → failed after onItemFailed already armed the retry changes nothing', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.dispatch({ type: 'native-item-failed', g: 1, item: 'a', error: media('died') });   // latched
+    h.dispatch({ type: 'settle', g: 1 });                                                 // replayed: the retry is armed
+    h.take();
+    h.dispatch({ type: 'start-result', g: 1, result: 'failed' });
+    expect(h.names()).toEqual(['startPlayback failed']);
+    expect(h.state.failures).toBe(1);
+    expect(h.of('schedule-retry')).toHaveLength(0);
+  });
+
   it('an item lost before its first frame rebuilds as reason=item-lost', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });

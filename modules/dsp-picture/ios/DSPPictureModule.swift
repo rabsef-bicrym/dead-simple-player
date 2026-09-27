@@ -49,7 +49,7 @@ public final class DSPPictureModule: Module {
       }.runOnQueue(.main)
 
       // After replaceAsync resolved and JS settled the generation.
-      // Returns "ok" | "adopted" | "unbound" | "stale".
+      // Returns "ok" | "adopted" | "unbound" | "stale" | "failed".
       AsyncFunction("startPlayback") { (view: DSPPictureView, generation: Int, uri: String) -> String in
         return view.startPlayback(generation: generation, uri: uri)
       }.runOnQueue(.main)

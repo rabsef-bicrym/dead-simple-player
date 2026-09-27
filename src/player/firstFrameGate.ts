@@ -264,6 +264,12 @@ export function reduceGate(state: GateState, event: GateEvent): GateResult {
         s = fail(s, g, { kind: 'media', message: 'no item after resolve' }, 'no-item', actions);
       } else if (result === 'stale') {
         s = fail(s, g, { kind: 'media', message: 'picture bound to another generation' }, 'retry', actions);
+      } else if (result === 'failed') {
+        // The item was already .failed when asked to start. Bound to g,
+        // `onItemFailed` said so first and the armed retry makes this a no-op;
+        // adopted (bound g=-1 while it failed, so `onItemFailed` never fired
+        // and expo's pre-settle error was dropped) this is the ladder's one word.
+        s = fail(s, g, { kind: 'media', message: 'item failed before start' }, 'retry', actions);
       }
       return { state: s, actions };
     }
