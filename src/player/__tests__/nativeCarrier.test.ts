@@ -2,7 +2,9 @@
  * The native carrier, pinned as text (there is no Xcode on the box that runs
  * this; EAS is the compile gate — docs/native-witness.md §4.6): the one patch
  * hunk, the local module's shape, the Swift invariants a grep can hold, and
- * the surface's discipline about play() and timers.
+ * the surface's discipline about play() and timers. The Swift is pinned as
+ * text because nothing else here can read it; the JS pins are token-level,
+ * and the behaviour they border has its own tests (firstFrameGate.test.ts).
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -91,7 +93,7 @@ describe('modules/dsp-picture — the local module', () => {
   });
 
   it('rate 0 across the swap; playImmediately is the one starter; the output is removed only at unbind', () => {
-    expect(picture).toMatch(/func expect\(generation: Int, uri: String\) \{\s*\n\s*if let p = player, p\.rate != 0 \{ p\.pause\(\) \}/);
+    expect(picture).toMatch(/func expect\(generation: Int, uri: String\) \{\s*if let p = player, p\.rate != 0 \{ p\.pause\(\) \}/);
     expect((picture.match(/playImmediately\(atRate: 1\.0\)/g) ?? []).length).toBe(1);
     expect(code(picture)).not.toMatch(/\bp\.play\(\)|player\?\.play\(\)|player\.play\(\)/);
     expect((picture.match(/\.remove\(b\.output\)/g) ?? []).length).toBe(1);
@@ -146,7 +148,9 @@ describe('PlayerSurface.native.tsx — no play() before the first frame, one tim
     expect(plays).toHaveLength(1);
     const at = source.indexOf('player.play()');
     const before = source.slice(Math.max(0, at - 400), at);
-    expect(before).toMatch(/settledGeneration === 0 \|\| settledGeneration !== sourceGeneration\) return;/);
+    // The guard's two clauses, not its exact line (the reducer tests hold the play/settle rule itself).
+    expect(before).toMatch(/\bsettledGeneration\s*===\s*0\b/);
+    expect(before).toMatch(/\bsettledGeneration\s*!==\s*sourceGeneration\b/);
   });
 
   it('has exactly one setTimeout — the ladder\'s, which starts a fetch', () => {

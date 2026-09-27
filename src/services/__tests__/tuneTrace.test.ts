@@ -535,8 +535,11 @@ describe('the native surface prints what docs/tune-trace.md says', () => {
   });
 
   it('a native row carries the host clock and the item id as tags, and a positive generation only', () => {
-    expect(source).toMatch(/const tag = \{ g: g > 0 \? g : undefined, nativeT: t, item: i !== '-' \? i : undefined \};/);
-    expect(source).toMatch(/traceEvent\(name, detail, tag\);/);
+    // The three tag fields, not the line's exact shape.
+    expect(source).toMatch(/\bg:\s*g\s*>\s*0\s*\?\s*g\s*:\s*undefined\b/);
+    expect(source).toMatch(/\bnativeT:\s*t\b/);
+    expect(source).toMatch(/\bitem:\s*i\s*!==\s*'-'\s*\?\s*i\s*:\s*undefined\b/);
+    expect(source).toMatch(/traceEvent\(name,\s*detail,\s*tag\)/);
   });
 
   it('the first frame prints i=, via= and accepted=yes|latched|stale', () => {
