@@ -90,7 +90,8 @@ export interface TuneTraceStorage {
 }
 
 export interface TuneTraceTag {
-  tuneId?: number;
+  /** The id `traceTuneStart` returned; `null` is no tag, so a ref passes as it is. */
+  tuneId?: number | null;
   g?: number;
   nativeT?: number;
   item?: string;

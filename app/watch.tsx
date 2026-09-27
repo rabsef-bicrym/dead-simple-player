@@ -690,7 +690,7 @@ export default function WatchScreen() {
     tuneTo(index, 'link');
     // After tuneTo and named by its id, so the arrival is filed under the tune
     // it caused (WS-23) — or the one already playing, when tuneTo opened none.
-    traceEvent(`link → channel ${number}`, undefined, { tuneId: tuneIdRef.current ?? undefined });
+    traceEvent(`link → channel ${number}`, undefined, { tuneId: tuneIdRef.current });
   }, [linkToken, indexRestored, channels, tuneTo]);
 
   // Reset playback state for the pending source. The static interstitial owns
@@ -707,7 +707,7 @@ export default function WatchScreen() {
   useEffect(() => {
     if (tuning && sourceReady && watchRevealDone) {
       // The static's unmount is the next commit; this row is the decision.
-      traceEvent('tuning cleared', undefined, { tuneId: tuneIdRef.current ?? undefined });
+      traceEvent('tuning cleared', undefined, { tuneId: tuneIdRef.current });
       setTuning(false);
     }
   }, [sourceReady, tuning, watchRevealDone]);
@@ -1061,7 +1061,7 @@ export default function WatchScreen() {
   // event means attributable pixels. A stream that never paints keeps the
   // static, and the error path owns that ending.
   const handleFirstFrame = useCallback(() => {
-    traceEvent('sourceReady set', undefined, { tuneId: tuneIdRef.current ?? undefined });
+    traceEvent('sourceReady set', undefined, { tuneId: tuneIdRef.current });
     closeTune('first-frame');
     setSourceReady(true);
   }, [closeTune]);
@@ -1074,7 +1074,7 @@ export default function WatchScreen() {
   }, []);
 
   const handlePlayerError = useCallback((error: PlayerError) => {
-    traceEvent('error surfaced', `${error.kind}: ${error.message}`, { tuneId: tuneIdRef.current ?? undefined });
+    traceEvent('error surfaced', `${error.kind}: ${error.message}`, { tuneId: tuneIdRef.current });
     // The web's recovery-exhausted plate is not an ending: its pipeline keeps
     // rebuilding, handlePlaybackStarted clears the plate, and a later first
     // frame still closes the tune. Every other kind is final.
