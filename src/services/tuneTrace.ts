@@ -7,11 +7,13 @@
  *   - `tuneId` (the id `traceTuneStart` returned) routes to that tune;
  *   - `g` (a surface generation bound with `traceBindGeneration`) routes to
  *     the tune of this launch the generation was bound under;
- *   - an untagged row (no tag, or `g` ≤ 0) goes to the newest tune;
+ *   - an untagged row (no tag, or `g` ≤ 0) goes to the newest tune of this
+ *     launch;
  *   - a positive tag no tune knows is counted in `dropped`, never filed under
  *     the newest tune (H-L);
- *   - a row with no tune at all opens a synthetic UNTRACED START tune
- *     instead of being dropped (NP-10).
+ *   - a row with no tune of this launch — none at all, or only revived ones —
+ *     opens a synthetic UNTRACED START tune instead of being dropped (NP-10);
+ *     nothing this process writes belongs to a previous one.
  *
  * What `g=` on a row means: the surface's generation when the row was
  * written. Only `replaceAsync start/resolve` and the retry's `playerError`
@@ -161,6 +163,18 @@ function locate(tag?: TuneTraceTag): TuneTrace | null | undefined {
   return undefined;
 }
 
+/**
+ * The newest tune of this launch, or a synthetic UNTRACED START opened for
+ * the row that had none. A revived tune is never it (see `launched`).
+ */
+function newestTune(): TuneTrace {
+  const newest = tunes[0];
+  if (newest && launched.has(newest)) return newest;
+  const tune = openTune(UNTRACED_START, { origin: 'untraced' });
+  tune.events.push({ offsetMs: 0, name: UNTRACED_START });
+  return tune;
+}
+
 /** Start a tune. Closes the newest tune as superseded if it is still open. */
 export function traceTuneStart(channelName: string, meta?: { origin?: string; opening?: boolean }): number {
   const tune = openTune(channelName, meta);
@@ -168,14 +182,10 @@ export function traceTuneStart(channelName: string, meta?: { origin?: string; op
   return tune.id;
 }
 
-/** Bind a surface generation to the newest tune (idempotent). */
+/** Bind a surface generation to this launch's newest tune (idempotent). */
 export function traceBindGeneration(g: number): void {
   if (!(g > 0)) return;
-  let tune = tunes[0];
-  if (!tune) {
-    tune = openTune(UNTRACED_START, { origin: 'untraced' });
-    tune.events.push({ offsetMs: 0, name: UNTRACED_START });
-  }
+  const tune = newestTune();
   if (!tune.gens.includes(g)) {
     tune.gens.push(g);
     persistWanted = true;
@@ -183,18 +193,12 @@ export function traceBindGeneration(g: number): void {
 }
 
 export function traceEvent(name: string, detail?: string, tag?: TuneTraceTag): void {
-  let tune = locate(tag);
-  if (tune === null) {
+  const located = locate(tag);
+  if (located === null) {
     dropped += 1;
     return;
   }
-  if (tune === undefined) {
-    tune = tunes[0];
-    if (!tune) {
-      tune = openTune(UNTRACED_START, { origin: 'untraced' });
-      tune.events.push({ offsetMs: 0, name: UNTRACED_START });
-    }
-  }
+  const tune = located ?? newestTune();
   const closed = tune.closed != null;
   const bucket = closed ? tune.after : tune.events;
   if (bucket.length >= (closed ? MAX_AFTER : MAX_EVENTS)) {
@@ -218,8 +222,9 @@ export function traceEvent(name: string, detail?: string, tag?: TuneTraceTag): v
 /** Record which witness the surface saw; the first sighting per tune stands. */
 export function traceTuneWitness(witness: TuneTraceWitness, tag?: TuneTraceTag): void {
   const located = locate(tag);
-  const tune = located === undefined ? tunes[0] : located;
-  if (!tune || tune.witness) return;
+  if (located === null) return;
+  const tune = located ?? newestTune();
+  if (tune.witness) return;
   tune.witness = witness;
   persistWanted = true;
 }
