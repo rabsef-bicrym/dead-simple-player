@@ -21,7 +21,7 @@ import UIKit
  `boilTickBudget` refreshes: when the keyframes never advance (the H-J case) or
  the presentation layer is nil, the absence of `S boil` is already the signal.
  */
-public final class DSPStaticView: ExpoView, CAAnimationDelegate {
+public final class DSPStaticView: ExpoView {
   let onStaticLive = EventDispatcher()
   let onStaticBoil = EventDispatcher()
 
@@ -45,6 +45,16 @@ public final class DSPStaticView: ExpoView, CAAnimationDelegate {
     @objc func tick(_ link: CADisplayLink) { owner?.boilTick() }
   }
   private let boilProxy = BoilProxy()
+  // CAAnimation retains its delegate ("The delegate object is retained by the receiver" —
+  // `@property(strong) delegate`), and an infinite, isRemovedOnCompletion=false animation lives as
+  // long as its layer: `a.delegate = self` would be view → layer → snow → animation → view, and
+  // deinit would never run — a static view, its 600 keyframes and its didBecomeActive observer
+  // leaked per tune. The proxy holds the view weakly, exactly like the display link's target.
+  private final class AnimationProxy: NSObject, CAAnimationDelegate {
+    weak var owner: DSPStaticView?
+    func animationDidStart(_ anim: CAAnimation) { owner?.animationStarted() }
+  }
+  private let animationProxy = AnimationProxy()
 
   public required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -57,6 +67,7 @@ public final class DSPStaticView: ExpoView, CAAnimationDelegate {
     snow.actions = ["contentsRect": NSNull(), "bounds": NSNull(), "position": NSNull()]
     layer.addSublayer(snow)
     boilProxy.owner = self
+    animationProxy.owner = self
     // Core Animation drops in-flight animations when the app is backgrounded; reinstall on return.
     fgObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
       self?.install(force: true)
@@ -80,6 +91,9 @@ public final class DSPStaticView: ExpoView, CAAnimationDelegate {
     super.didMoveToWindow()
     if window == nil {
       boilLink?.invalidate(); boilLink = nil
+      // Off the window nothing is drawn: the animation (600 NSValues, alive for the layer's life
+      // otherwise) goes now; the return path below reinstalls it, and `S live` says so.
+      snow.removeAnimation(forKey: "snow")
     } else {
       // A layout that ran before the window existed installed nothing; a
       // return to the window reinstalls what backgrounding removed.
@@ -108,7 +122,7 @@ public final class DSPStaticView: ExpoView, CAAnimationDelegate {
     a.duration = Self.period
     a.repeatCount = .infinity
     a.isRemovedOnCompletion = false
-    a.delegate = self                                    // animationDidStart → "S live"; never a completion block (it fires only on removal for an infinite animation)
+    a.delegate = animationProxy                          // animationDidStart → "S live"; never a completion block (it fires only on removal for an infinite animation)
     CATransaction.begin(); CATransaction.setDisableActions(true)
     snow.removeAnimation(forKey: "snow")
     snow.add(a, forKey: "snow")
@@ -117,7 +131,8 @@ public final class DSPStaticView: ExpoView, CAAnimationDelegate {
     startBoilCheck()
   }
 
-  public func animationDidStart(_ anim: CAAnimation) {
+  /// The proxy's `animationDidStart`: the render server has begun evaluating this install's keyframes.
+  private func animationStarted() {
     onStaticLive(["t": CACurrentMediaTime() * 1000, "n": installs])
   }
 
