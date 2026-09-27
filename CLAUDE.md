@@ -10,6 +10,12 @@ A purpose-built IPTV player for ErsatzTV. Nothing else. No generality.
 ## Tech Stack
 - React Native with Expo (iOS + Android)
 - expo-video/AVPlayer for native HLS playback; hls.js on web
+- The iOS picture cell is `modules/dsp-picture` (a local Expo module, Apple
+  only): an app-owned AVPlayerLayer fed expo-video's persistent player, the
+  first-frame witness that ends the tuning static, PiP, the `N` trace rows,
+  and the static's snow. `docs/native-witness.md` is its contract;
+  `patches/expo-video+3.0.16.patch` carries one hunk (replaceAsync resolves
+  after the item is current). No Xcode here: EAS compiles the Swift.
 - Custom M3U parser (ETV format only)
 - Custom XMLTV parser that actually works (handles single-line XML, Unicode, short-duration programmes)
 
