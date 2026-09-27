@@ -135,6 +135,31 @@ describe('tuneTrace routing', () => {
     expect(tune.events[1]).toMatchObject({ name: 'replaceAsync start', g: 7 });
   });
 
+  it('(b\'\') a revived tune is nobody\'s newest: a bind, a bare row or a witness of this launch opens the synthetic tune', async () => {
+    // Last launch's ring, read before anything of this launch started. Its
+    // tune bound generation 1; this launch's surface will bind 1 too.
+    const revived = { id: T0 - 5000, channelName: 'Ghibli', startedAt: T0 - 5000, gens: [1], events: [{ offsetMs: 0, name: 'TUNE START', detail: 'Ghibli' }], after: [], closed: { offsetMs: 900, reason: 'first-frame' } };
+    await hydrateTuneTrace(memoryStorage({ [STORAGE_KEYS.TUNE_TRACE]: JSON.stringify([revived]) }));
+    traceBindGeneration(1);
+    traceEvent('replaceAsync start', 'http://a/8.m3u8', { g: 1 });
+    clock.advance(5);
+    traceEvent('statusChange', 'loading');
+    traceTuneWitness('present');
+    const [synthetic, ghibli] = getTuneTraceSnapshot();
+    expect(synthetic.channelName).toBe('UNTRACED START');
+    expect(synthetic.gens).toEqual([1]);
+    expect(synthetic.events).toEqual([
+      { offsetMs: 0, name: 'UNTRACED START' },
+      { offsetMs: 0, name: 'replaceAsync start', detail: 'http://a/8.m3u8', g: 1 },
+      { offsetMs: 5, name: 'statusChange', detail: 'loading' },
+    ]);
+    expect(synthetic.witness).toBe('present');
+    expect(ghibli.after).toEqual([]);
+    expect(ghibli.gens).toEqual([1]);
+    expect(ghibli.witness).toBeUndefined();
+    expect(getTuneTraceDroppedCount()).toBe(0);
+  });
+
   it('(c) rows after close go to `after`, capped, and the cap is printed', () => {
     const id = traceTuneStart('Movies');
     clock.advance(1200);
