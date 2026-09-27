@@ -688,8 +688,9 @@ export default function WatchScreen() {
     if (index < 0) return;
     welcomed.current = true;
     tuneTo(index, 'link');
-    // After tuneTo, so the arrival is filed under the tune it caused (WS-23).
-    traceEvent(`link → channel ${number}`);
+    // After tuneTo and named by its id, so the arrival is filed under the tune
+    // it caused (WS-23) — or the one already playing, when tuneTo opened none.
+    traceEvent(`link → channel ${number}`, undefined, { tuneId: tuneIdRef.current ?? undefined });
   }, [linkToken, indexRestored, channels, tuneTo]);
 
   // Reset playback state for the pending source. The static interstitial owns
@@ -1073,7 +1074,11 @@ export default function WatchScreen() {
   }, []);
 
   const handlePlayerError = useCallback((error: PlayerError) => {
-    closeTune('error-surfaced');
+    traceEvent('error surfaced', `${error.kind}: ${error.message}`, { tuneId: tuneIdRef.current ?? undefined });
+    // The web's recovery-exhausted plate is not an ending: its pipeline keeps
+    // rebuilding, handlePlaybackStarted clears the plate, and a later first
+    // frame still closes the tune. Every other kind is final.
+    if (error.kind !== 'recovery-exhausted') closeTune('error-surfaced');
     setPlayerError(error.message);
     bufferingRef.current = false;
     setBuffering(false);
