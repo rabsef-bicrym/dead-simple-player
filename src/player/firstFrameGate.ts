@@ -19,6 +19,7 @@
  * never emit it (R1). The retry timer this reducer schedules starts a FETCH
  * (`schedule-retry` → `retry-fired` → `replace`); it never ends anything.
  */
+import type { DSPStartResult } from '../../modules/dsp-picture';
 import type { PlayerError } from './types';
 
 /** The ladder, indexed by `failures - 1`; the last entry repeats (R1: X is the escape). */
@@ -26,7 +27,8 @@ export const RETRY_DELAYS_MS = [0, 2000, 4000, 8000, 15000, 30000] as const;
 /** The plate relabels ("THE SIGNAL WILL NOT JOIN") after this many consecutive failures; attempts continue (R4). */
 export const SURFACE_ERROR_AFTER = 3;
 
-export type StartResult = 'ok' | 'adopted' | 'unbound' | 'stale';
+/** What `startPlayback(g)` returned: the module's word for it, spelled once (modules/dsp-picture/index.ts). */
+export type StartResult = DSPStartResult;
 
 export interface GateState {
   /** Mirror of the launch-wide counter; the surface writes it back after every dispatch. */
