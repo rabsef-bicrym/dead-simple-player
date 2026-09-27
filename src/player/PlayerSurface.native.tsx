@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Platform } from 'react-native';
 import { useEventListener } from 'expo';
 import {
   isPictureInPictureSupported,
@@ -33,8 +34,13 @@ function normalizeUrlString(uri: string | null | undefined): string | null {
 }
 
 // Generations are unique per launch, not per mount: a late row from a
-// previous mount can never wear the new mount's first generation, and the
-// trace routes every row by the generation it was stamped with.
+// previous mount can never wear the new mount's first generation. A row that
+// owns a generation (replaceAsync start/resolve, the retry's playerError) is
+// stamped with it; a listener row (statusChange, playingChange, first
+// timeUpdate, onFirstFrameRender) is stamped with the generation current when
+// it arrived — the shared player's payloads name no item until WP-03's native
+// envelope (ff-spec §7) — so on those rows g= names the expectation, not the
+// item.
 let nextGeneration = 0;
 
 function videoSource(sourceUrl: string | null, metadata?: PlayerMetadata): VideoSource {
@@ -123,6 +129,16 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       && viewAttachedRef.current
       && (!requiresNativeView || nativeViewAttachedRef.current)
     ), []);
+
+    // The generation a listener row arrives under. After the layout cleanup
+    // the current generation is bound to nothing, and the listeners outlive
+    // it until their passive effect unsubscribes; a row in that window goes
+    // untagged (g 0 routes to the newest tune, ff-spec §6.3) rather than
+    // wearing a number no tune knows and lighting the dropped line.
+    const arrivalGeneration = useCallback(
+      () => (mountedRef.current ? sourceGeneration.current : 0),
+      [],
+    );
 
     const emitBuffering = useCallback((next: boolean) => {
       if (callbackIsLive()) callbacksRef.current.onBuffering(next);
@@ -233,7 +249,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     }, [callbackIsLive, emitBuffering, emitFinalError, replaceForGeneration]);
 
     useEventListener(player, 'statusChange', ({ status, error }) => {
-      traceEvent('statusChange', error?.message ? `${status}: ${error.message}` : status, { g: sourceGeneration.current });
+      traceEvent('statusChange', error?.message ? `${status}: ${error.message}` : status, { g: arrivalGeneration() });
       if (!callbackIsLive()) return;
       if (status === 'loading') {
         emitBuffering(true);
@@ -256,12 +272,12 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     });
 
     useEventListener(player, 'playingChange', ({ isPlaying }) => {
-      traceEvent('playingChange', String(isPlaying), { g: sourceGeneration.current });
+      traceEvent('playingChange', String(isPlaying), { g: arrivalGeneration() });
       if (isPlaying) reportReady();
     });
 
     useEventListener(player, 'timeUpdate', ({ currentTime }) => {
-      const generation = sourceGeneration.current;
+      const generation = arrivalGeneration();
       if (timeUpdateTracedGeneration.current !== generation) {
         timeUpdateTracedGeneration.current = generation;
         // The URI is the requested prop, not the ticking item's identity.
@@ -422,15 +438,19 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           const expectedUri = sourceUrlRef.current;
           const matched = receivedUri === undefined
             || normalizeUrlString(receivedUri) === normalizeUrlString(expectedUri);
-          const g = sourceGeneration.current;
+          const g = arrivalGeneration();
           traceEvent(
             'onFirstFrameRender',
             `sourceUri=${receivedUri ?? 'absent'} · matched=${matched ? 'yes' : 'no'}`,
             { g },
           );
           // A payload-free frame on iOS means the expo-video patch is not in
-          // this build (FF-06); the card's header says so.
-          traceTuneWitness(receivedUri === undefined ? 'absent' : 'present', { g });
+          // this build (FF-06); the card's header says so. Android's frame
+          // carries no payload by construction, so the tell is iOS-only.
+          traceTuneWitness(
+            receivedUri !== undefined ? 'present' : Platform.OS === 'ios' ? 'absent' : 'n/a',
+            { g },
+          );
           if (!matched) return;
           reportReady(true);
           reportFirstFrame();
