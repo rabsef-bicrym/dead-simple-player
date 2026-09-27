@@ -115,6 +115,14 @@ describe('tuneTrace routing', () => {
     expect(getTuneTraceDroppedCount()).toBe(0);
   });
 
+  it('a null tuneId is no tag: the row goes to the newest tune, as the screen\'s ref does', () => {
+    traceTuneStart('Oddities');
+    clock.advance(30);
+    traceEvent('link → channel 5', undefined, { tuneId: null });
+    expect(getTuneTraceSnapshot()[0].events[1]).toEqual({ offsetMs: 30, name: 'link → channel 5' });
+    expect(getTuneTraceDroppedCount()).toBe(0);
+  });
+
   it('(b) a row before any tune opens an UNTRACED START tune instead of vanishing', () => {
     traceEvent('sourceReady set');
     clock.advance(5);
