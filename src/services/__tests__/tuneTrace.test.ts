@@ -11,6 +11,7 @@ import {
   getTuneTraceSnapshot,
   hydrateTuneTrace,
   serializeTuneTrace,
+  serializeTuneTraceRows,
   serializeTuneTraces,
   setTuneTraceBuild,
   traceBindGeneration,
@@ -133,7 +134,7 @@ describe('tuneTrace routing', () => {
     expect(tune.events[1]).toMatchObject({ name: 'replaceAsync start', g: 7 });
   });
 
-  it('(c) rows after close go to `after`, capped', () => {
+  it('(c) rows after close go to `after`, capped, and the cap is printed', () => {
     const id = traceTuneStart('Movies');
     clock.advance(1200);
     traceEvent('sourceReady set', undefined, { tuneId: id });
@@ -149,12 +150,32 @@ describe('tuneTrace routing', () => {
     expect(tune.after).toHaveLength(MAX_AFTER);
     expect(tune.after[0]).toEqual({ offsetMs: 1201, name: 'playingChange', detail: 'true' });
     expect(tune.after[0].late).toBeUndefined();
+    expect(tune.truncated).toEqual({ events: 0, after: 10 });
+    const lines = serializeTuneTraceRows(tune);
+    expect(lines).toHaveLength(2 + 1 + MAX_AFTER + 1);
+    expect(lines[lines.length - 1]).toBe('-- +10 rows not kept --');
   });
 
-  it('(c\') events are capped too', () => {
-    traceTuneStart('Movies');
+  it('(c\') events are capped too, and the cap sits before the closed marker', () => {
+    const id = traceTuneStart('Movies');
     for (let i = 0; i < MAX_EVENTS + 10; i += 1) traceEvent('statusChange', 'loading');
-    expect(getTuneTraceSnapshot()[0].events).toHaveLength(MAX_EVENTS);
+    traceCloseTune(id, 'left');
+    const [tune] = getTuneTraceSnapshot();
+    expect(tune.events).toHaveLength(MAX_EVENTS);
+    // TUNE START holds one slot, so 1 + (MAX_EVENTS + 10) rows leave 11 out.
+    expect(tune.truncated).toEqual({ events: 11, after: 0 });
+    expect(serializeTuneTraceRows(tune).slice(MAX_EVENTS)).toEqual([
+      '-- +11 rows not kept --',
+      '-- closed: left @ +0ms --',
+    ]);
+  });
+
+  it('(c\'\') a tune with room prints no cap line', () => {
+    traceTuneStart('Movies');
+    traceEvent('statusChange', 'loading');
+    const [tune] = getTuneTraceSnapshot();
+    expect(tune.truncated).toBeUndefined();
+    expect(serializeTuneTrace(tune)).not.toContain('not kept');
   });
 
   it('(d) the ring holds MAX_TUNES, newest first', () => {
@@ -300,7 +321,7 @@ describe('tuneTrace persistence', () => {
 
   it('(f) hydrate merges under this launch\'s tunes, by id, without duplicates; twice is the same', async () => {
     // A previous launch left two tunes, the newer one still open.
-    const older = { id: T0 - 60000, channelName: 'Ghibli', startedAt: T0 - 60000, gens: [3], events: [{ offsetMs: 0, name: 'TUNE START', detail: 'Ghibli' }, { offsetMs: 800, name: 'sourceReady set' }], after: [], closed: { offsetMs: 800, reason: 'first-frame' } };
+    const older = { id: T0 - 60000, channelName: 'Ghibli', startedAt: T0 - 60000, gens: [3], events: [{ offsetMs: 0, name: 'TUNE START', detail: 'Ghibli' }, { offsetMs: 800, name: 'sourceReady set' }], after: [], truncated: { events: 0, after: 3 }, closed: { offsetMs: 800, reason: 'first-frame' } };
     const open = { id: T0 - 30000, channelName: 'Movies', startedAt: T0 - 30000, gens: [4], events: [{ offsetMs: 0, name: 'TUNE START', detail: 'Movies' }, { offsetMs: 90, name: 'replaceAsync start', detail: 'x', g: 4 }], after: [] };
     const storage = memoryStorage({ [STORAGE_KEYS.TUNE_TRACE]: JSON.stringify([open, older, { junk: true }, null]) });
 
@@ -312,6 +333,8 @@ describe('tuneTrace persistence', () => {
     expect(snapshot[0].id).toBe(live);
     expect(snapshot[1].closed).toEqual({ offsetMs: 90, reason: 'left' });
     expect(snapshot[2].closed).toEqual({ offsetMs: 800, reason: 'first-frame' });
+    expect(snapshot[2].truncated).toEqual({ events: 0, after: 3 });
+    expect(serializeTuneTraceRows(snapshot[2]).slice(-1)).toEqual(['-- +3 rows not kept --']);
 
     // Generations restart every launch: a live row wearing a revived tune's
     // number is dropped, never filed under Movies; the header still prints it.
