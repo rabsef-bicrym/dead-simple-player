@@ -301,9 +301,14 @@ export function serializeTuneTrace(tune: TuneTrace): string {
   ].join('\n');
 }
 
+/** The line above the tunes when rows were dropped; the card and COPY print exactly this. */
+export function describeTuneTraceDropped(count: number): string {
+  return `-- dropped: ${count} rows carried a tag no tune knows --`;
+}
+
 export function serializeTuneTraces(traces: TuneTrace[], droppedCount = 0): string {
   const blocks = traces.map(serializeTuneTrace);
-  if (droppedCount > 0) blocks.unshift(`-- dropped: ${droppedCount} rows carried a tag no tune knows --`);
+  if (droppedCount > 0) blocks.unshift(describeTuneTraceDropped(droppedCount));
   return blocks.join('\n\n');
 }
 
