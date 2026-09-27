@@ -16,8 +16,10 @@ import UIKit
 
  `animationDidStart` emits `S live`; two differing presentation-layer samples
  emit `S boil` — the render server is advancing the keyframes, the one thing
- Skia could never tell us. The boil check's CADisplayLink decides nothing,
- lives for two refreshes, and is not in the first-frame path.
+ Skia could never tell us. The boil check's CADisplayLink decides nothing, is
+ not in the first-frame path, and retires at the first difference or after
+ `boilTickBudget` refreshes: when the keyframes never advance (the H-J case) or
+ the presentation layer is nil, the absence of `S boil` is already the signal.
  */
 public final class DSPStaticView: ExpoView, CAAnimationDelegate {
   let onStaticLive = EventDispatcher()
@@ -34,8 +36,10 @@ public final class DSPStaticView: ExpoView, CAAnimationDelegate {
   private var installs = 0
   private var installedFor: CGRect = .zero
   private var fgObserver: NSObjectProtocol?
+  private static let boilTickBudget = 120                // ≈2 s at 60 Hz; the link never outlives this
   private var boilLink: CADisplayLink?
   private var boilSample: CGRect?
+  private var boilTicks = 0
   private final class BoilProxy: NSObject {
     weak var owner: DSPStaticView?
     @objc func tick(_ link: CADisplayLink) { owner?.boilTick() }
@@ -118,16 +122,19 @@ public final class DSPStaticView: ExpoView, CAAnimationDelegate {
   }
 
   /// Two presentation-layer samples that differ = the render server is advancing the keyframes. Rows only;
-  /// the link invalidates itself on the first difference and is not on any decision path.
+  /// the link invalidates itself on the first difference or at the tick budget, and is not on any decision path.
   private func startBoilCheck() {
     boilLink?.invalidate()
     boilSample = nil
+    boilTicks = 0
     let l = CADisplayLink(target: boilProxy, selector: #selector(BoilProxy.tick(_:)))
     l.add(to: .main, forMode: .common)
     boilLink = l
   }
 
   private func boilTick() {
+    boilTicks += 1
+    if boilTicks > Self.boilTickBudget { boilLink?.invalidate(); boilLink = nil; return }
     guard let rect = snow.presentation()?.contentsRect else { return }
     if let prev = boilSample, prev != rect {
       boilLink?.invalidate(); boilLink = nil

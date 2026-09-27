@@ -377,7 +377,11 @@ both be blocked and the snow keeps boiling — no per-frame code path, no
 shader, no growing uniform. Backgrounding removes in-flight animations;
 `didBecomeActive` reinstalls. `animationDidStart` emits `S live n=k`; two
 consecutive presentation-layer samples of `contentsRect` that differ emit
-`S boil n=k`. Rotation reinstalls with the new grain rects (`n=2`). The base
+`S boil n=k`; the checking display link retires at that first difference or
+after 120 refreshes (≈2 s), so a static whose keyframes never advance — the
+H-J case, or a backgrounded app — is read from the missing `S boil`, not from
+a link ticking until the view leaves the window. Rotation reinstalls with the
+new grain rects (`n=2`). The base
 colour is the seat's `#000` (FF-16): if the snow ever fails, the failure reads
 as "the set is on, no picture, the plate says A MOMENT, PLEASE" — never a
 grey nobody can place. `@shopify/react-native-skia` no longer draws the
