@@ -45,6 +45,14 @@ describe('the net is well-formed', () => {
     expect(Object.keys(DECISIONS)).toHaveLength(18);
   });
 
+  it('mirrors the numbering of 04-decisions.md when the reviews tree is reachable (DSP_REVIEWS_DIR)', () => {
+    const dir = process.env.DSP_REVIEWS_DIR;
+    if (!dir) return; // the tree lives outside the repo; the mirror is dated in matrix.ts
+    const text = fs.readFileSync(path.join(dir, '04-decisions.md'), 'utf8');
+    const numbered = [...text.matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
+    expect(numbered).toEqual(Object.keys(DECISIONS).map(Number));
+  });
+
   it('records today’s outcome on every row a decision or a fix changes', () => {
     for (const row of [...INPUT_ROWS, ...STATION_ROWS]) {
       if (row.tag === 'asis') expect(row.today).toBeUndefined();
