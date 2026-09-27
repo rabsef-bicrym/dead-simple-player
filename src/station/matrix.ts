@@ -24,7 +24,6 @@
 import { CURSOR_HOME, ROWS_DS6, ROWS_DS8M, SCROLL_MAX, SCROLL_MIN } from './board';
 import type { Cabinet, Command, Dir, Entrance, Shell, TuneOrigin } from './commands';
 import type { MediaSessionAction, Mode, Swipe, TuneStepOrigin } from './remote';
-import { DIAL_END_POLICY } from './remote';
 
 // ── Tags ──
 
@@ -421,28 +420,36 @@ export interface DialRow {
   cite: string;
 }
 
-const DIAL_CITES: Readonly<Record<TuneStepOrigin, string>> = {
-  'keyboard-watching': 'watch.tsx:989-993',
-  'media-session': 'watch.tsx:1060-1065',
-  'console-swipe-watching': 'watch.tsx:816-819',
-  'home-keys': 'watch.tsx:966-973',
-  'home-swipe': 'watch.tsx:804-807',
-  'board-keys': 'watch.tsx:926-931',
-  'board-swipe': 'watch.tsx:752, 789',
-  shifter: 'watch.tsx:768',
-  'phone-swipe-watching': 'watch.tsx:778',
-  column: 'MHome.tsx:514 (rows are addressed)',
+/**
+ * The ends, written out per input site so the rows carry a claim of their
+ * own: `null` is a bounded end (nothing tunes), a number is where a wrap
+ * lands from index 9 up, index 0 down, and on a single-station dial.
+ * `remote.test.ts` pins `DIAL_END_POLICY` to the same split as literals;
+ * the two are stated separately on purpose, so a flip in either fails the
+ * other, and `stepIndex` is checked against this table, not its own.
+ */
+const DIAL_ENDS: Readonly<Record<TuneStepOrigin, { top: number | null; bottom: number | null; single: number | null; cite: string }>> = {
+  'keyboard-watching': { top: null, bottom: null, single: null, cite: 'watch.tsx:989-993' },
+  'media-session': { top: null, bottom: null, single: null, cite: 'watch.tsx:1060-1065' },
+  'console-swipe-watching': { top: null, bottom: null, single: null, cite: 'watch.tsx:816-819' },
+  'home-keys': { top: 0, bottom: 9, single: 0, cite: 'watch.tsx:966-973' },
+  'home-swipe': { top: 0, bottom: 9, single: 0, cite: 'watch.tsx:804-807' },
+  'board-keys': { top: 0, bottom: 9, single: 0, cite: 'watch.tsx:926-931' },
+  'board-swipe': { top: 0, bottom: 9, single: 0, cite: 'watch.tsx:752, 789' },
+  shifter: { top: 0, bottom: 9, single: 0, cite: 'watch.tsx:768' },
+  'phone-swipe-watching': { top: 0, bottom: 9, single: 0, cite: 'watch.tsx:778' },
+  column: { top: 0, bottom: 9, single: 0, cite: 'MHome.tsx:514 (rows are addressed)' },
 };
 
 function dialRows(): DialRow[] {
   const rows: DialRow[] = [];
-  for (const origin of Object.keys(DIAL_END_POLICY) as TuneStepOrigin[]) {
-    const wraps = DIAL_END_POLICY[origin] === 'wrapping';
+  for (const origin of Object.keys(DIAL_ENDS) as TuneStepOrigin[]) {
+    const { top, bottom, single, cite } = DIAL_ENDS[origin];
     rows.push(
-      { id: `D-${origin}-top`, origin, i: 9, dir: 1, n: 10, expect: wraps ? 0 : null, tag: 'asis', cite: DIAL_CITES[origin] },
-      { id: `D-${origin}-bottom`, origin, i: 0, dir: -1, n: 10, expect: wraps ? 9 : null, tag: 'asis', cite: DIAL_CITES[origin] },
-      { id: `D-${origin}-mid`, origin, i: 4, dir: 1, n: 10, expect: 5, tag: 'asis', cite: DIAL_CITES[origin] },
-      { id: `D-${origin}-single`, origin, i: 0, dir: 1, n: 1, expect: wraps ? 0 : null, tag: 'asis', cite: DIAL_CITES[origin] },
+      { id: `D-${origin}-top`, origin, i: 9, dir: 1, n: 10, expect: top, tag: 'asis', cite },
+      { id: `D-${origin}-bottom`, origin, i: 0, dir: -1, n: 10, expect: bottom, tag: 'asis', cite },
+      { id: `D-${origin}-mid`, origin, i: 4, dir: 1, n: 10, expect: 5, tag: 'asis', cite },
+      { id: `D-${origin}-single`, origin, i: 0, dir: 1, n: 1, expect: single, tag: 'asis', cite },
     );
   }
   return rows;
