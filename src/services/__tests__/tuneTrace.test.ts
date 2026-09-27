@@ -319,6 +319,26 @@ describe('tuneTrace persistence', () => {
     expect(storage.setItem).toHaveBeenCalledTimes(2);
   });
 
+  it('a superseded close schedules no write; the next ending\'s write carries both tunes', async () => {
+    const storage = memoryStorage();
+    await hydrateTuneTrace(storage);
+    traceTuneStart('Movies');
+    clock.advance(300);
+    // The surf: Movies is superseded inside Music's TUNE START. No write
+    // lands a second later, inside Music's first-frame window.
+    const music = traceTuneStart('Music');
+    await jest.advanceTimersByTimeAsync(PERSIST_DEBOUNCE_MS * 2);
+    expect(storage.setItem).not.toHaveBeenCalled();
+
+    clock.advance(900);
+    traceCloseTune(music, 'first-frame');
+    await jest.advanceTimersByTimeAsync(PERSIST_DEBOUNCE_MS);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    const written = JSON.parse(storage.values.get(STORAGE_KEYS.TUNE_TRACE) as string);
+    expect(written.map((t: { channelName: string; closed: { reason: string } }) => [t.channelName, t.closed.reason]))
+      .toEqual([['Music', 'first-frame'], ['Movies', 'superseded']]);
+  });
+
   it('(f) hydrate merges under this launch\'s tunes, by id, without duplicates; twice is the same', async () => {
     // A previous launch left two tunes, the newer one still open.
     const older = { id: T0 - 60000, channelName: 'Ghibli', startedAt: T0 - 60000, gens: [3], events: [{ offsetMs: 0, name: 'TUNE START', detail: 'Ghibli' }, { offsetMs: 800, name: 'sourceReady set' }], after: [], truncated: { events: 0, after: 3 }, closed: { offsetMs: 800, reason: 'first-frame' } };

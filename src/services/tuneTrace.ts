@@ -32,8 +32,9 @@
  * may still be the tune's first native row; ff-spec §6.3 anchors n on the
  * first native row to *arrive* instead, which is the owner's to prefer.
  *
- * The ring persists (last MAX_TUNES) one second after a tune closes and on
- * demand (`flushTuneTrace`, wired to the AppState background edge in the
+ * The ring persists (last MAX_TUNES) one second after a tune ends — first
+ * frame, error, leaving; a superseded tune rides the next such write — and
+ * on demand (`flushTuneTrace`, wired to the AppState background edge in the
  * root layout); every other mutation only marks the ring dirty for the next
  * write. That debounce is the only timer here: it writes storage, never
  * state, and nothing in the first-frame path waits on it (R1).
@@ -140,7 +141,11 @@ function openTune(channelName: string, meta?: { origin?: string; opening?: boole
 function closeTune(tune: TuneTrace, reason: TuneTraceCloseReason): void {
   if (tune.closed) return;
   tune.closed = { offsetMs: Math.max(0, now() - tune.startedAt), reason };
-  schedulePersist();
+  persistWanted = true;
+  // A superseded close happens inside the next TUNE START; a write a second
+  // later would land in that tune's first-frame window. It rides the next
+  // ending's write, or the flush.
+  if (reason !== 'superseded') schedulePersist();
 }
 
 /** A generation that names something: `g` ≤ 0 is no tag (ff-spec §6.3). */
