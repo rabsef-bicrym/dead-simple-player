@@ -382,6 +382,8 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         return () => {};
       }
       if (Platform.OS === 'ios' && !pictureAvailable) {
+        // The binary carries no DSPPicture module object (index.ts reads that
+        // object, not the view manager, which never throws): the header says so.
         traceTuneWitness('absent', { g: gate.current.sourceGeneration });
       }
       return () => {
@@ -471,8 +473,10 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     }), [dispatch, player]);
 
     if (!renderNativeView) return null;
-    // Expo Go, or a non-iOS build: watch.tsx shows its "requires a development
-    // build" seat; here there is nothing to host the picture in.
+    // Expo Go, a non-iOS build, or a binary without the module: watch.tsx
+    // shows its "requires a development build" seat in Expo Go; here there is
+    // nothing to host the picture in, and the chain runs without expect or
+    // startPlayback (one replaceAsync per tune, no ladder, the static stays).
     if (!DSPPictureNativeView) return null;
 
     return (

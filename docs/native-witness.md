@@ -32,8 +32,13 @@ person can see it".
   (`withCheckedContinuation`). expo-video's `VideoView` is no longer rendered
   by DS,P on iOS; its hunk is gone.
 - `PlayerSurface.native.tsx` renders `DSPPictureNativeView` on iOS and nothing
-  where the module is not linked (Expo Go, a non-iOS build); `watch.tsx` shows
-  its "requires a development build" seat in Expo Go.
+  where the module is not in the binary (Expo Go, a non-iOS build, a build
+  whose autolinking missed `./modules`); `watch.tsx` shows its "requires a
+  development build" seat in Expo Go. `index.ts` reads availability from the
+  registered module object (`requireOptionalNativeModule('DSPPicture')` and
+  its `ViewPrototypes`, with `expect` a function on the picture's), never
+  from `requireNativeViewManager`, which does not throw for a missing module
+  (`NativeViewManagerAdapter.native.tsx:103-155` only warns).
 
 Why the hunk must stay: the chain is `await expect(G) → await replaceAsync →
 settle(G) → await startPlayback(G)`. With the continuation, `replaceAsync`
@@ -342,7 +347,7 @@ start|stop|request refused while tuning` · `link → channel N`.
 | `isReadyForDisplay` stays `true` across a swipe-tune swap and is never re-delivered | `N item … rfd0=true` with no `N rfd false` before `N fire … rfdSrc=advanced` | none needed; if `advanced` also never holds, `N hold why=E` says so |
 | The session dies under the picture (NP-14) | `N errorLog`, `N itemStatus ready→failed`, `playerError`, `retry scheduled`; if `N loaded` simply stops growing with no error row, that absence is the finding | the ladder |
 | `SharedRef<AVPlayer>` prop cast fails at runtime | dev: red box `CastingException`; release: no `N attach` after `TUNE START` | Plan B (ff-spec §2.3): host the layer inside expo-video's `VideoView` by patch |
-| Autolinking misses `modules/dsp-picture` | `requireNativeViewManager` is wrapped: the surface renders nothing, no `N view init`, header `witness=absent` | `npx expo-modules-autolinking search \| grep dsp-picture` |
+| Autolinking misses `modules/dsp-picture` | `index.ts` finds no `DSPPicture` module object, or no `expect` on its picture prototype: both views are null, the surface renders nothing (one `replaceAsync` per tune, row `startPlayback no picture view`, no ladder), no `N view init`, header `witness=absent` | `npx expo-modules-autolinking search \| grep dsp-picture` |
 | The static's animation refuses to start | `static mount` without `S live`; the field is black, never grey | `install(force:)` on `didMoveToWindow` already retries |
 
 None of these can end the static early: every rollback removes a conjunct
