@@ -83,7 +83,9 @@ const BUFFERING_OVERLAY_DELAY_MS = 800;
 const BUFFER_STALL_WINDOW_MS = 1500;
 const CLOCK_TICK_MS = 30000;
 const GUIDE_REFRESH_MS = 30 * 60 * 1000;
-type TuneOrigin = 'register' | 'swipe' | 'board' | 'remote' | 'gate' | 'link';
+// 'power' is the console's turn-on (decision 4): a tune through the static
+// like every other, traced, and never flashed — nothing was chosen.
+type TuneOrigin = 'register' | 'swipe' | 'board' | 'remote' | 'gate' | 'link' | 'power';
 
 export default function WatchScreen() {
   const { activeConfig, loading: configLoading, reload: reloadServerConfig } = useServerConfig();
@@ -131,6 +133,12 @@ export default function WatchScreen() {
   );
 
   const [playerError, setPlayerError] = useState<string | null>(null);
+  // Read by tuneTo without re-binding it: a same-channel arrival on a channel
+  // in error is a re-tune (decision 16), a healthy one is chrome only.
+  const playerErrorRef = useRef<string | null>(null);
+  playerErrorRef.current = playerError;
+  // Whether the picture is in its PiP window (the surface tells us; decision 1).
+  const [pipActive, setPipActive] = useState(false);
   const [playbackActive, setPlaybackActive] = useState(false);
   const [tuning, setTuning] = useState(false);
   const [sourceReady, setSourceReady] = useState(false);
@@ -193,7 +201,14 @@ export default function WatchScreen() {
   const beginTransition = useCallback(() => {
     transitionGen.current += 1;
     if (gateTimer.current) clearTimeout(gateTimer.current);
-    if (revealTimer.current) clearTimeout(revealTimer.current);
+    if (revealTimer.current) {
+      // WS-22: a pre-empted reveal applies its terminal state — a cancelled
+      // deferred half must not leave `watchRevealDone` false, or the static
+      // of the tune that pre-empted it can never end. tuneTo sets it false
+      // again for its own reveal.
+      clearTimeout(revealTimer.current);
+      setWatchRevealDone(true);
+    }
     if (stopCollapseTimer.current) clearTimeout(stopCollapseTimer.current);
     if (stopHomeTimer.current) clearTimeout(stopHomeTimer.current);
     gateTimer.current = null;
@@ -500,7 +515,10 @@ export default function WatchScreen() {
     beginTransition();
     if (isPhone && !isLandscape) showPortraitControls();
     setRegisterTuneRequest(null);
-    if (playbackActiveRef.current && index === safeIndex) {
+    // Same-channel arrival: a healthy tune (in progress or tuned) is never
+    // restarted — a second cold master GET can throttle the session; a
+    // channel in error is (decision 16).
+    if (playbackActiveRef.current && index === safeIndex && !playerErrorRef.current) {
       setHomeVisible(false);
       setBoardVisible(false);
       setBoardClosing(false);
@@ -513,6 +531,12 @@ export default function WatchScreen() {
       channels[index]?.name ?? `CHANNEL ${index + 1}`,
       { origin, opening: openingPicture },
     );
+    // Before the first setState: from this instant every native fact
+    // carrying an older generation is stale, whatever React's effect
+    // schedule does. A same-channel re-tune changes no source URL, so no
+    // effect would run: it rejoins here.
+    playerRef.current?.invalidate();
+    if (playbackActiveRef.current && index === safeIndex) playerRef.current?.rejoin('retune');
     playbackActiveRef.current = true;
     setPlaybackActive(true);
     setTuning(true);
@@ -528,7 +552,7 @@ export default function WatchScreen() {
     setBoardClosing(false);
     setRegisterTuneRequest(null);
     setDetailProgramme(null);
-    if (origin !== 'register') {
+    if (origin !== 'register' && origin !== 'power') {
       flashChannel();
     } else {
       cancelFlash();
@@ -647,18 +671,12 @@ export default function WatchScreen() {
     if (isPhone || welcome === '1' || Platform.OS === 'web') {
       openHome(safeIndex, isPhone && !isLandscape ? 'stamp' : 'none');
     } else {
-      // Console DS-6 keeps its established turn-it-on-and-it-is-on behavior.
-      // Power-on is a tune and is traced like one (NP-10); the static on
-      // this path is decision 4's and lands with the station store.
-      tuneIdRef.current = traceTuneStart(
-        channels[safeIndex]?.name ?? `CHANNEL ${safeIndex + 1}`,
-        { origin: 'power', opening: true },
-      );
-      playbackActiveRef.current = true;
-      setPlaybackActive(true);
-      setBuffering(true);
+      // Console DS-6 keeps its established turn-it-on-and-it-is-on behavior:
+      // power-on tunes the remembered channel through the static like every
+      // other tune, traced, and never flashed (decision 4, NP-10).
+      tuneTo(safeIndex, 'power');
     }
-  }, [welcome, indexRestored, channels, safeIndex, openHome, isPhone, isLandscape]);
+  }, [welcome, indexRestored, channels, safeIndex, openHome, isPhone, isLandscape, tuneTo]);
 
   // ── Magic links ──
   // deadsimpleplayer://watch?channel=19 — another program (a note from
@@ -1059,16 +1077,23 @@ export default function WatchScreen() {
     setPlayerError(null);
   }, []);
 
-  // The ONLY successful end of the tuning static. The patched native
-  // onFirstFrameRender binds a real isReadyForDisplay edge to the current
-  // item's source URI, so no backstop timer: readiness events mean data, this
-  // event means attributable pixels. A stream that never paints keeps the
-  // static, and the error path owns that ending.
-  const handleFirstFrame = useCallback(() => {
-    traceEvent('sourceReady set', undefined, { tuneId: tuneIdRef.current });
+  // The ONLY successful end of the tuning static. The native surface emits
+  // it once per generation when modules/dsp-picture's witness holds for the
+  // item that generation asked for: a pixel buffer copied from that item's
+  // own output, our on-screen layer ready after the item change, the
+  // timebase running and the clock advancing (docs/native-witness.md). No
+  // backstop timer: readiness events mean data, this event means a shown
+  // frame. A stream that never paints keeps the static; the error path owns
+  // that ending.
+  const handleFirstFrame = useCallback((generation: number) => {
+    traceEvent('sourceReady set', undefined, { tuneId: tuneIdRef.current, g: generation });
     closeTune('first-frame');
     setSourceReady(true);
   }, [closeTune]);
+
+  const handlePictureInPictureChange = useCallback((active: boolean) => {
+    setPipActive(active);
+  }, []);
 
   const handlePlayerBuffering = useCallback((isBuffering: boolean) => {
     if (!isBuffering) lastProgressAt.current = Date.now();
@@ -1157,6 +1182,7 @@ export default function WatchScreen() {
       sourceUrl={currentChannel.streamUrl}
       playing
       muted={tuning}
+      pictureInPictureAuto={!tuning}
       style={signalSeatStyle}
       viewport="contain"
       viewAttached
@@ -1172,6 +1198,7 @@ export default function WatchScreen() {
       onBuffering={handlePlayerBuffering}
       onError={handlePlayerError}
       onPictureInPictureAvailabilityChange={setPictureOutAvailable}
+      onPictureInPictureChange={handlePictureInPictureChange}
     />
   );
 
