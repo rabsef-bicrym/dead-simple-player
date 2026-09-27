@@ -21,6 +21,7 @@ import { fetchIptvChannels, fetchIptvGuide, type GuideState } from '../src/servi
 import { restoreLastChannelIndex } from '../src/services/channelStorage';
 import { traceEvent, traceTuneStart } from '../src/services/tuneTrace';
 import { STORAGE_KEYS } from '../src/constants/storage';
+import { CURSOR_HOME, ROWS_DS6, SCROLL_MAX, SCROLL_MIN } from '../src/station/board';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { Apron } from '../src/components/ds6/Apron';
 import { Home } from '../src/components/ds6/Home';
@@ -754,9 +755,9 @@ export default function WatchScreen() {
         } else if (translationY < -SWIPE_THRESHOLD) {
           // Upright: the shade rolls home. On its side: page onward.
           if (!isLandscape) setBoardClosing(true);
-          else setBoardScroll((s) => Math.min(s + 1, 30));
+          else setBoardScroll((s) => Math.min(s + 1, SCROLL_MAX));
         } else if (translationY > SWIPE_THRESHOLD) {
-          setBoardScroll((s) => (isLandscape ? Math.max(s - 1, -8) : Math.min(s + 1, 30)));
+          setBoardScroll((s) => (isLandscape ? Math.max(s - 1, SCROLL_MIN) : Math.min(s + 1, SCROLL_MAX)));
         }
         return;
       }
@@ -790,11 +791,11 @@ export default function WatchScreen() {
         setBoardScroll(0);
         setBoardCursor(2);
       } else if (translationY < -SWIPE_THRESHOLD) {
-        if (boardCursor < 7) setBoardCursor(boardCursor + 1);
-        else setBoardScroll((s) => Math.min(s + 1, 30));
+        if (boardCursor < ROWS_DS6 - 1) setBoardCursor(boardCursor + 1);
+        else setBoardScroll((s) => Math.min(s + 1, SCROLL_MAX));
       } else if (translationY > SWIPE_THRESHOLD) {
         if (boardCursor > 0) setBoardCursor(boardCursor - 1);
-        else setBoardScroll((s) => Math.max(s - 1, -8));
+        else setBoardScroll((s) => Math.max(s - 1, SCROLL_MIN));
       }
       return;
     }
@@ -925,20 +926,20 @@ export default function WatchScreen() {
           case 'ArrowRight':
             setBoardIndex((i) => (i + 1) % channels.length);
             setBoardScroll(0);
-            setBoardCursor(2);
+            setBoardCursor(CURSOR_HOME);
             break;
           case 'ArrowLeft':
             setBoardIndex((i) => (i - 1 + channels.length) % channels.length);
             setBoardScroll(0);
-            setBoardCursor(2);
+            setBoardCursor(CURSOR_HOME);
             break;
           case 'ArrowDown':
-            if (boardCursor < 7) setBoardCursor(boardCursor + 1);
-            else setBoardScroll((s) => Math.min(s + 1, 30));
+            if (boardCursor < ROWS_DS6 - 1) setBoardCursor(boardCursor + 1);
+            else setBoardScroll((s) => Math.min(s + 1, SCROLL_MAX));
             break;
           case 'ArrowUp':
             if (boardCursor > 0) setBoardCursor(boardCursor - 1);
-            else setBoardScroll((s) => Math.max(s - 1, -8));
+            else setBoardScroll((s) => Math.max(s - 1, SCROLL_MIN));
             break;
           case 'n':
             if (detailProgramme) setDetailProgramme(null);
