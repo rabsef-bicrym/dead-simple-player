@@ -237,7 +237,11 @@ decision (`src/player/__tests__/firstFrameGate.test.ts` replays them).
   tuning`; a tune while PiP is active proceeds and fires with `pip=true`;
   background mid-tune without PiP holds on `why=…A` until `N app active`;
   AirPlay fires `via=external`; rotation is `N bounds`/`N vr` only — no
-  re-arm path exists (`setPlayer` is identity-guarded, FF-13).
+  re-arm path exists (`setPlayer` is identity-guarded, FF-13). The `pip
+  start|stop` row is the surface's own (`onNativePip`); `watch.tsx` holds no
+  `pipActive` state yet — ff-spec §6.2's `useState` and its
+  `onPictureInPictureChange` prop are WP-04's, whose PiP/interruption policy
+  is the first reader (§10, judgment 5).
 
 ## 5. The rows (§7)
 
@@ -324,8 +328,11 @@ start|stop|request refused while tuning` · `link → channel N`.
    without PiP: `N hold why=A …` then `N app active` → `N fire`; PICTURE OUT
    while tuning: `pip request refused while tuning` and no `N pip start`.
 9. **Patch.** `N item` precedes `replaceAsync resolve` in host time on every
-   tune; `startPlayback ok` on every attempt; `unbound` is followed by
-   `attempt #2 reason=no-item` at +0 ms.
+   tune; `startPlayback ok` on every attempt; `unbound` appears only with a
+   preceding `N item nil` and is followed by `playerError media: no item
+   after resolve failures=1` → `retry scheduled in=0ms` → `attempt #2
+   reason=no-item` at +0 ms (the ladder's index 0 — §10 judgment 2; ff-spec
+   §10.9 lists neither row between).
 10. **Console power-on.** A full tune with `origin=power opening=yes`, static
     shown, no flash.
 11. **Same-channel re-tune in error.** `TUNE START` → `gen invalidated` →
@@ -403,3 +410,53 @@ colour is the seat's `#000` (FF-16): if the snow ever fails, the failure reads
 as "the set is on, no picture, the plate says A MOMENT, PLEASE" — never a
 grey nobody can place. `@shopify/react-native-skia` no longer draws the
 native static.
+
+## 10. Judgment calls against ff-spec (R52 — each is his to reverse)
+
+ff-spec §11.3 lists the design's own; these are the implementation's, the
+places this branch does not do what §4–§6 wrote, each with the one-line why
+and the reversal.
+
+1. **expo's `statusChange error` before settle is dropped, not latched**
+   (§6.1 `reportPlayerError`; race-1 R3). Why: the payload names no item and
+   the stamp is the generation at arrival, so before settle it is most likely
+   the old item's error wearing the new number; a latch would replay it as
+   attempt #1's failure (a spurious `failures=2`, a 2 s retry on a healthy
+   item). The new item's failures still reach the ladder through the stamped
+   paths — `onItemFailed`, a chain rejection, `startPlayback → failed`
+   (judgment 3). Row: `playerError dropped (settle pending): …`. Reversal: in
+   `firstFrameGate.ts` `status-error`, route the pre-settle case through
+   `fail()` (which latches) — one branch.
+2. **`startPlayback → unbound` and `onItemLost` are ladder failures**
+   (counted, bounded), not §6.1's unconditional 0 ms `rebuild('no-item')` /
+   `rebuild('item-lost')`. Why: the first is 0 ms either way
+   (`retryDelayMs(1) = 0`); an `unbound` that repeats (no player attached, a
+   view whose functions are missing) would otherwise rebuild in a tight loop,
+   each a real `replaceAsync` against the station. Cost: a genuine failure on
+   the rebuilt attempt waits 2 s instead of 0; three in a row relabel the
+   plate; the rows between `unbound` and `attempt #2` are `playerError media:
+   no item after resolve failures=1` and `retry scheduled in=0ms` (check 9;
+   ff-spec §10.9 lists neither). Reversal: in `fail()`, skip the `failures`
+   increment and the `playerError` row when `reason` is `no-item` or
+   `item-lost`.
+3. **`startPlayback` answers `"failed"`** for an item already `.failed`
+   (§4.2/§4.3 list four results). Why: it closes judgment 1's one gap — an
+   item bound `g=-1` (after an `expect` rejection) that fails before settle
+   has no stamped path and its expo error was dropped; adopted at
+   `startPlayback`, it would otherwise sit silent under the static (§3.6).
+4. **The static's animation delegate is a weak proxy, not `self`** (§4.4
+   `a.delegate = self`), and an off-window view drops its animation. Why:
+   `CAAnimation.delegate` is `strong`; with an infinite
+   `isRemovedOnCompletion = false` animation the spec's line is a retain cycle
+   and a static view leaks per tune (§8). No row changes.
+5. **`watch.tsx` holds no `pipActive` state** (§6.2's `useState` and
+   `onPictureInPictureChange` prop). Why: the surface writes the `pip
+   start|stop` row itself and nothing on the screen reads the state today;
+   WP-04's PiP/interruption policy is the first reader and wires the prop
+   (that line belongs on 05-PLAN.md's WP-04 entry, outside this branch).
+6. **Availability is read from the module object** (§4.5's `try { return
+   requireNativeViewManager… } catch { return null }`). Why: the spec's catch
+   never catches (§1, §7); the seat and `witness=absent` were unreachable.
+7. **`startPlayback threw <msg>`** is the surface's row for a rejected native
+   call (§7 wrote `startPlayback failed <msg>`), so a paste cannot read it as
+   the `failed` result.
