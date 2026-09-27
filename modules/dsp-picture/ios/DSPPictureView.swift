@@ -97,8 +97,10 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
   var playerLayer: AVPlayerLayer { host.playerLayer }
 
   // MARK: state
-  private weak var playerRef: SharedRef<AVPlayer>?
-  private var player: AVPlayer? { playerRef?.ref }
+  // Held for the attach's lifetime (the layer holds it too). expo releases its
+  // SharedRef on unmount in no fixed order with Fabric's teardown of this view;
+  // unbind and detach must still reach the player to remove what they installed.
+  private var player: AVPlayer?
   private var playerObservers: [NSKeyValueObservation] = []
   private var layerObservers: [NSKeyValueObservation] = []
   private var appObservers: [NSObjectProtocol] = []
@@ -133,7 +135,14 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
     installAppObservers()
   }
 
+  // Set first in deinit. The Fabric event handler captures this view weakly
+  // (ExpoFabricView.installEventDispatchers) and is already nil once deinit
+  // begins, so a row from the teardown could only log "Cannot dispatch an event
+  // while the managing ExpoFabricView is deallocated". The teardown itself runs.
+  private var tearingDown = false
+
   deinit {
+    tearingDown = true
     detachPlayer(reason: "deinit")
     layerObservers.forEach { $0.invalidate() }
     (appObservers + audioObservers).forEach { NotificationCenter.default.removeObserver($0) }
@@ -162,11 +171,11 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
   // MARK: player attach / detach (identity-guarded: Fabric re-applies every prop on any props commit)
 
   func setPlayer(_ newRef: SharedRef<AVPlayer>?) {
-    if let newRef, let current = playerRef, current === newRef { return }
+    if let newRef, let current = player, current === newRef.ref { return }
     detachPlayer(reason: newRef == nil ? "unset" : "replace")
     guard let newRef else { return }
-    playerRef = newRef
     let p = newRef.ref
+    player = p
     // No expo VideoView is registered any more, so VideoManager.onAppBackgrounded (VideoManager.swift:49-61)
     // never writes this. .continuesIfPossible = audio continues in the background; PiP keeps the video (R14 / decision 1).
     p.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
@@ -178,7 +187,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
   }
 
   private func detachPlayer(reason: String) {
-    guard playerRef != nil || bound != nil else { return }
+    guard player != nil || bound != nil else { return }   // exact: `player` is held for the attach's lifetime
     if let b = bound { unbind(b, reason: reason) }
     playerObservers.forEach { $0.invalidate() }
     playerObservers.removeAll()
@@ -186,7 +195,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
     pip?.delegate = nil; pip = nil
     pipActive = false
     playerLayer.player = nil
-    playerRef = nil
+    player = nil
     pending = nil
     row("N detach", reason)
   }
@@ -637,6 +646,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
   // MARK: rows and helpers
 
   private func row(_ name: String, _ detail: String, _ b: BoundItem? = nil) {
+    guard !tearingDown else { return }
     if let t0 = createdAt {
       createdAt = nil
       onTrace(["t": t0, "g": -1, "i": "-", "name": "N view", "detail": "init"])

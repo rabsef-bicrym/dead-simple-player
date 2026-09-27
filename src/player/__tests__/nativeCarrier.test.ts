@@ -103,9 +103,17 @@ describe('modules/dsp-picture — the local module', () => {
   });
 
   it('setPlayer is identity-guarded and nothing re-arms on layout (FF-13)', () => {
-    expect(picture).toMatch(/if let newRef, let current = playerRef, current === newRef \{ return \}/);
+    expect(picture).toMatch(/if let newRef, let current = player, current === newRef\.ref \{ return \}/);
     const layout = picture.slice(picture.indexOf('public override func layoutSubviews()'), picture.indexOf('public override func willMove'));
     expect(layout).not.toMatch(/expect|installPlayerObservers|setPlayer|BoundItem/);
+  });
+
+  it('the view holds its player for the attach\'s lifetime, and its deinit tears down without dispatching a row', () => {
+    expect(picture).toMatch(/private var player: AVPlayer\?/);
+    expect(code(picture)).not.toMatch(/playerRef/);                                             // no weak ref to read nil
+    expect(picture).toMatch(/deinit \{\s*tearingDown = true\s*detachPlayer\(reason: "deinit"\)/);
+    const rowFn = picture.slice(picture.indexOf('private func row('), picture.indexOf('private func onMain('));
+    expect(rowFn).toMatch(/guard !tearingDown else \{ return \}/);
   });
 
   it('the static is a keyframe animation whose liveness rows come from the delegate and the presentation layer', () => {
