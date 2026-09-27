@@ -240,12 +240,12 @@ or −1: printed only when positive), `i` = the item's short id (omitted when
 |---|---|---|
 | `N view init` | view created | — |
 | `N attach` | `setPlayer` (identity-guarded) | `tcs= rate= waits= item=nil\|set ext=` |
-| `N detach` | player unset/replaced/deinit | `<reason>` |
+| `N detach` | player unset/replaced | `<reason>` — the deinit teardown runs the same detach with no row (the Fabric handler that would carry it holds the view weakly and is already nil) |
 | `N expect` | JS `expect(g, uri)` | `g= uri= rate=<after pause> current=<item\|none>` |
 | `N item` | non-nil `currentItem` KVO | `id= status=unknown\|ready\|failed uriMatch=yes\|no\|no-expectation g= rfd0= rate= tcs= prev=` |
 | `N item nil` | nil `currentItem` KVO | `rate= tcs= prev= pending=<g\|0>` |
 | `N config` | after the live-offset write, same KVO | `configured= recommended= preserve=no fwd= waits= seekable=[a,b]` |
-| `N unbind` | item edge / detach / deinit | `reason=itemChange\|itemNil\|unset\|replace\|deinit fired= polls=` |
+| `N unbind` | item edge / detach | `reason=itemChange\|itemNil\|unset\|replace fired= polls=` (deinit unbinds without a row, as above) |
 | `N lost` | a started, unfired item unbound by a nil edge | `g=` (+ event `onItemLost`) |
 | `N itemStatus` | item `status` KVO | `<old>→<new> [err=<domain>/<code> <desc>]` (+ event `onItemFailed` on `failed`) |
 | `N tcs` | `timeControlStatus` KVO | `paused\|waiting\|playing reason= rate= tb= tbEff=` |
@@ -351,8 +351,13 @@ expo-video 3.0.16 in `node_modules`, and Apple's documentation:
 `AVPlayer.WaitingReason` is a struct (`default:` prints `rawValue`);
 `change.newValue` for `\.isReadyForDisplay` is `Bool?`; the CV pixel-format
 key is `CFString` → `as String`; `UIApplication.shared` is read on main only
-(`onMain`); every observation is invalidated in `unbind`/`detachPlayer`;
-`deinit` calls `detachPlayer`; the boil link's target is a proxy; every
+(`onMain`); every observation is invalidated in `unbind`/`detachPlayer`,
+which read the `AVPlayer` the view holds for the attach's lifetime (expo may
+release its `SharedRef` first; the layer holds the player too, so this adds
+no retention); `deinit` sets `tearingDown` and calls `detachPlayer` — the
+teardown runs, no row is dispatched (`ExpoFabricView.installEventDispatchers`
+captures the view weakly, nil once deinit begins); the boil link's target is
+a proxy; every
 `EventDispatcher` property is named exactly as its `Events(...)` string
 (`nativeCarrier.test.ts` holds this); `Prop("player")` typed
 `SharedRef<AVPlayer>?` is legal (`AnySharedObject: AnyArgument`,
