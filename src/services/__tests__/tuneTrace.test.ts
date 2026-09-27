@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { STORAGE_KEYS } from '../../constants/storage';
 import {
   MAX_AFTER,
@@ -468,6 +470,11 @@ describe('tuneTrace persistence', () => {
 
 describe('tuneTrace serialisation', () => {
   it('(g) replays the build-19 paste byte for byte', () => {
+    // The rows as build 19 printed them, fed to the serialiser as details.
+    // Two have since changed shape — `first timeUpdate` prints `requested=`
+    // and `static unmount` became `tuning cleared` (docs/tune-trace.md) —
+    // so this proves the serialiser, not the surfaces; the drift guard
+    // below holds the native surface to its shape.
     const clock = makeClock(T0);
     __resetTuneTraceForTests(clock.now);
     const uri = 'http://100.85.152.35:8409/iptv/channel/5.m3u8?mode=segmenter';
@@ -514,5 +521,19 @@ describe('tuneTrace serialisation', () => {
     expect(text.split('\n\n')).toHaveLength(2);
     expect(text.startsWith('TUNE B @ 2026-09-27T04:27:16.472Z')).toBe(true);
     expect(text).toContain('TUNE A @ 2026-09-27T04:27:15.472Z\n  +0ms TUNE START A\n  -- closed: superseded @ +1000ms --');
+  });
+});
+
+// ── Drift guard against the native surface itself ──
+
+describe('the native surface prints what docs/tune-trace.md says', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'player', 'PlayerSurface.native.tsx'), 'utf8');
+
+  it('first timeUpdate carries the requested URI as requested=', () => {
+    expect(source).toMatch(/traceEvent\('first timeUpdate', `\$\{currentTime\.toFixed\(3\)\}s requested=\$\{/);
+  });
+
+  it('onFirstFrameRender prints sourceUri= and matched=', () => {
+    expect(source).toMatch(/`sourceUri=\$\{receivedUri \?\? 'absent'\} · matched=\$\{matched \? 'yes' : 'no'\}`/);
   });
 });
