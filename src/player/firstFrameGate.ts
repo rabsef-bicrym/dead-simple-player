@@ -67,7 +67,7 @@ export type GateEvent =
   | { type: 'native-first-frame'; g: number; item: string; via: string }
   | { type: 'native-item-failed'; g: number; item: string; error: PlayerError }
   | { type: 'native-item-lost'; g: number; item: string }
-  /** expo's `statusChange error`, stamped with the generation current at arrival. */
+  /** expo's `statusChange error`, stamped with the generation current at arrival (its payload names no item). */
   | { type: 'status-error'; g: number; error: PlayerError }
   /** Buffer health: `readyToPlay`, `playingChange true`, an advancing `timeUpdate`. */
   | { type: 'ready' }
@@ -290,8 +290,21 @@ export function reduceGate(state: GateState, event: GateEvent): GateResult {
       s = fail(s, g, { kind: 'media', message: 'item lost before its first frame' }, 'item-lost', actions);
       return { state: s, actions };
     }
-    case 'status-error':
-      return { state: fail(s, event.g, event.error, 'retry', actions), actions };
+    case 'status-error': {
+      const { g, error } = event;
+      if (g === s.sourceGeneration && s.settledGeneration !== g) {
+        // expo's payload names no item, and the stamp is the generation at
+        // arrival: before settle this may be the OLD item's error wearing
+        // the new number, and a latch would replay it as the new attempt's
+        // failure (a spurious failures=2, a 2 s retry on a healthy item).
+        // Only stamped facts latch: the module's `onItemFailed` and a chain
+        // rejection cover every load failure of the new item, so nothing is
+        // lost by dropping this one.
+        actions.push(trace('playerError', `dropped (settle pending): ${error.message}`, g));
+        return { state: s, actions };
+      }
+      return { state: fail(s, g, error, 'retry', actions), actions };
+    }
     case 'ready':
       return { state: reportReady(s, actions), actions };
     case 'retry-fired': {
