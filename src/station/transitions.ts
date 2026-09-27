@@ -43,8 +43,9 @@ export type Arrival =
  * cold master GET can throttle the session), a channel in error is re-tuned
  * through `invalidate()` + `rejoin('retune')` (decision 16, WS-20). Flash
  * unless the tune came from a visible register tap (R24, the bloom is the
- * acknowledgment) and unless the static is up (`:500`); the full branch
- * flashes on every origin but `register` and `power` (`:520-524`).
+ * acknowledgment) and unless the static is up; the full branch flashes on
+ * every origin but `register` and `power` (both in `watch.tsx` tuneTo, as
+ * `matrix.ts` cites it — the bead381 line numbers no longer hold there).
  */
 export function sameChannelArrival(scene: ArrivalScene): Arrival {
   if (scene.playbackActive && scene.sameIndex && scene.playerError === null) {
