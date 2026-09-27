@@ -12,14 +12,21 @@ import { setSoundMuted, isSoundMuted, setSignoffTone, getSignoffTone } from '../
 import { timeToProse } from '../src/utils/prose';
 import { useCabinet } from '../src/hooks/useCabinet';
 import * as Clipboard from 'expo-clipboard';
-import { getTuneTraceSnapshot, type TuneTrace } from '../src/services/tuneTrace';
+import {
+  describeTuneTrace,
+  describeTuneTraceDropped,
+  getTuneTraceDroppedCount,
+  getTuneTraceSnapshot,
+  serializeTuneTraceRows,
+  serializeTuneTraces,
+} from '../src/services/tuneTrace';
 import type { SavedServer } from '../src/types';
 
-function serializeTuneTraces(traces: TuneTrace[]): string {
-  return traces.map((tune) => [
-    `TUNE ${tune.channelName} @ ${new Date(tune.startedAt).toISOString()}`,
-    ...tune.events.map((e) => `  +${e.offsetMs}ms ${e.name}${e.detail ? ` ${e.detail}` : ''}`),
-  ].join('\n')).join('\n\n');
+/** The bench shows the last five tunes (R28); the ring behind it keeps 20. */
+const TRACE_CARD_TUNES = 5;
+
+function readTuneTrace() {
+  return { tunes: getTuneTraceSnapshot(TRACE_CARD_TUNES), dropped: getTuneTraceDroppedCount() };
 }
 
 /**
@@ -42,7 +49,7 @@ export default function SettingsScreen() {
   const [flashStyle, setFlashStyle] = useState<'brief' | 'six'>('brief');
   const [silent, setSilent] = useState(isSoundMuted());
   const [signoff, setSignoff] = useState<'soft' | 'silent'>(getSignoffTone());
-  const [tuneTraces, setTuneTraces] = useState(getTuneTraceSnapshot);
+  const [tuneTrace, setTuneTrace] = useState(readTuneTrace);
   const { isPhone } = useCabinet();
 
   useEffect(() => {
@@ -121,13 +128,15 @@ export default function SettingsScreen() {
   }, [signoff]);
 
   const refreshTuneTrace = useCallback(() => {
-    setTuneTraces(getTuneTraceSnapshot());
+    setTuneTrace(readTuneTrace());
   }, []);
 
   const [traceCopied, setTraceCopied] = useState(false);
   const traceCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyTuneTrace = useCallback(() => {
-    void Clipboard.setStringAsync(serializeTuneTraces(getTuneTraceSnapshot()));
+    // COPY carries exactly the five the bench shows.
+    const { tunes, dropped } = readTuneTrace();
+    void Clipboard.setStringAsync(serializeTuneTraces(tunes, dropped));
     setTraceCopied(true);
     if (traceCopiedTimer.current) clearTimeout(traceCopiedTimer.current);
     traceCopiedTimer.current = setTimeout(() => setTraceCopied(false), 1400);
@@ -290,15 +299,17 @@ export default function SettingsScreen() {
               />
               <PlateButton label="AGAIN" onPress={refreshTuneTrace} compact />
             </View>
-            {tuneTraces.length === 0 ? (
+            {tuneTrace.dropped > 0 && (
+              <Text style={styles.traceLine} selectable>{describeTuneTraceDropped(tuneTrace.dropped)}</Text>
+            )}
+            {tuneTrace.tunes.length === 0 ? (
               <Text style={styles.traceEmpty}>NO TUNES HAVE REACHED THE BENCH.</Text>
-            ) : tuneTraces.map((tune, tuneIndex) => (
-              <View key={`${tune.startedAt}-${tune.channelName}-${tuneIndex}`} style={tuneIndex === 0 ? undefined : styles.traceTuneOlder}>
+            ) : tuneTrace.tunes.map((tune, tuneIndex) => (
+              <View key={tune.id} style={tuneIndex === 0 ? undefined : styles.traceTuneOlder}>
                 <Text style={styles.traceChannel}>{tune.channelName.toUpperCase()}</Text>
-                {tune.events.map((event, eventIndex) => (
-                  <Text key={`${event.offsetMs}-${event.name}-${eventIndex}`} style={styles.traceLine} selectable>
-                    +{event.offsetMs}ms {event.name}{event.detail ? ` ${event.detail}` : ''}
-                  </Text>
+                <Text style={styles.traceLine} selectable>{describeTuneTrace(tune)}</Text>
+                {serializeTuneTraceRows(tune).map((line, lineIndex) => (
+                  <Text key={lineIndex} style={styles.traceLine} selectable>{line}</Text>
                 ))}
               </View>
             ))}

@@ -20,4 +20,6 @@ export const STORAGE_KEYS = {
   UPRIGHT_MODE: '@ipswitch/upright-mode',
   /** Sign-off tone: 'soft' (1 kHz, softly) | 'silent' */
   SIGNOFF_TONE: '@ipswitch/signoff-tone',
+  /** The TUNE TRACE ring, last 20 tunes, JSON (diagnostics, never telemetry) */
+  TUNE_TRACE: '@ipswitch/tune-trace',
 } as const;
