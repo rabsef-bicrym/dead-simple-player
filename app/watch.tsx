@@ -19,7 +19,7 @@ import { useServerConfig } from '../src/hooks/useServerConfig';
 import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
 import { fetchIptvChannels, fetchIptvGuide, type GuideState } from '../src/services/iptv';
 import { restoreLastChannelIndex } from '../src/services/channelStorage';
-import { traceEvent, traceTuneStart } from '../src/services/tuneTrace';
+import { traceCloseTune, traceEvent, traceTuneStart, type TuneTraceCloseReason } from '../src/services/tuneTrace';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { CURSOR_HOME, ROWS_DS6, SCROLL_MAX, SCROLL_MIN } from '../src/station/board';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
@@ -171,6 +171,13 @@ export default function WatchScreen() {
   const transitionGen = useRef(0);
   const flashToken = useRef(0);
   const playerRef = useRef<PlayerSurfaceHandle | null>(null);
+  // The trace id of the tune in progress. The rows this screen writes and
+  // the close it declares are attributed by it, never by arrival order.
+  const tuneIdRef = useRef<number | null>(null);
+  const closeTune = useCallback((reason: TuneTraceCloseReason) => {
+    const id = tuneIdRef.current;
+    if (id != null) traceCloseTune(id, reason);
+  }, []);
   const playbackActiveRef = useRef(false);
   const registerTuneSequence = useRef(0);
   const registerTuneOrigin = useRef<TuneOrigin>('swipe');
@@ -501,8 +508,11 @@ export default function WatchScreen() {
       if (origin !== 'register' && !tuning) flashChannel();
       return;
     }
-    traceTuneStart(channels[index]?.name ?? `CHANNEL ${index + 1}`);
     const openingPicture = !playbackActiveRef.current;
+    tuneIdRef.current = traceTuneStart(
+      channels[index]?.name ?? `CHANNEL ${index + 1}`,
+      { origin, opening: openingPicture },
+    );
     playbackActiveRef.current = true;
     setPlaybackActive(true);
     setTuning(true);
@@ -562,6 +572,7 @@ export default function WatchScreen() {
     beginTransition();
     playbackActiveRef.current = false;
     setPlaybackActive(false);
+    closeTune('left');
     setTuning(false);
     setSourceReady(false);
     setRegisterTuneRequest(null);
@@ -571,7 +582,7 @@ export default function WatchScreen() {
     setDetailProgramme(null);
     setHomeEntrance(entrance);
     setHomeVisible(true);
-  }, [beginTransition]);
+  }, [beginTransition, closeTune]);
 
   /** Open This Evening — the board — showing the given channel. */
   const openBoard = useCallback((atIndex: number) => {
@@ -594,11 +605,12 @@ export default function WatchScreen() {
     beginTransition();
     playbackActiveRef.current = false;
     setPlaybackActive(false);
+    closeTune('left');
     setTuning(false);
     setSourceReady(false);
     setHomeVisible(false);
     setSignOff(true);
-  }, [beginTransition]);
+  }, [beginTransition, closeTune]);
 
   const powerOffDesktop = useCallback(() => {
     beginTransition();
@@ -632,11 +644,17 @@ export default function WatchScreen() {
       openHome(safeIndex, isPhone && !isLandscape ? 'stamp' : 'none');
     } else {
       // Console DS-6 keeps its established turn-it-on-and-it-is-on behavior.
+      // Power-on is a tune and is traced like one (NP-10); the static on
+      // this path is decision 4's and lands with the station store.
+      tuneIdRef.current = traceTuneStart(
+        channels[safeIndex]?.name ?? `CHANNEL ${safeIndex + 1}`,
+        { origin: 'power', opening: true },
+      );
       playbackActiveRef.current = true;
       setPlaybackActive(true);
       setBuffering(true);
     }
-  }, [welcome, indexRestored, channels.length, safeIndex, openHome, isPhone, isLandscape]);
+  }, [welcome, indexRestored, channels, safeIndex, openHome, isPhone, isLandscape]);
 
   // ── Magic links ──
   // deadsimpleplayer://watch?channel=19 — another program (a note from
@@ -668,9 +686,10 @@ export default function WatchScreen() {
     if (number == null) return;
     const index = channels.findIndex((c) => c.number === number);
     if (index < 0) return;
-    traceEvent(`link → channel ${number}`);
     welcomed.current = true;
     tuneTo(index, 'link');
+    // After tuneTo, so the arrival is filed under the tune it caused (WS-23).
+    traceEvent(`link → channel ${number}`);
   }, [linkToken, indexRestored, channels, tuneTo]);
 
   // Reset playback state for the pending source. The static interstitial owns
@@ -686,7 +705,8 @@ export default function WatchScreen() {
 
   useEffect(() => {
     if (tuning && sourceReady && watchRevealDone) {
-      traceEvent('static unmount', 'tuning cleared');
+      // The static's unmount is the next commit; this row is the decision.
+      traceEvent('tuning cleared', undefined, { tuneId: tuneIdRef.current ?? undefined });
       setTuning(false);
     }
   }, [sourceReady, tuning, watchRevealDone]);
@@ -845,6 +865,7 @@ export default function WatchScreen() {
     setStopping(true);
     playbackActiveRef.current = false;
     setPlaybackActive(false);
+    closeTune('left');
     setTuning(false);
     setSourceReady(false);
     bufferingRef.current = false;
@@ -909,7 +930,7 @@ export default function WatchScreen() {
       stopHomeTimer.current = null;
       if (transitionGen.current === generation) showExpandedRegister();
     }, COLLAPSE_VERTICAL_MS + COLLAPSE_LINE_TO_DOT_MS + COLLAPSE_COOL_MS + 30);
-  }, [beginTransition, cancelFlash, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, stopping]);
+  }, [beginTransition, cancelFlash, closeTune, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, stopping]);
 
   // ── Keyboard remote (web / desktop): a TV deserves a remote ──
   useEffect(() => {
@@ -1039,9 +1060,10 @@ export default function WatchScreen() {
   // event means attributable pixels. A stream that never paints keeps the
   // static, and the error path owns that ending.
   const handleFirstFrame = useCallback(() => {
-    traceEvent('sourceReady set');
+    traceEvent('sourceReady set', undefined, { tuneId: tuneIdRef.current ?? undefined });
+    closeTune('first-frame');
     setSourceReady(true);
-  }, []);
+  }, [closeTune]);
 
   const handlePlayerBuffering = useCallback((isBuffering: boolean) => {
     if (!isBuffering) lastProgressAt.current = Date.now();
@@ -1051,11 +1073,12 @@ export default function WatchScreen() {
   }, []);
 
   const handlePlayerError = useCallback((error: PlayerError) => {
+    closeTune('error-surfaced');
     setPlayerError(error.message);
     bufferingRef.current = false;
     setBuffering(false);
     setShowBufferingOverlay(false);
-  }, []);
+  }, [closeTune]);
 
   const mediaSessionControls = useMemo(() => ({
     onPreviousTrack: () => {
