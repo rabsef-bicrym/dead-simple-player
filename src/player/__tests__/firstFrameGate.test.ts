@@ -8,6 +8,14 @@ import {
   type GateEvent,
   type GateState,
 } from '../firstFrameGate';
+import {
+  __resetTuneTraceForTests,
+  getTuneTraceDroppedCount,
+  getTuneTraceSnapshot,
+  traceBindGeneration,
+  traceEvent,
+  traceTuneStart,
+} from '../../services/tuneTrace';
 
 /** A surface stand-in: dispatches, keeps the state, collects every action. */
 function harness(start = 0) {
@@ -57,7 +65,7 @@ describe('generations', () => {
     h.dispatch({ type: 'invalidate' });
     expect(h.state.sourceGeneration).toBe(8);
     expect(h.state.pendingTuneGeneration).toBe(8);
-    expect(h.names()).toEqual(['gen invalidated g=8']);
+    expect(h.names()).toEqual(['bind-generation', 'gen invalidated g=8']);
     h.take();
     h.dispatch({ type: 'take', reason: 'source' });
     expect(h.state.sourceGeneration).toBe(8);
@@ -378,5 +386,80 @@ describe('rejoin', () => {
     h.take();
     h.dispatch({ type: 'take', reason: 'rejoin', detail: 'rejoin:resume' });
     expect(h.of('replace')).toHaveLength(0);
+  });
+});
+
+// ── The ring, fed as the surface feeds it (no mocks): every row of a tune files under it ──
+
+describe('the rows a tune writes all find it (ff-spec §10 checks 4 and 11)', () => {
+  /** The surface's `perform`, reduced to what routes rows; every other action is a no-op here. */
+  function surface(start = 0) {
+    const h = harness(start);
+    const dispatch = (event: GateEvent) => {
+      for (const a of h.dispatch(event)) {
+        if (a.type === 'trace') traceEvent(a.name, a.detail, { g: a.g });
+        else if (a.type === 'bind-generation') traceBindGeneration(a.g);
+      }
+    };
+    /** A listener row, stamped with the generation current at arrival (`arrivalGeneration()`). */
+    const listenerRow = (name: string, detail: string) => traceEvent(name, detail, { g: h.state.sourceGeneration });
+    return { dispatch, listenerRow, get state() { return h.state; } };
+  }
+  const rows = (index: number) => getTuneTraceSnapshot()[index].events.map((e) => e.name);
+  const gens = (index: number) => getTuneTraceSnapshot()[index].gens;
+
+  beforeEach(() => {
+    let t = Date.parse('2026-09-27T04:27:15.472Z');
+    __resetTuneTraceForTests(() => (t += 1));
+  });
+
+  it('a second tune from a mounted surface: gen invalidated, a listener row in the window and gen bound all file under it, dropped=0', () => {
+    const s = surface();
+    // tune 1: mount, settle, fire
+    traceTuneStart('A', { origin: 'power', opening: true });
+    s.dispatch({ type: 'take', reason: 'source' });
+    s.dispatch({ type: 'settle', g: 1 });
+    s.dispatch({ type: 'native-first-frame', g: 1, item: 'a1', via: 'rfdKvo' });
+    // tune 2, as tuneTo does it: the record first, then invalidate, then React's effect
+    traceTuneStart('B', { origin: 'remote', opening: false });
+    s.dispatch({ type: 'invalidate' });
+    s.listenerRow('statusChange', 'loading');
+    s.dispatch({ type: 'take', reason: 'source' });
+    expect(rows(0)).toEqual(['TUNE START', 'gen invalidated', 'statusChange', 'gen bound']);
+    expect(gens(0)).toEqual([2]);
+    expect(rows(1)).toEqual(['TUNE START', 'gen bound', 'firstFrame']);
+    expect(getTuneTraceDroppedCount()).toBe(0);
+  });
+
+  it('the same-channel rejoin (decision 16): TUNE START → gen invalidated → rejoin retune → attempt, under one tune, dropped=0', () => {
+    const s = surface();
+    traceTuneStart('A', { origin: 'remote', opening: true });
+    s.dispatch({ type: 'take', reason: 'source' });
+    s.dispatch({ type: 'settle', g: 1 });
+    s.dispatch({ type: 'native-item-failed', g: 1, item: 'a1', error: media('404') });
+    // the arrival on the channel in error
+    traceTuneStart('A', { origin: 'remote', opening: false });
+    s.dispatch({ type: 'invalidate' });
+    traceEvent('rejoin', 'retune', { g: s.state.sourceGeneration });   // the surface's rejoin(), before its take
+    s.dispatch({ type: 'take', reason: 'rejoin', detail: 'rejoin:retune' });
+    expect(rows(0)).toEqual(['TUNE START', 'gen invalidated', 'rejoin', 'attempt']);
+    expect(getTuneTraceSnapshot()[0].events.map((e) => e.detail)).toEqual(['A', 'g=2', 'retune', '#2 reason=rejoin:retune']);
+    expect(gens(0)).toEqual([2]);
+    expect(getTuneTraceDroppedCount()).toBe(0);
+  });
+
+  it('a fire for the old item arriving between invalidate and the take is the old tune\'s row, marked stale', () => {
+    const s = surface();
+    traceTuneStart('A');
+    s.dispatch({ type: 'take', reason: 'source' });
+    s.dispatch({ type: 'settle', g: 1 });
+    traceTuneStart('B');
+    s.dispatch({ type: 'invalidate' });
+    s.dispatch({ type: 'native-first-frame', g: 1, item: 'a1', via: 'rfdKvo' });
+    s.dispatch({ type: 'take', reason: 'source' });
+    expect(rows(0)).toEqual(['TUNE START', 'gen invalidated', 'gen bound']);
+    const old = getTuneTraceSnapshot()[1];
+    expect(old.after.map((e) => `${e.name} ${e.detail}`)).toEqual(['firstFrame i=a1 via=rfdKvo accepted=stale current=2']);
+    expect(getTuneTraceDroppedCount()).toBe(0);
   });
 });

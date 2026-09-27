@@ -215,6 +215,12 @@ export function reduceGate(state: GateState, event: GateEvent): GateResult {
     case 'invalidate': {
       const g = s.nextGeneration + 1;
       s = resetForGeneration({ ...s, nextGeneration: g, sourceGeneration: g, pendingTuneGeneration: g }, actions);
+      // tuneTo opened the tune record the instant before this: the router
+      // learns the owner now, so this row and everything stamped in the
+      // invalidate→take window (the rejoin row, a listener row stamped at
+      // arrival) file under that tune instead of lighting the dropped line
+      // (H-L). The take's bind of the same number is idempotent.
+      actions.push({ type: 'bind-generation', g });
       actions.push(trace('gen invalidated', `g=${g}`, g));
       return { state: s, actions };
     }
