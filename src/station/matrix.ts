@@ -1300,7 +1300,7 @@ function baseCount(v: StationView): number {
 
 export const INVARIANTS: readonly Invariant[] = [
   { n: 1, name: 'one base', text: 'Exactly one base at all times; base is never blank.', cite: 'watch-state.md §g.3 1', todayViolatedBy: ['WS-01', 'WS-02'], check: (v) => baseCount(v) === 1 && !surfacesToday(v).blank },
-  { n: 2, name: 'static under watching', text: 'The static shows only under watching; it ends iff firstFrame && revealDone — no other path, no timer.', cite: 'watch.tsx:686-691, 1152', todayViolatedBy: [], check: (v) => !v.tuning || watchingOf(v) || v.stopping },
+  { n: 2, name: 'static under watching', text: 'The static shows only under watching; it ends iff firstFrame && revealDone — no other path, no timer.', cite: 'watch.tsx:686-691, 1152', todayViolatedBy: ['WS-21'], check: (v) => !v.tuning || watchingOf(v) },
   { n: 3, name: 'one writer of firstFrame', text: 'firstFrame is set only by FIRST_FRAME carrying the current generation; TUNE resets it.', cite: 'watch.tsx:1040-1043, 507', todayViolatedBy: [] },
   { n: 4, name: 'home has no picture', text: 'home ⇒ no live picture.', cite: 'watch.tsx:560-573', todayViolatedBy: [], check: (v) => !v.homeVisible || !v.playbackActive },
   { n: 5, name: 'signoff is bare', text: 'signoff ⇒ no board, no notes, no register request.', cite: 'watch.tsx:592-600', todayViolatedBy: ['WS-21'], check: (v) => !v.signOff || (!v.boardVisible && !v.notes && !v.registerRequest) },
@@ -1313,7 +1313,7 @@ export const INVARIANTS: readonly Invariant[] = [
   { n: 12, name: 'deferred writes settle', text: 'Each deferred write belongs to one generation; a bump both cancels it and leaves the state complete without it.', cite: 'watch.tsx:185-196', todayViolatedBy: ['WS-01', 'WS-22'] },
   { n: 13, name: 'one writer of channel', text: 'channel changes only by TUNE or INDEX_RESTORED; LAST_CHANNEL_ID mirrors it.', cite: 'watch.tsx:312-329, 514', todayViolatedBy: [] },
   { n: 14, name: 'no mirror refs', text: 'playbackActiveRef, bufferingRef, currentStreamUrlRef do not exist; handlers read one latest ref.', cite: 'watch.tsx:168-183', todayViolatedBy: ['WS-05'] },
-  { n: 15, name: 'the player stays mounted while watching', text: 'PlayerSurface mounts iff watching; no early return above the tree may unmount it while watching.', cite: 'watch.tsx:1069, 1215', todayViolatedBy: ['WS-16'], check: (v) => !watchingOf(v) || surfacesToday(v).player || v.dataLoading || v.dataError },
+  { n: 15, name: 'the player stays mounted while watching', text: 'PlayerSurface mounts iff watching; no early return above the tree may unmount it while watching.', cite: 'watch.tsx:1069, 1215', todayViolatedBy: ['WS-16'], check: (v) => !watchingOf(v) || surfacesToday(v).player },
 ];
 
 /** `watch-state.md` §b.2 as today's flags, with the surfaces each must show. */
@@ -1344,6 +1344,7 @@ export const REACHABLE: readonly ReachableView[] = [
   { id: 'R13b', how: 'stopPlayback → openBoard → board Escape: the collapse timer is gone, the charge line stays', view: view({ stopping: true }), surfaces: { crtLine: true, home: false, board: false, player: false }, violates: [6], tag: 'fix:WS-01' },
   { id: 'R13c', how: 'stopPlayback → openBoard (within 380 ms)', view: view({ stopping: true, boardVisible: true }), surfaces: { board: true, crtLine: true }, violates: [6, 7], tag: 'fix:WS-01' },
   { id: 'R14', how: 'a link on web with no gesture', view: view({ playbackActive: true, tuning: true }), surfaces: { player: true, static: true }, violates: [], tag: 'asis' },
+  { id: 'R-switch-while-watching', how: 'a server switch or TRY AGAIN with the picture live (web history Forward into /settings)', view: view({ playbackActive: true, sourceReady: true, dataLoading: true }), surfaces: { warming: true, player: false }, violates: [15], tag: 'fix:WS-16' },
   { id: 'R-signoff-link', how: 'a link during sign-off', view: view({ cabinet: 'phone-landscape', signOff: true, playbackActive: true, tuning: true }), surfaces: { signoff: true, player: false, static: false }, violates: [2], tag: 'fix:WS-21' },
 ];
 

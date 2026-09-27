@@ -13,6 +13,8 @@
  * one import at :24; read +1 for anything after it).
  */
 
+import type { Dir } from './commands';
+
 /** Rows on the DS-6 departure board. `src/components/ds6/Board.tsx:25`. */
 export const ROWS_DS6 = 8;
 /** Rows on the DS-8/M board and shade. `src/components/ds8m/MBoard.tsx:31`. */
@@ -24,7 +26,6 @@ export const SCROLL_MAX = 30;
 /** Where the cursor rests when the drums roll to a new channel. `watch.tsx:117, 580, 791, 928, 933, 1372`. */
 export const CURSOR_HOME = 2;
 
-export type Dir = 1 | -1;
 
 /** `Math.min(s + 1, 30)` / `Math.max(s - 1, -8)` — the one-sided clamps the code applies per step. */
 export function clampScroll(scroll: number): number {
