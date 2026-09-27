@@ -578,48 +578,80 @@ export interface StationRow {
 const ORIGINS: readonly TuneOrigin[] = ['register', 'swipe', 'board', 'remote', 'gate', 'link'];
 const PICTURES: readonly PictureScene[] = ['static', 'static-error', 'live', 'live-error'];
 
-/** gap §4: a same-channel arrival by picture state × origin — today's rule (`:495-502`). */
+/**
+ * gap §4: a same-channel arrival by picture state × origin. A healthy
+ * picture — live, or a static still waiting honestly — keeps today's
+ * chrome-only arrival (`asis`); a channel in error re-tunes since WP-03
+ * (`ruled:16`, ff-spec §6.2: `invalidate()` + `rejoin('retune')`), with the
+ * bead381 outcome kept as `today`.
+ */
 function sameChannelRows(): StationRow[] {
   const rows: StationRow[] = [];
   for (const picture of PICTURES) {
     const tuning = picture.startsWith('static');
+    const inError = picture.endsWith('-error');
     for (const origin of ORIGINS) {
-      rows.push({
-        id: `S4-${picture}-${origin}`,
-        section: 'gap §4 same-channel arrival',
-        given: { base: 'watching', picture, board: true, notes: true },
-        event: { type: 'TUNE', index: AT.index, origin },
-        expect: {
-          retune: false, home: false, board: false, notes: false,
-          flash: origin !== 'register' && !tuning,
-          static: tuning, staticError: picture === 'static-error', difficultyPlate: picture === 'live-error',
-        },
-        tag: 'asis',
-        cite: 'watch.tsx:495-502',
-        note: tuning
-          ? 'silent under the static, healthy or failing (WS-20)'
-          : picture === 'live-error' ? 'a flash over the error card; nothing re-tunes (WS-20)' : undefined,
-      });
+      const chromeOnly = {
+        retune: false, home: false, board: false, notes: false,
+        flash: origin !== 'register' && !tuning,
+        static: tuning, staticError: picture === 'static-error', difficultyPlate: picture === 'live-error',
+      };
+      rows.push(inError
+        ? {
+          id: `S4-${picture}-${origin}`,
+          section: 'gap §4 same-channel arrival',
+          given: { base: 'watching', picture, board: true, notes: true },
+          event: { type: 'TUNE', index: AT.index, origin },
+          today: chromeOnly,
+          expect: {
+            retune: true, home: false, board: false, notes: false,
+            flash: origin !== 'register',
+            static: true, staticError: false, difficultyPlate: false, traceOpened: true,
+          },
+          tag: 'ruled:16',
+          cite: 'watch.tsx tuneTo (WP-03); 04-decisions.md 16; ff-spec §6.2',
+          note: 'a channel in error does not count as tuned: the static restarts on a real rejoin and ends at the real first frame; no timer',
+        }
+        : {
+          id: `S4-${picture}-${origin}`,
+          section: 'gap §4 same-channel arrival',
+          given: { base: 'watching', picture, board: true, notes: true },
+          event: { type: 'TUNE', index: AT.index, origin },
+          expect: chromeOnly,
+          tag: 'asis',
+          cite: 'watch.tsx tuneTo (WP-03); ff-spec §6.2',
+          note: tuning
+            ? 'silent under the static; a healthy tune in progress is never restarted (a second cold master GET can throttle the session)'
+            : undefined,
+        });
     }
   }
   return rows;
 }
 
-/** gap §4 / decision 16: a failing or still-static channel does not count as tuned. */
+/** gap §4 / decision 16 by picture: only a channel in error counts as not tuned (ff-spec §6.2). */
 const SAME_CHANNEL_RULED: StationRow[] = (['static', 'static-error', 'live-error', 'live'] as PictureScene[]).map((picture) => {
-  const retunes = picture !== 'live';
+  const retunes = picture.endsWith('-error');
+  const chromeOnly = {
+    retune: false, flash: picture.startsWith('live'), static: picture.startsWith('static'),
+    staticError: picture === 'static-error', difficultyPlate: picture === 'live-error',
+  };
   return {
     id: `S4-ruled16-${picture}`,
     section: 'gap §4 same-channel arrival',
     given: { base: 'watching', picture },
     event: { type: 'LINK', index: AT.index },
-    today: { retune: false, static: picture.startsWith('static'), staticError: picture === 'static-error', difficultyPlate: picture === 'live-error' },
+    today: chromeOnly,
     expect: retunes
       ? { retune: true, static: true, staticError: false, difficultyPlate: false, traceOpened: true }
-      : { retune: false, flash: true, static: false },
+      : chromeOnly,
     tag: 'ruled:16',
-    cite: 'watch.tsx:495-502; 04-decisions.md 16; 05-PLAN.md WP-07 (static counts as not tuned)',
-    note: retunes ? 'the static restarts on the real remount and ends at the real first frame; no timer' : 'a live, healthy picture keeps the chrome-only arrival and its flash',
+    cite: 'watch.tsx tuneTo (WP-03); 04-decisions.md 16; ff-spec §6.2 (a healthy tune in progress is never restarted)',
+    note: retunes
+      ? 'the static restarts on the real rejoin and ends at the real first frame; no timer'
+      : picture === 'static'
+        ? 'a healthy static is an honest wait, not an error: the arrival is chrome-only and silent — restarting it would cost a second cold master GET'
+        : 'a live, healthy picture keeps the chrome-only arrival and its flash',
   };
 });
 

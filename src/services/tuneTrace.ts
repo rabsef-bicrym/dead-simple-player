@@ -15,15 +15,16 @@
  *     opens a synthetic UNTRACED START tune instead of being dropped (NP-10);
  *     nothing this process writes belongs to a previous one.
  *
- * What `g=` on a row means: the surface's generation when the row was
- * written. Only `replaceAsync start/resolve` and the retry's `playerError`
- * carry the generation of the item they describe (they were started for
- * it); `statusChange`, `playingChange`, `first timeUpdate` and
- * `onFirstFrameRender` are stamped with the generation current at arrival,
- * because the shared player's payloads name no item until WP-03 puts one in
- * the native envelope (ff-spec §7) — so an old item's late frame files under
- * the new tune, with the new g, and is told apart by `matched=no`. Item
- * identity on a native row is WP-03's `i=`.
+ * What `g=` on a row means (docs/tune-trace.md, "Row suffixes"): on a
+ * native row (`N …`) and on `firstFrame`, the generation of the item the row
+ * is about, or of the pending expectation — item identity, not arrival. On a
+ * JS row that owns a generation (`gen bound`, `attempt`, `replaceAsync
+ * start/resolve/reject`, `startPlayback`, `playerError`, `retry scheduled`,
+ * `sourceReady set`), the generation it describes. On expo's listener rows
+ * (`statusChange`, `playingChange`, `first timeUpdate`), the generation
+ * current at arrival, because expo's payloads name no item — the adjacent
+ * `N` rows disambiguate, and an old item's late fire is the old tune's row,
+ * marked `accepted=stale`.
  *
  * Reading a paste: a row for a tune that is not the newest is marked `late`;
  * a row arriving after a tune closed goes to its `after` bucket, so a tune's
