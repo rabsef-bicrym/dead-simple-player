@@ -369,7 +369,10 @@ release its `SharedRef` first; the layer holds the player too, so this adds
 no retention); `deinit` sets `tearingDown` and calls `detachPlayer` — the
 teardown runs, no row is dispatched (`ExpoFabricView.installEventDispatchers`
 captures the view weakly, nil once deinit begins); the boil link's target is
-a proxy; every
+a proxy, and so is the snow animation's delegate (`CAAnimation.delegate` is
+`strong` — "retained by the receiver" — and an infinite
+`isRemovedOnCompletion = false` animation lives as long as its layer, so a
+delegate of `self` would be a cycle the static view never leaves); every
 `EventDispatcher` property is named exactly as its `Events(...)` string
 (`nativeCarrier.test.ts` holds this); `Prop("player")` typed
 `SharedRef<AVPlayer>?` is legal (`AnySharedObject: AnyArgument`,
@@ -385,7 +388,10 @@ nearest-neighbour magnification, the Skia field's luma band 36…217). Once
 committed, the render server evaluates it every refresh; the app's threads can
 both be blocked and the snow keeps boiling — no per-frame code path, no
 shader, no growing uniform. Backgrounding removes in-flight animations;
-`didBecomeActive` reinstalls. `animationDidStart` emits `S live n=k`; two
+`didBecomeActive` reinstalls; leaving the window drops the animation (its
+600 keyframes would otherwise live as long as the layer) and returning
+reinstalls it. The animation's delegate is a proxy holding the view weakly
+(§8). `animationDidStart` emits `S live n=k`; two
 consecutive presentation-layer samples of `contentsRect` that differ emit
 `S boil n=k`; the checking display link retires at that first difference or
 after 120 refreshes (≈2 s), so a static whose keyframes never advance — the

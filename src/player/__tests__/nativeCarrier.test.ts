@@ -139,6 +139,14 @@ describe('modules/dsp-picture — the local module', () => {
     expect(staticView).toMatch(/a\.calculationMode = \.discrete/);
     expect(staticView).toMatch(/func animationDidStart\(_ anim: CAAnimation\)/);
     expect(staticView).toMatch(/snow\.presentation\(\)\?\.contentsRect/);
+    // CAAnimation retains its delegate: the view is never the delegate of its own infinite animation.
+    expect(staticView).toMatch(/final class AnimationProxy: NSObject, CAAnimationDelegate \{\s*weak var owner: DSPStaticView\?/);
+    expect(staticView).toMatch(/a\.delegate = animationProxy/);
+    expect(code(staticView)).not.toMatch(/\.delegate = self\b/);
+    expect(code(staticView)).not.toMatch(/class DSPStaticView: ExpoView, CAAnimationDelegate/);
+    // Off the window the animation is dropped, not kept for the layer's life.
+    const offWindow = staticView.slice(staticView.indexOf('if window == nil {'), staticView.indexOf('} else {'));
+    expect(offWindow).toMatch(/snow\.removeAnimation\(forKey: "snow"\)/);
     expect(staticView).toMatch(/if boilTicks > Self\.boilTickBudget \{ boilLink\?\.invalidate\(\); boilLink = nil; return \}/);   // the link is bounded
     expect(staticView).not.toMatch(/setCompletionBlock/);
     expect(staticView).toMatch(/backgroundColor = \.black/);
