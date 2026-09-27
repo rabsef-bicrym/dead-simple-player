@@ -22,6 +22,7 @@ import { restoreLastChannelIndex } from '../src/services/channelStorage';
 import { flushTuneTrace, traceCloseTune, traceEvent, traceTuneStart, type TuneTraceCloseReason } from '../src/services/tuneTrace';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { CURSOR_HOME, ROWS_DS6, SCROLL_MAX, SCROLL_MIN } from '../src/station/board';
+import type { TuneOrigin } from '../src/station/commands';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { Apron } from '../src/components/ds6/Apron';
 import { Home } from '../src/components/ds6/Home';
@@ -83,9 +84,6 @@ const BUFFERING_OVERLAY_DELAY_MS = 800;
 const BUFFER_STALL_WINDOW_MS = 1500;
 const CLOCK_TICK_MS = 30000;
 const GUIDE_REFRESH_MS = 30 * 60 * 1000;
-// 'power' is the console's turn-on (decision 4): a tune through the static
-// like every other, traced, and never flashed — nothing was chosen.
-type TuneOrigin = 'register' | 'swipe' | 'board' | 'remote' | 'gate' | 'link' | 'power';
 
 export default function WatchScreen() {
   const { activeConfig, loading: configLoading, reload: reloadServerConfig } = useServerConfig();
