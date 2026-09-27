@@ -47,6 +47,10 @@ export interface Mode {
   count: number;
   /** `pictureOutAvailable` — PICTURE OUT is offered. `:1012-1014` */
   pictureOutAvailable?: boolean;
+  /** `boardCursorProg.current !== null` — a programme sits under the cursor. Absent means yes. `:946` */
+  cursorProgramme?: boolean;
+  /** `nowPlaying !== null` — something is on. Absent means yes. `:833-835` */
+  nowPlaying?: boolean;
 }
 
 /** `watch.tsx:79`. WP-10 makes `watch.tsx` read this one. */
@@ -85,9 +89,9 @@ export function keyToCommand(mode: Mode, key: string, cabinet: Cabinet): Command
       case 'ArrowDown': return { type: 'BOARD_CURSOR', dir: 1 };          // :935-938
       case 'ArrowUp': return { type: 'BOARD_CURSOR', dir: -1 };           // :939-942
       case 'n':                                                            // :943-946
-        return mode.notes
-          ? { type: 'NOTES', programme: null }
-          : { type: 'NOTES', programme: 'cursor' };
+        if (mode.notes) return { type: 'NOTES', programme: null };
+        // Nothing under the cursor: a dead press (`:946` guards on boardCursorProg.current).
+        return mode.cursorProgramme === false ? null : { type: 'NOTES', programme: 'cursor' };
       case 'Enter': return { type: 'TUNE', index: mode.boardIndex, origin: 'board' }; // :947-949
       case 'g':
       case 'Escape':                                                       // :950-955
@@ -130,7 +134,9 @@ export function keyToCommand(mode: Mode, key: string, cabinet: Cabinet): Command
     case 'l':
     case 'h': return { type: 'STOP' };                                     // :1002-1005
     case 'n':                                                              // :1006-1010
-      return mode.notes ? { type: 'NOTES', programme: null } : { type: 'NOTES', programme: 'now' };
+      if (mode.notes) return { type: 'NOTES', programme: null };
+      // Nothing on: openNotes does nothing (`:833-835` guards on nowPlaying).
+      return mode.nowPlaying === false ? null : { type: 'NOTES', programme: 'now' };
     case 'p':
     case 'P': return mode.pictureOutAvailable ? { type: 'PICTURE_OUT' } : null; // :1011-1014
     case 'Escape':                                                         // :1015-1018
