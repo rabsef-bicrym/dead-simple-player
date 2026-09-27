@@ -170,6 +170,7 @@ Deliberately **not** in the predicate: `AVPlayerItem.status == .readyToPlay`
 | The nil-replace landed **after** I's edge and unbound a started, unfired item | `onCurrentItemChanged(nil)` → `unbind(itemNil)` → `onItemLost({g, i})`, row `N lost` | `item lost i=` → the ladder, `reason=item-lost` |
 | I failed (`status == .failed`) | `N itemStatus …→failed err=`, `onItemFailed({g, i, err})` — independent of expo's status machine | `playerError` → the ladder |
 | `expect` rejected (the view was not registered after three retries) | the item binds `generation=-1 uriMatch=yes`; `startPlayback(G, uri)` adopts it (`N adopt g=`) | row `expect failed`, chain continues |
+| The item is already `.failed` when `startPlayback` runs | bound to G, `onItemFailed` said so already; bound `g=-1` (the row above) it had no generation to stamp, so `onItemFailed` was not emitted and expo's pre-settle `statusChange error` was dropped — `startPlayback` adopts it and answers `"failed"` (`N start refused reason=failed err=`), marking nothing started | `startPlayback failed` → the ladder; a no-op when `onItemFailed` already armed the retry |
 | The patch is not applied | `N item` **after** `replaceAsync resolve` in host time on every tune | `patch-package --error-on-fail`; the bench shows the order |
 
 ## 4. The JS contract (§6)
@@ -213,7 +214,7 @@ decision (`src/player/__tests__/firstFrameGate.test.ts` replays them).
   `sourceReady && watchRevealDone`. Errors, `readyToPlay`, `playingChange`,
   `timeUpdate`, rebuilds, rotation, PiP and app state never touch it.
 - **The ladder.** A failure (expo `statusChange error`, a chain rejection,
-  `onItemFailed`, `onItemLost`, `startPlayback → unbound|stale`) schedules a
+  `onItemFailed`, `onItemLost`, `startPlayback → unbound|stale|failed`) schedules a
   rebuild after `RETRY_DELAYS_MS[failures-1]` = `[0, 2000, 4000, 8000, 15000,
   30000]` ms (the last repeats); each attempt is a new generation with its
   own `expect`, item, sampler and rows (`attempt #n reason=`); after the
@@ -262,7 +263,7 @@ the tune that asked (check 11); its `i=` and `current=` name that old item.
 | `N itemStatus` | item `status` KVO | `<old>→<new> [err=<domain>/<code> <desc>]` (+ event `onItemFailed` on `failed`) |
 | `N tcs` | `timeControlStatus` KVO | `paused\|waiting\|playing reason= rate= tb= tbEff=` |
 | `N rate` | `rate` KVO | `<r>` |
-| `N start` | `startPlayback` / outside play | `ok\|adopted g= tcs= rate=` · `refused reason=unbound\|stale\|noPlayer` · `adopted reason=external rate=` |
+| `N start` | `startPlayback` / outside play | `ok\|adopted g= tcs= rate=` · `refused reason=unbound\|stale\|noPlayer` · `refused reason=failed g= err=<domain>/<code> <desc>` · `adopted reason=external rate=` |
 | `N adopt` | unbound item adopted at `startPlayback` | `g=` |
 | `N nudge` | every `playImmediately` | `n= reason=start\|ready\|data\|external empty= loaded=[a,b] tcs= wait=` |
 | `N loaded` | `loadedTimeRanges` KVO, ≤3 before fire + ≤3 after | `loaded=[a,b][+k] cur= empty= keepUp= tcs=` |
@@ -286,7 +287,7 @@ JS rows (all stamped `g=` except the header and the static rows): `TUNE START`
 · `gen invalidated g=` · `gen bound g=` · `attempt #n reason=` · `rejoin
 <reason>` · `expect failed <msg>` · `replaceAsync start <uri>` · `replaceAsync
 resolve <uri>` · `replaceAsync reject <msg>` · `startPlayback
-ok|adopted|unbound|stale|no picture view` · `startPlayback failed <msg>` ·
+ok|adopted|unbound|stale|failed|no picture view` · `startPlayback threw <msg>` (the native call rejected) ·
 `firstFrame i= via= accepted=yes|latched|stale` · `firstFrame replay` ·
 `sourceReady set` · `tuning cleared` · `static mount` · `static unmount` ·
 `statusChange <s>` · `playingChange <b>` · `first timeUpdate <t>s

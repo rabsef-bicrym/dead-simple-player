@@ -31,7 +31,8 @@ export interface DSPItemLost { g: number; i: string; t: number }
 export interface DSPItemFailed { g: number; i: string; t: number; domain: string; code: number; message: string }
 export interface DSPPipChange { active: boolean; possible: boolean }
 export interface DSPStatus { player: boolean; item: string; g: number; fired: boolean; current: 'none' | 'set'; pip: boolean; ext: boolean }
-export type DSPStartResult = 'ok' | 'adopted' | 'unbound' | 'stale';
+/** `failed`: the item was already `.failed` when asked to start (an adopted g=-1 item's only route to the ladder). */
+export type DSPStartResult = 'ok' | 'adopted' | 'unbound' | 'stale' | 'failed';
 
 export interface DSPPictureViewProps extends ViewProps {
   /** `player.__expo_shared_object_id__`, as expo-video's own VideoView passes it. */

@@ -397,7 +397,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
 
   // MARK: starting the item (§3.5)
 
-  /// JS calls this after replaceAsync resolved and settledGeneration = G. "ok" | "adopted" | "unbound" | "stale".
+  /// JS calls this after replaceAsync resolved and settledGeneration = G. "ok" | "adopted" | "unbound" | "stale" | "failed".
   func startPlayback(generation: Int, uri: String) -> String {
     guard let p = player else { row("N start", "refused reason=noPlayer g=\(generation)"); return "unbound" }
     guard let b = bound, p.currentItem === b.item else {
@@ -416,6 +416,15 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
         row("N start", "refused reason=stale g=\(generation) bound=\(b.generation)", b)
         return "stale"
       }
+    }
+    if b.item.status == .failed {
+      // The item died before it was asked to start. Bound to G, `onItemFailed` already said so and JS
+      // holds a retry (this is a no-op there); adopted just now — bound g=-1 while it failed, so
+      // `onItemFailed` never fired and expo's pre-settle error was dropped — this is the one word the
+      // ladder gets. Nothing is marked started: `nudge` refuses a failed item anyway.
+      let e = b.item.error.map { $0 as NSError }
+      row("N start", "refused reason=failed g=\(generation) err=\(e?.domain ?? "-")/\(e?.code ?? 0) \(short(e?.localizedDescription))", b)
+      return "failed"
     }
     b.started = true
     row("N start", "\(result) g=\(generation) tcs=\(tcsName(p)) rate=\(p.rate)", b)

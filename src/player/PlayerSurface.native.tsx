@@ -210,7 +210,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           try {
             result = await started.startPlayback(generation, uri);
           } catch (error: unknown) {
-            traceEvent('startPlayback failed', error instanceof Error ? error.message : String(error), { g: generation });
+            traceEvent('startPlayback threw', error instanceof Error ? error.message : String(error), { g: generation });
             result = 'unbound';
           }
           if (!mountedRef.current || current() !== generation) return;
