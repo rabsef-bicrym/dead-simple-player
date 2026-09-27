@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Platform } from 'react-native';
 import { useEventListener } from 'expo';
 import {
   isPictureInPictureSupported,
@@ -15,7 +16,7 @@ import {
   type VideoSource,
   type VideoView as VideoViewInstance,
 } from 'expo-video';
-import { traceEvent } from '../services/tuneTrace';
+import { traceBindGeneration, traceEvent, traceTuneWitness } from '../services/tuneTrace';
 import type { PlayerError, PlayerMetadata, PlayerSurfaceHandle, PlayerSurfaceProps } from './types';
 
 interface PatchedFirstFrameEvent {
@@ -31,6 +32,16 @@ function normalizeUrlString(uri: string | null | undefined): string | null {
     return uri;
   }
 }
+
+// Generations are unique per launch, not per mount: a late row from a
+// previous mount can never wear the new mount's first generation. A row that
+// owns a generation (replaceAsync start/resolve, the retry's playerError) is
+// stamped with it; a listener row (statusChange, playingChange, first
+// timeUpdate, onFirstFrameRender) is stamped with the generation current when
+// it arrived — the shared player's payloads name no item until WP-03's native
+// envelope (ff-spec §7) — so on those rows g= names the expectation, not the
+// item.
+let nextGeneration = 0;
 
 function videoSource(sourceUrl: string | null, metadata?: PlayerMetadata): VideoSource {
   if (!sourceUrl) return null;
@@ -119,6 +130,16 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       && (!requiresNativeView || nativeViewAttachedRef.current)
     ), []);
 
+    // The generation a listener row arrives under. After the layout cleanup
+    // the current generation is bound to nothing, and the listeners outlive
+    // it until their passive effect unsubscribes; a row in that window goes
+    // untagged (g 0 routes to the newest tune, ff-spec §6.3) rather than
+    // wearing a number no tune knows and lighting the dropped line.
+    const arrivalGeneration = useCallback(
+      () => (mountedRef.current ? sourceGeneration.current : 0),
+      [],
+    );
+
     const emitBuffering = useCallback((next: boolean) => {
       if (callbackIsLive()) callbacksRef.current.onBuffering(next);
     }, [callbackIsLive]);
@@ -166,9 +187,9 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
             // Break the old audio signal before replacing its item. Static and
             // cleared-source states must never carry sound between stations.
             player.muted = mutedRef.current;
-            traceEvent('replaceAsync start', requestedUri);
+            traceEvent('replaceAsync start', requestedUri, { g: generation });
             await player.replaceAsync(source);
-            traceEvent('replaceAsync resolve', requestedUri);
+            traceEvent('replaceAsync resolve', requestedUri, { g: generation });
           } finally {
             if (replaceInFlightGeneration.current === generation) {
               replaceInFlightGeneration.current = null;
@@ -190,7 +211,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         || settledGeneration.current !== sourceGeneration.current
       ) return;
 
-      traceEvent('playerError', `${error.kind}: ${error.message}`);
+      traceEvent('playerError', `${error.kind}: ${error.message}`, { g: sourceGeneration.current });
 
       // ErsatzTV can briefly serve an empty cold-start playlist. Reload the
       // same HLS source once, after the established four-second grace period.
@@ -217,7 +238,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
                   ? replacementError.message
                   : 'Native HLS retry failed',
               };
-              traceEvent('playerError', `${error.kind}: ${error.message}`);
+              traceEvent('playerError', `${error.kind}: ${error.message}`, { g: generation });
               emitFinalError(error);
             });
         }, 4000);
@@ -228,7 +249,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     }, [callbackIsLive, emitBuffering, emitFinalError, replaceForGeneration]);
 
     useEventListener(player, 'statusChange', ({ status, error }) => {
-      traceEvent('statusChange', error?.message ? `${status}: ${error.message}` : status);
+      traceEvent('statusChange', error?.message ? `${status}: ${error.message}` : status, { g: arrivalGeneration() });
       if (!callbackIsLive()) return;
       if (status === 'loading') {
         emitBuffering(true);
@@ -251,15 +272,16 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     });
 
     useEventListener(player, 'playingChange', ({ isPlaying }) => {
-      traceEvent('playingChange', String(isPlaying));
+      traceEvent('playingChange', String(isPlaying), { g: arrivalGeneration() });
       if (isPlaying) reportReady();
     });
 
     useEventListener(player, 'timeUpdate', ({ currentTime }) => {
-      const generation = sourceGeneration.current;
+      const generation = arrivalGeneration();
       if (timeUpdateTracedGeneration.current !== generation) {
         timeUpdateTracedGeneration.current = generation;
-        traceEvent('first timeUpdate', `${currentTime.toFixed(3)}s · ${sourceUrlRef.current ?? 'source absent'}`);
+        // The URI is the requested prop, not the ticking item's identity.
+        traceEvent('first timeUpdate', `${currentTime.toFixed(3)}s requested=${sourceUrlRef.current ?? 'source absent'}`, { g: generation });
       }
       reportReady();
     });
@@ -271,7 +293,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         viewAttachedRef.current = false;
         nativeViewAttachedRef.current = false;
         videoViewRef.current = null;
-        sourceGeneration.current += 1;
+        sourceGeneration.current = ++nextGeneration;
         settledGeneration.current = 0;
         replaceInFlightGeneration.current = null;
         if (retryTimer.current) clearTimeout(retryTimer.current);
@@ -289,7 +311,9 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     }, [player]);
 
     useEffect(() => {
-      const generation = ++sourceGeneration.current;
+      const generation = ++nextGeneration;
+      sourceGeneration.current = generation;
+      traceBindGeneration(generation);
       settledGeneration.current = 0;
       if (retryTimer.current) clearTimeout(retryTimer.current);
       retryTimer.current = null;
@@ -414,9 +438,18 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           const expectedUri = sourceUrlRef.current;
           const matched = receivedUri === undefined
             || normalizeUrlString(receivedUri) === normalizeUrlString(expectedUri);
+          const g = arrivalGeneration();
           traceEvent(
             'onFirstFrameRender',
             `sourceUri=${receivedUri ?? 'absent'} · matched=${matched ? 'yes' : 'no'}`,
+            { g },
+          );
+          // A payload-free frame on iOS means the expo-video patch is not in
+          // this build (FF-06); the card's header says so. Android's frame
+          // carries no payload by construction, so the tell is iOS-only.
+          traceTuneWitness(
+            receivedUri !== undefined ? 'present' : Platform.OS === 'ios' ? 'absent' : 'n/a',
+            { g },
           );
           if (!matched) return;
           reportReady(true);
