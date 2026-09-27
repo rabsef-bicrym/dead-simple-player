@@ -528,12 +528,26 @@ describe('tuneTrace serialisation', () => {
 
 describe('the native surface prints what docs/tune-trace.md says', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'player', 'PlayerSurface.native.tsx'), 'utf8');
+  const gate = fs.readFileSync(path.join(__dirname, '..', '..', 'player', 'firstFrameGate.ts'), 'utf8');
 
   it('first timeUpdate carries the requested URI as requested=', () => {
     expect(source).toMatch(/traceEvent\('first timeUpdate', `\$\{currentTime\.toFixed\(3\)\}s requested=\$\{/);
   });
 
-  it('onFirstFrameRender prints sourceUri= and matched=', () => {
-    expect(source).toMatch(/`sourceUri=\$\{receivedUri \?\? 'absent'\} · matched=\$\{matched \? 'yes' : 'no'\}`/);
+  it('a native row carries the host clock and the item id as tags, and a positive generation only', () => {
+    expect(source).toMatch(/const tag = \{ g: g > 0 \? g : undefined, nativeT: t, item: i !== '-' \? i : undefined \};/);
+    expect(source).toMatch(/traceEvent\(name, detail, tag\);/);
+  });
+
+  it('the first frame prints i=, via= and accepted=yes|latched|stale', () => {
+    expect(gate).toMatch(/`i=\$\{item\} via=\$\{via\} accepted=yes`/);
+    expect(gate).toMatch(/`i=\$\{item\} via=\$\{via\} accepted=latched`/);
+    expect(gate).toMatch(/`i=\$\{item\} via=\$\{via\} accepted=stale current=\$\{s\.sourceGeneration\}`/);
+    expect(gate).toMatch(/'firstFrame replay'/);
+  });
+
+  it('the witness header tells the module is in the build on the first N item row, or absent when it is not linked', () => {
+    expect(source).toMatch(/if \(name === 'N item'\) traceTuneWitness\('present', \{ g: tag\.g \}\);/);
+    expect(source).toMatch(/traceTuneWitness\('absent', \{ g: gate\.current\.sourceGeneration \}\);/);
   });
 });

@@ -37,15 +37,34 @@ export interface PlayerSurfaceProps {
   mediaSessionControls?: PlayerMediaSessionControls;
   /** Keep the player alive while detaching its native picture surface. */
   viewAttached?: boolean;
+  /** Decision 1: auto-PiP arms only while the picture is live — `!tuning`. Defaults to true. */
+  pictureInPictureAuto?: boolean;
   onReady: () => void;
-  onFirstFrame?: () => void;
+  /**
+   * The witnessed first frame of `generation` — the only end of the tuning
+   * static (docs/native-witness.md). The web surface has no generations yet
+   * and passes 0.
+   */
+  onFirstFrame?: (generation: number) => void;
   onBuffering: (buffering: boolean) => void;
   onError: (error: PlayerError) => void;
   onPictureInPictureAvailabilityChange?: (available: boolean) => void;
+  onPictureInPictureChange?: (active: boolean) => void;
 }
 
 export interface PlayerSurfaceHandle {
   /** Must be called synchronously from a user gesture. */
   requestPictureInPicture: () => void;
   seekToLiveEdge: () => void;
+  /**
+   * Called by `tuneTo` synchronously, before its first setState: from this
+   * instant every native fact carrying an older generation is stale, whatever
+   * React's effect schedule does (race-2 R1).
+   */
+  invalidate: () => void;
+  /**
+   * A fresh attempt on the current source under a new generation — a
+   * same-channel re-tune of a failing channel (decision 16), a resume.
+   */
+  rejoin: (reason: string) => void;
 }
