@@ -42,8 +42,8 @@ export interface PlayerSurfaceProps {
   onReady: () => void;
   /**
    * The witnessed first frame of `generation` — the only end of the tuning
-   * static (docs/native-witness.md). The web surface has no generations yet
-   * and passes 0.
+   * static (docs/native-witness.md). The web surface passes a per-mount
+   * counter no trace record binds; its own witness and rows are WP-06's.
    */
   onFirstFrame?: (generation: number) => void;
   onBuffering: (buffering: boolean) => void;
