@@ -70,7 +70,6 @@ export const REMOTE_KEYS = [
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   'Enter', 'Escape', 'g', 'h', 'l', 'i', 'n', 'p', 'P', 's',
 ] as const;
-export type RemoteKey = (typeof REMOTE_KEYS)[number];
 
 function phonePortrait(cabinet: Cabinet): boolean {
   return cabinet.isPhone && !cabinet.landscape;
