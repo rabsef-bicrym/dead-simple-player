@@ -36,8 +36,9 @@
  *
  * The ring persists (last MAX_TUNES) one second after a tune ends — first
  * frame, error, leaving; a superseded tune rides the next such write — and
- * on demand (`flushTuneTrace`, wired to the AppState background edge in the
- * root layout); every other mutation only marks the ring dirty for the next
+ * on demand (`flushTuneTrace`: the AppState background edge in the root
+ * layout, and the desktop power-off, whose shell exits the process); every
+ * other mutation only marks the ring dirty for the next
  * write, and hydration schedules one only when such an ending is already
  * waiting on it — never for the tune that opened while the ring was being
  * read. That debounce is the only timer here: it writes storage, never
