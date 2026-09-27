@@ -92,6 +92,25 @@ describe('tuneTrace routing', () => {
     expect(serializeTuneTrace(tune1)).not.toContain('tuneId=');
   });
 
+  it('(a\'\') a generation of 0 or less is no tag: the row goes to the newest tune and prints no g=', () => {
+    traceTuneStart('Oddities');
+    traceBindGeneration(1);
+    clock.advance(100);
+    traceTuneStart('Music');
+    clock.advance(5);
+    // The surface's listeners after its cleanup, and native rows before any expectation.
+    traceEvent('statusChange', 'idle', { g: 0 });
+    traceEvent('N attach', 'rate=0', { g: -1, nativeT: 100 });
+    const [tune2, tune1] = getTuneTraceSnapshot();
+    expect(tune2.events.slice(1)).toEqual([
+      { offsetMs: 5, name: 'statusChange', detail: 'idle' },
+      { offsetMs: 5, name: 'N attach', detail: 'rate=0', nativeT: 100 },
+    ]);
+    expect(tune1.after).toEqual([]);
+    expect(serializeTuneTrace(tune2)).not.toContain('g=');
+    expect(getTuneTraceDroppedCount()).toBe(0);
+  });
+
   it('(b) a row before any tune opens an UNTRACED START tune instead of vanishing', () => {
     traceEvent('sourceReady set');
     clock.advance(5);
@@ -291,6 +310,13 @@ describe('tuneTrace persistence', () => {
     expect(snapshot[0].id).toBe(live);
     expect(snapshot[1].closed).toEqual({ offsetMs: 90, reason: 'left' });
     expect(snapshot[2].closed).toEqual({ offsetMs: 800, reason: 'first-frame' });
+
+    // Generations restart every launch: a live row wearing a revived tune's
+    // number is dropped, never filed under Movies; the header still prints it.
+    traceEvent('statusChange', 'idle', { g: 4 });
+    expect(getTuneTraceDroppedCount()).toBe(1);
+    expect(getTuneTraceSnapshot()[1].after).toEqual([]);
+    expect(describeTuneTrace(getTuneTraceSnapshot()[1])).toContain('gens=[4]');
 
     await hydrateTuneTrace(storage);
     snapshot = getTuneTraceSnapshot();
