@@ -38,7 +38,9 @@
  * frame, error, leaving; a superseded tune rides the next such write — and
  * on demand (`flushTuneTrace`, wired to the AppState background edge in the
  * root layout); every other mutation only marks the ring dirty for the next
- * write. That debounce is the only timer here: it writes storage, never
+ * write, and hydration schedules one only when such an ending is already
+ * waiting on it — never for the tune that opened while the ring was being
+ * read. That debounce is the only timer here: it writes storage, never
  * state, and nothing in the first-frame path waits on it (R1).
  *
  * Diagnostics, not telemetry — nothing leaves the device.
@@ -112,6 +114,8 @@ let build: string | undefined;
 let storage: TuneTraceStorage | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let persistWanted = false;
+// An ending (not a supersession) closed a tune and its write has not landed.
+let closePending = false;
 
 function nextId(): number {
   lastId = Math.max(now(), lastId + 1);
@@ -147,7 +151,9 @@ function closeTune(tune: TuneTrace, reason: TuneTraceCloseReason): void {
   // A superseded close happens inside the next TUNE START; a write a second
   // later would land in that tune's first-frame window. It rides the next
   // ending's write, or the flush.
-  if (reason !== 'superseded') schedulePersist();
+  if (reason === 'superseded') return;
+  closePending = true;
+  schedulePersist();
 }
 
 /** A generation that names something: `g` ≤ 0 is no tag (ff-spec §6.3). */
@@ -319,8 +325,8 @@ export function serializeTuneTraces(traces: TuneTrace[], droppedCount = 0): stri
 
 // ── Persistence ──
 
+/** Callers mark the ring dirty themselves; this only sets the clock. */
 function schedulePersist(): void {
-  persistWanted = true;
   if (!storage) return;
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
@@ -332,8 +338,9 @@ function schedulePersist(): void {
 async function persistNow(): Promise<void> {
   if (!storage || !persistWanted) return;
   persistWanted = false;
+  closePending = false;
   try {
-    await storage.setItem(STORAGE_KEYS.TUNE_TRACE, JSON.stringify(tunes.slice(0, MAX_TUNES)));
+    await storage.setItem(STORAGE_KEYS.TUNE_TRACE, JSON.stringify(tunes));
   } catch {
     // A failed write costs a paste, never a picture.
   }
@@ -414,7 +421,11 @@ export async function hydrateTuneTrace(store: TuneTraceStorage = AsyncStorage): 
   }
   if (tunes.length > MAX_TUNES) tunes.length = MAX_TUNES;
   storage = store;
-  if (persistWanted) schedulePersist();
+  // An ending that closed before the read finished is waiting on this. An
+  // open tune is not: on the console the power tune opens while the ring is
+  // read, and a write a second later would land inside its own first-frame
+  // window; its ending schedules one.
+  if (closePending) schedulePersist();
 }
 
 /** Tests only: a fresh ring, an injected clock, no storage. */
@@ -422,6 +433,7 @@ export function __resetTuneTraceForTests(clock: () => number = Date.now): void {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = null;
   persistWanted = false;
+  closePending = false;
   storage = null;
   tunes = [];
   launched = new WeakSet();
