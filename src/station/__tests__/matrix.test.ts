@@ -24,7 +24,7 @@ import {
   type StationRow,
 } from '../matrix';
 import { REMOTE_KEYS, SWIPE_THRESHOLD, keyToCommand, mediaSessionToCommand, stepIndex, swipeToCommand } from '../remote';
-import { sameChannelArrival, sameChannelArrivalRuled16, stopAccepted, type ArrivalScene } from '../transitions';
+import { sameChannelArrival, sameChannelArrivalBead381, stopAccepted, type ArrivalScene } from '../transitions';
 
 const withCabinet = (row: InputRow): [string, InputRow] => [row.id, row];
 
@@ -137,9 +137,9 @@ describe('gap §4 — a same-channel arrival by picture state × origin', () => 
   const asis = STATION_ROWS.filter((r) => r.section === 'gap §4 same-channel arrival' && r.tag === 'asis');
   const ruled = STATION_ROWS.filter((r) => r.section === 'gap §4 same-channel arrival' && r.tag === 'ruled:16');
 
-  it('has the 4 × 6 matrix and its four ruled siblings', () => {
-    expect(asis).toHaveLength(24);
-    expect(ruled).toHaveLength(4);
+  it('has the 4 × 6 matrix — half of it ruled since WP-03 — and its four ruled siblings', () => {
+    expect(asis).toHaveLength(12);
+    expect(ruled).toHaveLength(16);
   });
 
   it.each(asis.map((r) => [r.id, r] as const))('%s (today)', (_id, row) => {
@@ -148,10 +148,12 @@ describe('gap §4 — a same-channel arrival by picture state × origin', () => 
     expect(result.flash).toBe(row.expect.flash);
   });
 
-  it.each(ruled.map((r) => [r.id, r] as const))('%s (today vs. decision 16)', (_id, row) => {
+  it.each(ruled.map((r) => [r.id, r] as const))('%s (bead381 vs. decision 16 as WP-03 applies it)', (_id, row) => {
     const s = arrival(row.given, single(row));
-    expect(sameChannelArrival(s).kind).toBe(row.today?.retune ? 'full-tune' : 'chrome-only');
-    expect(sameChannelArrivalRuled16(s).kind).toBe(row.expect.retune ? 'full-tune' : 'chrome-only');
+    expect(sameChannelArrivalBead381(s).kind).toBe(row.today?.retune ? 'full-tune' : 'chrome-only');
+    const live = sameChannelArrival(s);
+    expect(live.kind).toBe(row.expect.retune ? 'full-tune' : 'chrome-only');
+    if (row.expect.flash !== undefined) expect(live.flash).toBe(row.expect.flash);
   });
 });
 

@@ -19,7 +19,8 @@
  * `setBoardIndex((i) => …)`, the cursor walk).
  */
 
-export type TuneOrigin = 'register' | 'swipe' | 'board' | 'remote' | 'gate' | 'link';
+/** 'power' is the console's turn-on (decision 4): a tune through the static, traced, never flashed. */
+export type TuneOrigin = 'register' | 'swipe' | 'board' | 'remote' | 'gate' | 'link' | 'power';
 export type Dir = 1 | -1;
 export type Entrance = 'none' | 'stamp' | 'expand';
 /** Which shell answers the POWER jewel: `powerOffMobile` / `powerOffDesktop` (`watch.tsx:592-608`). */

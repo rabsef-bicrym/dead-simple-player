@@ -1,6 +1,7 @@
 /**
  * The transitions that decide what a tune, a stop and a first frame do —
- * pinned as pure functions to what `app/watch.tsx` does today at bead381.
+ * pinned as pure functions to what `app/watch.tsx` does today (bead381, plus
+ * the same-channel rule WP-03 landed from ff-spec §6.2).
  *
  * Each function is an oracle: the station reducer (WP-07) and the rewire
  * (WP-09) must answer the same way for every `asis` row of `matrix.ts`,
@@ -36,31 +37,31 @@ export type Arrival =
   | { kind: 'full-tune'; flash: boolean };
 
 /**
- * Today's rule: the short-circuit fires whenever the set is on and the
- * index is the tuned one — regardless of an error or a static that never
- * ended (WS-20). Flash unless the tune came from a visible register tap
- * (R24, the bloom is the acknowledgment) and unless the static is up
- * (`:500`); the full branch flashes on every origin but `register`
- * (`:520-524`). Decision 16's re-tune of a failing channel is the
- * `ruled:16` sibling rows in `matrix.ts`, not this function.
+ * The rule since WP-03 (ff-spec §6.2; `watch.tsx` tuneTo): the short-circuit
+ * fires when the set is on, the index is the tuned one and the channel is
+ * not in error — a healthy tune in progress is never restarted (a second
+ * cold master GET can throttle the session), a channel in error is re-tuned
+ * through `invalidate()` + `rejoin('retune')` (decision 16, WS-20). Flash
+ * unless the tune came from a visible register tap (R24, the bloom is the
+ * acknowledgment) and unless the static is up; the full branch flashes on
+ * every origin but `register` and `power` (both in `watch.tsx` tuneTo, as
+ * `matrix.ts` cites it — the bead381 line numbers no longer hold there).
  */
 export function sameChannelArrival(scene: ArrivalScene): Arrival {
-  if (scene.playbackActive && scene.sameIndex) {
+  if (scene.playbackActive && scene.sameIndex && scene.playerError === null) {
     return { kind: 'chrome-only', flash: scene.origin !== 'register' && !scene.tuning };
   }
-  return { kind: 'full-tune', flash: scene.origin !== 'register' };
+  return { kind: 'full-tune', flash: scene.origin !== 'register' && scene.origin !== 'power' };
 }
 
 /**
- * The outcome decision 16 asks for (`04-decisions.md` 16; WS-20): a
- * channel in error, or still under its static, does not count as tuned —
- * the arrival takes the full branch and the static restarts on the real
- * remount. Stated here so the matrix's `ruled:16` rows have one source;
- * WP-07's reducer answers this way, today's `watch.tsx` does not.
+ * The rule at bead381, kept as the `today:` oracle of the matrix's `ruled:16`
+ * rows: the short-circuit fired whenever the set was on and the index was
+ * the tuned one — regardless of an error or a static that never ended
+ * (WS-20). Nothing in the app answers this way any more.
  */
-export function sameChannelArrivalRuled16(scene: ArrivalScene): Arrival {
-  const reallyTuned = scene.playerError === null && !(scene.tuning && !scene.sourceReady);
-  if (scene.playbackActive && scene.sameIndex && reallyTuned) {
+export function sameChannelArrivalBead381(scene: ArrivalScene): Arrival {
+  if (scene.playbackActive && scene.sameIndex) {
     return { kind: 'chrome-only', flash: scene.origin !== 'register' && !scene.tuning };
   }
   return { kind: 'full-tune', flash: scene.origin !== 'register' };

@@ -97,6 +97,11 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
   ) {
     const videoRef = useRef<SafariVideoElement | null>(null);
     const hlsRef = useRef<Hls | null>(null);
+    // The handle's generation and rejoin (ff-spec §6.5): a bump per tuneTo and
+    // a rebuild of the pipeline from the channel URL. The web's own witness
+    // and rows are WP-06's; nothing here reads the generation yet.
+    const generationRef = useRef(0);
+    const rejoinRef = useRef<(() => void) | null>(null);
     const playingRef = useRef(playing);
     const mutedRef = useRef(muted);
     const needsSoundRef = useRef(false);
@@ -132,6 +137,12 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       seekToLiveEdge: () => {
         const video = videoRef.current;
         if (video) seekVideoToLiveEdge(video, hlsRef.current);
+      },
+      invalidate: () => {
+        generationRef.current += 1;
+      },
+      rejoin: () => {
+        rejoinRef.current?.();
       },
     }), []);
 
@@ -401,7 +412,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       const onWaiting = () => callbacksRef.current.onBuffering(true);
       const onTimeUpdate = () => callbacksRef.current.onBuffering(false);
       const onPlay = () => { void acquireWakeLock(); };
-      const onPlaying = () => callbacksRef.current.onFirstFrame?.();
+      const onPlaying = () => callbacksRef.current.onFirstFrame?.(generationRef.current);
       const onPause = () => releaseWakeLock();
       const onLoadedMetadata = () => {
         callbacksRef.current.onPictureInPictureAvailabilityChange?.(supportsPictureInPicture(video));
@@ -444,10 +455,12 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       document.addEventListener('keydown', restoreSound);
 
       callbacksRef.current.onPictureInPictureAvailabilityChange?.(supportsPictureInPicture(video));
+      rejoinRef.current = () => scheduleRebuild(0, false);
       createPipeline();
 
       return () => {
         disposed = true;
+        rejoinRef.current = null;
         if (rebuildTimer) clearTimeout(rebuildTimer);
         clearAttachTimer();
         releaseWakeLock();
