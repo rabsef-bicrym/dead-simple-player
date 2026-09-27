@@ -187,8 +187,14 @@ decision (`src/player/__tests__/firstFrameGate.test.ts` replays them).
   settled === g` → report; with `g === current ∧ settled ≠ g` → latched
   (`firstFrame … accepted=latched`); the settle replays it (`firstFrame
   replay`); any other `g` is dropped (`accepted=stale`). `invalidate`, the
-  source effect, `rejoin` and a rebuild clear the latch. Errors use the same
-  shape (`playerError latched (settle pending)` / `error replay`).
+  source effect, `rejoin` and a rebuild clear the latch. Stamped errors use
+  the same shape (`playerError latched (settle pending)` / `error replay`):
+  the module's `onItemFailed` carries the item's `g`, and a chain rejection
+  is the attempt's own. expo's `statusChange error` names no item and is
+  stamped at arrival, so before settle it may be the old item's error wearing
+  the new number: it is dropped (`playerError dropped (settle pending)`),
+  never latched — a load failure of the new item still reaches the ladder
+  through the two stamped paths.
 - **What clears the static:** exactly one writer of `sourceReady=true`
   (`watch.tsx` `handleFirstFrame(g)`), reachable only from
   `PlayerSurface.onFirstFrame(g)`, reachable only from the gate's
@@ -273,7 +279,7 @@ ok|adopted|unbound|stale|no picture view` · `startPlayback failed <msg>` ·
 `sourceReady set` · `tuning cleared` · `static mount` · `static unmount` ·
 `statusChange <s>` · `playingChange <b>` · `first timeUpdate <t>s
 requested=<uri>` · `playerError <kind>: <msg> failures=n` (or `latched…` /
-`stale…`) · `error replay` · `retry scheduled in=<ms>` · `item lost i=` · `pip
+`dropped (settle pending)…` / `stale…`) · `error replay` · `retry scheduled in=<ms>` · `item lost i=` · `pip
 start|stop|request refused while tuning` · `link → channel N`.
 
 ## 6. Reading a paste — the checks (§10)

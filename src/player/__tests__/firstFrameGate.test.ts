@@ -191,11 +191,11 @@ describe('the first frame — latch and replay (FF-03)', () => {
 });
 
 describe('errors — latch, ladder, health', () => {
-  it('an error before settle is latched and replayed at settle', () => {
+  it('a native item failure before settle is latched and replayed at settle', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.take();
-    h.dispatch({ type: 'status-error', g: 1, error: media('early') });
+    h.dispatch({ type: 'native-item-failed', g: 1, item: 'a', error: media('early') });
     expect(h.state.pendingError).toEqual({ g: 1, error: media('early') });
     expect(h.names()).toEqual(['playerError latched (settle pending): early']);
     h.take();
@@ -208,6 +208,27 @@ describe('errors — latch, ladder, health', () => {
       'schedule-retry',
     ]);
     expect(h.state.pendingError).toBeNull();
+  });
+
+  it('expo\'s statusChange error before settle is dropped, never latched: its payload names no item', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });          // g=1
+    h.dispatch({ type: 'settle', g: 1 });
+    h.dispatch({ type: 'invalidate' });                       // g=2; the old item is still current natively
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.take();
+    // The old item's error, stamped at arrival with the new generation.
+    h.dispatch({ type: 'status-error', g: 2, error: media('old item died') });
+    expect(h.names()).toEqual(['playerError dropped (settle pending): old item died']);
+    expect(h.state.pendingError).toBeNull();
+    h.take();
+    h.dispatch({ type: 'settle', g: 2 });
+    expect(h.actions).toEqual([]);                            // nothing replays; attempt #1 stands
+    expect(h.state.failures).toBe(0);
+    // After settle the same row is a failure on the ladder.
+    h.dispatch({ type: 'status-error', g: 2, error: media('real') });
+    expect(h.state.failures).toBe(1);
+    expect(h.of('schedule-retry')).toHaveLength(1);
   });
 
   it('a chain rejection settles then reaches the ladder (race-2 R6)', () => {
