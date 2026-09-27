@@ -64,9 +64,19 @@ describe('modules/dsp-picture — the local module', () => {
   it('exports the two views under the names index.ts requires', () => {
     expect(module).toMatch(/View\(DSPPictureView\.self\)/);
     expect(module).toMatch(/View\(DSPStaticView\.self\)/);
-    expect(index).toMatch(/tryRequire<.+>\('DSPPictureView'\);/);
+    expect(index).toMatch(/tryRequire<.+>\('DSPPictureView', 'expect'\);/);
     expect(index).toMatch(/tryRequire<.+>\('DSPStaticView'\);/);
     expect(index).toMatch(/requireNativeViewManager<P>\('DSPPicture', view\)/);
+  });
+
+  it('index.ts reads availability from the module object: requireNativeViewManager never throws for a missing module', () => {
+    expect(index).toMatch(/requireOptionalNativeModule<[^>]+>\('DSPPicture'\)/);
+    expect(index).toMatch(/ViewPrototypes\?\.\[`DSPPicture_\$\{view\}`\]/);
+    const body = index.slice(index.indexOf('function tryRequire<'), index.indexOf('export const DSPPictureNativeView'));
+    const gate = body.indexOf('if (!proto) return null');
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(body.indexOf("requireNativeViewManager<P>('DSPPicture', view)"));
+    expect(index).not.toMatch(/try\s*\{\s*return requireNativeViewManager/);
   });
 
   it('runs every view function on main and offers exactly the handle index.ts types', () => {
