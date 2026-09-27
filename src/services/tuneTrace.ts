@@ -87,6 +87,10 @@ const UNTRACED_START = 'UNTRACED START';
 
 let now: () => number = Date.now;
 let tunes: TuneTrace[] = [];
+// Tunes opened in this launch. Surface generations restart at 1 every
+// launch, so a generation routes only among these; a revived tune keeps its
+// `gens` for the header and can never receive a live row by generation.
+let launched = new WeakSet<TuneTrace>();
 let lastId = 0;
 let dropped = 0;
 let build: string | undefined;
@@ -115,6 +119,7 @@ function openTune(channelName: string, meta?: { origin?: string; opening?: boole
     after: [],
   };
   tunes.unshift(tune);
+  launched.add(tune);
   if (tunes.length > MAX_TUNES) tunes.length = MAX_TUNES;
   persistWanted = true;
   return tune;
@@ -126,10 +131,16 @@ function closeTune(tune: TuneTrace, reason: TuneTraceCloseReason): void {
   schedulePersist();
 }
 
+/** A generation that names something: `g` ≤ 0 is no tag (ff-spec §6.3). */
+function taggedGeneration(tag?: TuneTraceTag): number | undefined {
+  return tag?.g != null && tag.g > 0 ? tag.g : undefined;
+}
+
 /** The tune a tag names, or null when the tag names nothing the ring knows. */
 function locate(tag?: TuneTraceTag): TuneTrace | null | undefined {
   if (tag?.tuneId != null) return tunes.find((tune) => tune.id === tag.tuneId) ?? null;
-  if (tag?.g != null && tag.g > 0) return tunes.find((tune) => tune.gens.includes(tag.g as number)) ?? null;
+  const g = taggedGeneration(tag);
+  if (g != null) return tunes.find((tune) => launched.has(tune) && tune.gens.includes(g)) ?? null;
   return undefined;
 }
 
@@ -172,7 +183,8 @@ export function traceEvent(name: string, detail?: string, tag?: TuneTraceTag): v
   const row: TuneTraceEvent = { offsetMs: Math.max(0, now() - tune.startedAt), name };
   if (detail !== undefined) row.detail = detail;
   if (tag?.tuneId != null && tag.tuneId !== tune.id) row.tuneId = tag.tuneId;
-  if (tag?.g != null) row.g = tag.g;
+  const g = taggedGeneration(tag);
+  if (g != null) row.g = g;
   if (tag?.nativeT != null) row.nativeT = tag.nativeT;
   if (tag?.item != null) row.item = tag.item;
   if (tune !== tunes[0]) row.late = true;
@@ -370,6 +382,7 @@ export function __resetTuneTraceForTests(clock: () => number = Date.now): void {
   persistWanted = false;
   storage = null;
   tunes = [];
+  launched = new WeakSet();
   lastId = 0;
   dropped = 0;
   build = undefined;
