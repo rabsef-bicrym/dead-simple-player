@@ -96,6 +96,13 @@ describe('keyToCommand — the rows the matrix cannot say in prose', () => {
     expect(keyToCommand({ ...watching, pictureOutAvailable: true }, 'P', CONSOLE)).toEqual({ type: 'PICTURE_OUT' });
   });
 
+  it('lets n die when there is nothing to show, and still closes the notes', () => {
+    expect(keyToCommand({ ...board, cursorProgramme: false }, 'n', CONSOLE)).toBeNull();
+    expect(keyToCommand({ ...watching, nowPlaying: false }, 'n', CONSOLE)).toBeNull();
+    expect(keyToCommand({ ...board, notes: true, cursorProgramme: false }, 'n', CONSOLE)).toEqual({ type: 'NOTES', programme: null });
+    expect(keyToCommand({ ...watching, notes: true, nowPlaying: false }, 'n', CONSOLE)).toEqual({ type: 'NOTES', programme: null });
+  });
+
   it('routes by the board first, whatever the base', () => {
     expect(keyToCommand({ ...home, board: true }, 'Enter', CONSOLE)).toEqual({ type: 'TUNE', index: 7, origin: 'board' });
     expect(keyToCommand({ ...watching, base: 'stopping', board: true }, 'h', CONSOLE)).toEqual({ type: 'OPEN_HOME', index: 7, entrance: 'none' });

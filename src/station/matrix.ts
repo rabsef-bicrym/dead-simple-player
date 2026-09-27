@@ -260,7 +260,15 @@ const KEY_END_ROWS: InputRow[] = [
   { id: 'K-end-single-ArrowDown', mode: { ...MODES.watching, index: 0, count: 1 }, cabinet: 'console', input: { key: 'ArrowDown' }, expect: null, tag: 'asis', cite: 'watch.tsx:992-994' },
 ];
 
-export const KEY_ROWS: readonly InputRow[] = [...keyRows(), ...KEY_END_ROWS];
+/** NOTES with nothing to show is a dead press: no programme under the cursor (`:946`), nothing on (`:833-835`). Closing needs neither. */
+const KEY_NOTES_ROWS: InputRow[] = [
+  { id: 'K-board-console-n-bare', mode: { ...MODES.board, cursorProgramme: false }, cabinet: 'console', input: { key: 'n' }, expect: null, tag: 'asis', cite: 'watch.tsx:946 (boardCursorProg.current is null)' },
+  { id: 'K-watching-console-n-bare', mode: { ...MODES.watching, nowPlaying: false }, cabinet: 'console', input: { key: 'n' }, expect: null, tag: 'asis', cite: 'watch.tsx:1008, 833-835 (nowPlaying is null)' },
+  { id: 'K-board+notes-console-n-bare', mode: { ...MODES['board+notes'], cursorProgramme: false }, cabinet: 'console', input: { key: 'n' }, expect: CLOSE_NOTES, tag: 'asis', cite: 'watch.tsx:945' },
+  { id: 'K-watching+notes-console-n-bare', mode: { ...MODES['watching+notes'], nowPlaying: false }, cabinet: 'console', input: { key: 'n' }, expect: CLOSE_NOTES, tag: 'asis', cite: 'watch.tsx:1007' },
+];
+
+export const KEY_ROWS: readonly InputRow[] = [...keyRows(), ...KEY_END_ROWS, ...KEY_NOTES_ROWS];
 
 // ── Gestures (`watch.tsx:737-821`) ──
 
