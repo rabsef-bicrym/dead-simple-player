@@ -19,6 +19,7 @@ import {
   type DSPItemLost,
   type DSPPictureHandle,
   type DSPPipChange,
+  type DSPStartResult,
   type DSPTraceRow,
 } from '../../modules/dsp-picture';
 import { traceBindGeneration, traceEvent, traceTuneWitness } from '../services/tuneTrace';
@@ -205,7 +206,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
             traceEvent('startPlayback', 'no picture view', { g: generation });
             return;
           }
-          let result: Awaited<ReturnType<DSPPictureHandle['startPlayback']>>;
+          let result: DSPStartResult;
           try {
             result = await started.startPlayback(generation, uri);
           } catch (error: unknown) {
