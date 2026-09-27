@@ -173,7 +173,11 @@ decision (`src/player/__tests__/firstFrameGate.test.ts` replays them).
   cancelled, and the source effect (or `rejoin`) takes that number instead of
   allocating another. A native event carrying an older `g` is stale from that
   instant, whatever React's effect schedule does. `nextGeneration` is
-  module-global: unique per launch, never per mount.
+  module-global: unique per launch, never per mount. `invalidate` also binds
+  the new number to the tune record `tuneTo` opened the instant before
+  (`bind-generation` precedes the `gen invalidated` row), so that row, the
+  `rejoin` row and any listener row stamped in the invalidate→take window
+  file under the new tune; the take's bind of the same number is idempotent.
 - **The chain** (`replaceForGeneration`): `muted = …` (R5) → `expect(g, uri)`
   (a rejection is a row, not an error) → `replaceAsync` → `settle(g)` in the
   same continuation (no window) → `showNowPlayingNotification = true` →
@@ -287,8 +291,9 @@ start|stop|request refused while tuning` · `link → channel N`.
    `N nudge` / `N tcs waiting` run before it is the decision 6(d) evidence.
 4. **Attribution.** Old-item rows print under the previous `g`; `gen
    invalidated g=` precedes `gen bound g=` with the same number on every tune
-   from a mounted surface; a fire arriving between them prints
-   `accepted=stale`.
+   from a mounted surface, both under the new tune (the header's `dropped=`
+   line stays absent — H-L); a fire arriving between them prints
+   `accepted=stale` under the old tune.
 5. **One fire.** At most one `N fire` per `N item`; at most one `sourceReady
    set` per generation; `accepted=latched` is always followed by `firstFrame
    replay`.
