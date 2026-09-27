@@ -137,8 +137,6 @@ export default function WatchScreen() {
   // in error is a re-tune (decision 16), a healthy one is chrome only.
   const playerErrorRef = useRef<string | null>(null);
   playerErrorRef.current = playerError;
-  // Whether the picture is in its PiP window (the surface tells us; decision 1).
-  const [pipActive, setPipActive] = useState(false);
   const [playbackActive, setPlaybackActive] = useState(false);
   const [tuning, setTuning] = useState(false);
   const [sourceReady, setSourceReady] = useState(false);
@@ -1091,10 +1089,6 @@ export default function WatchScreen() {
     setSourceReady(true);
   }, [closeTune]);
 
-  const handlePictureInPictureChange = useCallback((active: boolean) => {
-    setPipActive(active);
-  }, []);
-
   const handlePlayerBuffering = useCallback((isBuffering: boolean) => {
     if (!isBuffering) lastProgressAt.current = Date.now();
     bufferingRef.current = isBuffering;
@@ -1177,6 +1171,8 @@ export default function WatchScreen() {
       </Text>
     </View>
   ) : (
+    // PiP start/stop is the surface's own `pip` row for now: nothing here reads
+    // it, so no state. WP-04 wires `onPictureInPictureChange` when it does (decision 1).
     <PlayerSurface
       ref={playerRef}
       sourceUrl={currentChannel.streamUrl}
@@ -1198,7 +1194,6 @@ export default function WatchScreen() {
       onBuffering={handlePlayerBuffering}
       onError={handlePlayerError}
       onPictureInPictureAvailabilityChange={setPictureOutAvailable}
-      onPictureInPictureChange={handlePictureInPictureChange}
     />
   );
 
