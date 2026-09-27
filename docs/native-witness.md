@@ -44,6 +44,11 @@ swap before the next `expect`), but `startPlayback` can find nothing bound and
 the trace shows `N item` **after** `replaceAsync resolve` in host time — that
 order is the tell. `npx patch-package --error-on-fail` and
 `src/player/__tests__/nativeCarrier.test.ts` hold the patch to its one hunk.
+A checkout whose `node_modules` predates this branch still carries
+expo-video's old `VideoView.swift` witness hunk — the patch no longer names
+that file, so `patch-package` cannot revert it: `npm ci` there before any
+local prebuild. EAS installs from the branch's patch and is clean; the CI
+grep `armFirstFrameWitness` = 0 (TL-02) is the durable guard.
 
 ## 2. Notation
 

@@ -16,6 +16,9 @@ A purpose-built IPTV player for ErsatzTV. Nothing else. No generality.
   and the static's snow. `docs/native-witness.md` is its contract;
   `patches/expo-video+3.0.16.patch` carries one hunk (replaceAsync resolves
   after the item is current). No Xcode here: EAS compiles the Swift.
+- `@shopify/react-native-skia` has had no importer since 2026-09-27 (the
+  native static is `DSPStaticView`). It stays in package.json until the
+  tooling pass (WP-14) next touches dependencies; then it and its pod go.
 - Custom M3U parser (ETV format only)
 - Custom XMLTV parser that actually works (handles single-line XML, Unicode, short-duration programmes)
 
