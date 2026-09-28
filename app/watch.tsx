@@ -506,6 +506,9 @@ export default function WatchScreen() {
   }, []);
 
   const flashChannel = useCallback(() => {
+    // Upright, the amber strip beneath the picture already names the
+    // station; the plate is for the landscape set, where nothing else does.
+    if (isPhone && !isLandscape) return;
     if (flashTimer.current) clearTimeout(flashTimer.current);
     const token = ++flashToken.current;
     flashOpacity.stopAnimation();
@@ -532,7 +535,7 @@ export default function WatchScreen() {
         if (flashToken.current === token) setFlashVisible(false);
       }, motionDuration(FLASH_COOL_MS, reducedMotion));
     }, flashDwellMs.current);
-  }, [flashOpacity, flashScale, reducedMotion]);
+  }, [flashOpacity, flashScale, isLandscape, isPhone, reducedMotion]);
 
   // ── Tuning ──
   // Changing surface always dismisses the notes projection — otherwise
