@@ -219,7 +219,7 @@ dispatches every fact with `Date.now()` and performs what comes back.
   `timeUpdate`, rebuilds, rotation, PiP and app state never touch it.
 - **The ladder.** A failure (expo `statusChange error`, a chain rejection,
   `onItemFailed`, `onItemLost`, `startPlayback → unbound|stale|failed`) schedules a
-  rebuild after `RETRY_DELAYS_MS[failures-1]` = `[0, 2000, 4000, 8000, 15000,
+  rebuild after `JOIN_BACKOFF_MS[failures-1]` = `[0, 2000, 4000, 8000, 15000,
   30000]` ms (the last repeats); each attempt is a new generation with its
   own `expect`, item, sampler and rows (`attempt #n reason=`); after the
   third consecutive failure the plate reads "THE SIGNAL WILL NOT JOIN"
@@ -465,7 +465,7 @@ and the reversal.
 2. **`startPlayback → unbound` and `onItemLost` are ladder failures**
    (counted, bounded), not §6.1's unconditional 0 ms `rebuild('no-item')` /
    `rebuild('item-lost')`. Why: the first is 0 ms either way
-   (`retryDelayMs(1) = 0`); an `unbound` that repeats (no player attached, a
+   (`nextRetry(1).delayMs = 0`); an `unbound` that repeats (no player attached, a
    view whose functions are missing) would otherwise rebuild in a tight loop,
    each a real `replaceAsync` against the station. Cost: a genuine failure on
    the rebuilt attempt waits 2 s instead of 0; three in a row relabel the

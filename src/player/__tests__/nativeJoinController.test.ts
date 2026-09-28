@@ -89,6 +89,19 @@ describe('progress and health (NP-02, PW-10)', () => {
     expect(h.of('ready')).toHaveLength(0);
   });
 
+  it('progress while idle (a cleared source settles at once) reports nothing: no ready, no progress', () => {
+    const h = harness();
+    h.live();
+    h.dispatch({ type: 'invalidate' });
+    h.dispatch({ type: 'take', reason: 'source', hasSource: false });
+    expect(h.state.phase).toBe('idle');
+    expect(h.state.gate.settledGeneration).toBe(h.state.gate.sourceGeneration);   // firstFrameGate take(): a cleared source settles at once
+    h.drain();
+    h.dispatch({ type: 'progress' });                        // the old item's last playingChange, delivered late
+    h.tick(1); h.tick(2);
+    expect(h.actions).toEqual([]);
+  });
+
   it('progress before settle is the old item\'s and reports nothing', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });

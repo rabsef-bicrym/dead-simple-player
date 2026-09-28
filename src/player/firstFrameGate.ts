@@ -26,13 +26,8 @@
  * back off past the first rung).
  */
 import type { DSPStartResult } from '../../modules/dsp-picture';
-import { JOIN_BACKOFF_MS, JOIN_SURFACE_AFTER, nextRetry } from './pipelinePolicy';
+import { nextRetry } from './pipelinePolicy';
 import type { PlayerError } from './types';
-
-/** The ladder, indexed by `failures - 1`; the last entry repeats (R1: X is the escape). The policy's table, re-exported. */
-export const RETRY_DELAYS_MS = JOIN_BACKOFF_MS;
-/** The plate relabels ("THE SIGNAL WILL NOT JOIN") after this many consecutive failures; attempts continue (R4). */
-export const SURFACE_ERROR_AFTER = JOIN_SURFACE_AFTER;
 
 /** What `startPlayback(g)` returned: the module's word for it, spelled once (modules/dsp-picture/index.ts). */
 export type StartResult = DSPStartResult;
@@ -122,11 +117,6 @@ export function createGateState(nextGeneration: number): GateState {
     retry: null,
     hasSource: false,
   };
-}
-
-/** The delay before attempt `failures + 1`, by the ladder (race-2 R8: the first retry is immediate). */
-export function retryDelayMs(failures: number): number {
-  return nextRetry(failures).delayMs;
 }
 
 function trace(name: string, detail: string | undefined, g: number): GateAction {
