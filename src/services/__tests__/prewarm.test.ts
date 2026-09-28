@@ -1,6 +1,7 @@
 import {
   PREWARM_ABORT_MS,
   PREWARM_DWELL_MS,
+  PREWARM_REST_MAX_MS,
   PREWARM_RETOUCH_MS,
   createPrewarmer,
   type PrewarmPort,
@@ -134,6 +135,30 @@ describe('the pre-warm', () => {
     await flush();
     jest.advanceTimersByTime(PREWARM_RETOUCH_MS);
     expect(urls()).toEqual(['ch5', 'ch5']);
+  });
+
+  it(`stops re-touching ${PREWARM_REST_MAX_MS} ms into a rest: a set left on Home pins no transcode; the next move starts over`, async () => {
+    const { port: p, touches, urls } = port();
+    const w = createPrewarmer(p);
+    w.rest('ch5');
+    const expected = 1 + Math.floor((PREWARM_REST_MAX_MS - PREWARM_DWELL_MS) / PREWARM_RETOUCH_MS);
+    for (let i = 0; i < expected; i += 1) {
+      jest.advanceTimersByTime(i === 0 ? PREWARM_DWELL_MS : PREWARM_RETOUCH_MS);
+      expect(urls()).toHaveLength(i + 1);
+      touches[i].resolve();
+      await flush();
+    }
+    jest.advanceTimersByTime(PREWARM_RETOUCH_MS * 3);          // past the life: the armed re-touch was dropped, none armed since
+    expect(urls()).toHaveLength(expected);
+    w.rest('ch5');                                            // the same URL is still a no-op
+    jest.advanceTimersByTime(PREWARM_RETOUCH_MS);
+    expect(urls()).toHaveLength(expected);
+    w.rest('ch6');                                            // a move starts a fresh rest…
+    jest.advanceTimersByTime(PREWARM_DWELL_MS);
+    expect(urls()).toHaveLength(expected + 1);
+    w.rest('ch5');                                            // …and so does a return
+    jest.advanceTimersByTime(PREWARM_DWELL_MS);
+    expect(urls()[expected + 1]).toBe('ch5');
   });
 
   it('dispose stops everything and forgets the resting URL', () => {
