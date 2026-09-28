@@ -726,7 +726,10 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
     let bb = b ?? bound
     onTrace(["t": CACurrentMediaTime() * 1000, "g": g ?? bb?.generation ?? (pending?.generation ?? -1), "i": bb?.tag ?? "-", "name": name, "detail": detail])
   }
-  /// Every event payload goes out through here: nothing dispatches during teardown (see `tearingDown`).
+  /// The three policy events (onTimeControl, onAudioInterruption, onRemoteCommand) go out through here:
+  /// nothing dispatches during teardown (see `tearingDown`). The witness events (onFirstFrame, onItemLost,
+  /// onItemFailed, onPictureInPictureChange) call their dispatchers directly, and the rows go through `row`,
+  /// which carries the same guard.
   private func emit(_ dispatcher: EventDispatcher?, _ payload: [String: Any]) {
     guard !tearingDown, let dispatcher else { return }
     dispatcher(payload)
