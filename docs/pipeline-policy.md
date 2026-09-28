@@ -146,10 +146,12 @@ settled generation. Nothing in JS plays before the first frame (ff-spec
 ## 5. The pre-warm (SI-01, decision 6(a))
 
 Session start (0.8–5.3 s on the measured station) dominates every cold tune.
-While the DS-6 dial or the phone's landscape shifter rests on a channel —
-Home visible, board closed, not signed off, this screen focused (the
-service panel is pushed over it), app in the foreground (on web, the tab
-visible) — `src/services/prewarm.ts`:
+While the cursor rests on a channel — on the console the DS-6 dial, on the
+phone in landscape the channel Home opened on (the shifter's own moves tune
+before the dwell, judgment 14) — with Home visible, the board closed, the
+set not signed off, this screen focused (the service panel is pushed over
+it) and the app in the foreground (on web, the tab visible),
+`src/services/prewarm.ts`:
 
 - waits `PREWARM_DWELL_MS` = 400 ms, then sends one `HEAD` of the channel's
   `streamUrl` exactly as the M3U gives it (`/iptv/channel/N.m3u8?mode=segmenter`;
@@ -182,11 +184,12 @@ visible) — `src/services/prewarm.ts`:
 One channel at a time: with `work_ahead_limit=1` the pre-warm pins the one
 unthrottled QSV transcode while the person browses, which is the cost
 decision 6(a) accepted. Never from the board cursor or the portrait column.
-The phone's shifter gates every move at `GEAR_COMMIT_MS` = 340 ms — before
-the dwell — so there the pre-warm covers the channel Home opened on (the
-remembered or last channel, resting while the person reads the panel), not
-a swipe that tunes (judgment 14). Nothing on the tune path awaits or reads the
-pre-warmer; no keepalive runs while paused (SP-05: it would hold a
+On the phone the `(!isPhone || isLandscape)` term admits landscape Home,
+where the shifter gates every move at `GEAR_COMMIT_MS` = 340 ms — before
+the dwell — so what rests there is the channel Home opened on (the
+remembered or last channel, while the person reads the panel), never a
+swipe, which tunes (judgment 14). Nothing on the tune path awaits or reads
+the pre-warmer; no keepalive runs while paused (SP-05: it would hold a
 transcode for a viewer watching nothing — a paused set is a picture, and
 Home never opens over one).
 

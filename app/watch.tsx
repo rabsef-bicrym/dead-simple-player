@@ -361,10 +361,12 @@ export default function WatchScreen() {
   currentStreamUrlRef.current = currentChannel?.streamUrl ?? null;
 
   // The pre-warm (SI-01, decision 6(a)): the channel under the resting cursor
-  // has a session by the time the person commits. The DS-6 dial and the
-  // phone's landscape shifter only — the board cursor and the portrait
-  // column never rest on a station the way a dial does; a signed-off set,
-  // the service panel and the background warm nothing. Its timers schedule
+  // has a session by the time the person commits. On the console it is the
+  // DS-6 dial; on the phone, in landscape, it is the channel Home opened on
+  // (the shifter's own moves tune at GEAR_COMMIT_MS, before the dwell —
+  // pipeline-policy judgment 14). The board cursor and the portrait column
+  // never rest on a station the way a dial does; a signed-off set, the
+  // service panel and the background warm nothing. Its timers schedule
   // HEADs of a URL nobody is watching; nothing on the tune path reads it.
   const prewarmEnabled = homeVisible
     && !boardVisible
