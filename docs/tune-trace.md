@@ -90,7 +90,7 @@ JS rows (`src/player/PlayerSurface.native.tsx`, `src/player/firstFrameGate.ts`,
 | `paused` | `cause=user\|interruption` · `cause=interruption (re-attributed)` | AVPlayer's own `.paused` on the settled generation, unrequested by the app; an interruption within 2 s names the cause |
 | `paused` | `cause=failure (failed <ms> before the edge)` · `cause=failure (re-attributed, failed <ms> after the edge)` | not a pause: the failed item's own `.paused`, read in either KVO order; the ladder runs (`docs/pipeline-policy.md` §2) |
 | `resume` | `reason=<r> cause=<c> elapsed=<ms> failed=<b> → play\|seek-live-then-play\|rejoin\|stay-paused` | a resume edge judged by the tiers (`docs/pipeline-policy.md` §3); `rejoin` is followed by `attempt #n reason=rejoin:resume:<r>` |
-| `pip` | `start\|stop\|request refused while tuning` | PiP edges; decision 1; a `stop` is a resume edge for a set paused in the window |
+| `pip` | `start\|stop\|request refused while tuning` | PiP edges; decision 1; a `stop` is a resume edge for a set an interruption paused in the window (a person's pause there stays paused) |
 | `pip` | `request ignored: active` | `watch.tsx`: PICTURE OUT while PiP is already up |
 | `error surfaced` | `<kind>: <message>` | `watch.tsx`, named by tune id; an error the surface marked `terminal: false` (the ladder's third-failure relabel, the web's `recovery-exhausted`) is not an ending |
 | `link → channel N` | — | `watch.tsx`, after `tuneTo`, under the tune the link caused |
@@ -143,8 +143,9 @@ the set and what asked it to play again).
   while paused: …` and nothing else — no `retry scheduled`, no `play`. The
   press that brings it back is `N remote play` → `resume reason=remote-play
   … failed=true → rejoin` → `attempt #n reason=rejoin:resume:remote-play` →
-  the chain → `N fire`. A `resume … → stay-paused` on `reason=foreground`
-  with `cause=user` is decision 17 doing its job, not a stuck set.
+  the chain → `N fire`. A `resume … → stay-paused` on `reason=foreground`,
+  `interruption-ended` or `pip-stop` with `cause=user` is decision 17 doing
+  its job, not a stuck set.
 - `-- closed: left --` without `sourceReady set` is leaving mid-static;
   `-- closed: superseded --` means the next tune started first, and the rows
   that still belonged to this one sit under its `after`, marked `late`.

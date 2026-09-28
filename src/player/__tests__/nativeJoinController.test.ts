@@ -310,10 +310,10 @@ describe('errors while paused (decision 17)', () => {
     expect(h.of('schedule-retry')).toHaveLength(0);
     h.drain();
     h.advance(1_000);
-    h.dispatch({ type: 'resume-edge', reason: 'pip-stop' });
-    expect(h.names()[0]).toMatch(/^resume reason=pip-stop cause=user elapsed=3001ms failed=true → rejoin$/);
+    h.dispatch({ type: 'resume-edge', reason: 'remote-play' });
+    expect(h.names()[0]).toMatch(/^resume reason=remote-play cause=user elapsed=3001ms failed=true → rejoin$/);
     expect(h.of('replace')).toHaveLength(1);
-    expect(h.names()).toContain('attempt #2 reason=rejoin:resume:pip-stop');
+    expect(h.names()).toContain('attempt #2 reason=rejoin:resume:remote-play');
   });
 
   it('a stale generation\'s error while paused still reaches the gate as stale', () => {
@@ -332,7 +332,7 @@ describe('the resume edge', () => {
   it('is ignored unless the set is paused', () => {
     const h = harness();
     h.live();
-    for (const reason of ['foreground', 'remote-play', 'pip-stop', 'interruption-ended', 'user'] as const) {
+    for (const reason of ['foreground', 'remote-play', 'pip-stop', 'interruption-ended'] as const) {
       h.dispatch({ type: 'resume-edge', reason, shouldResume: true });
     }
     expect(h.actions).toEqual([]);
@@ -379,7 +379,7 @@ describe('the resume edge', () => {
     expect(mid.state.phase).toBe('joining');
   });
 
-  it('a user\'s pause stays paused on foreground; an interruption\'s does not', () => {
+  it('a user\'s pause stays paused on foreground, on a call ending, on the PiP window closing; an interruption\'s does not', () => {
     const user = harness();
     user.live();
     user.pause();
@@ -389,6 +389,13 @@ describe('the resume edge', () => {
     expect(user.state.phase).toBe('paused');
     expect(user.names()).toEqual(['resume reason=foreground cause=user elapsed=30000ms failed=false → stay-paused']);
     expect(user.of('play')).toHaveLength(0);
+    user.dispatch({ type: 'interruption-began' });                 // a call, long after the person's pause
+    user.dispatch({ type: 'resume-edge', reason: 'interruption-ended', shouldResume: true });
+    user.dispatch({ type: 'resume-edge', reason: 'pip-stop' });
+    expect(user.state.phase).toBe('paused');
+    expect(user.state.pauseCause).toBe('user');
+    expect(user.of('play')).toHaveLength(0);
+    expect(user.of('seek-live-then-play')).toHaveLength(0);
 
     const call = harness();
     call.live();

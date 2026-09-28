@@ -75,7 +75,9 @@ export interface PlayerSurfaceProps {
   /**
    * An unrequested pause edge — Now Playing, the PiP button, an audio-session
    * interruption — stamped when it was seen and by whom. The surface keeps
-   * the stamp for its own resume tiers; this is the screen's notice.
+   * the stamp for its own resume tiers; this is the screen's notice, and no
+   * screen reads it yet (watch.tsx passes nothing; the `paused` row is the
+   * record). A `paused cause=failure (re-attributed…)` row withdraws one.
    */
   onPlaybackPaused?: (at: number, cause: PauseCause) => void;
   onPictureInPictureAvailabilityChange?: (available: boolean) => void;
@@ -100,10 +102,11 @@ export interface PlayerSurfaceHandle {
   rejoin: (reason: string) => void;
   /**
    * A reason to play again, judged by the resume tiers (`decideResume`):
-   * ignored unless the set is paused, and a person's pause survives a
-   * `foreground` edge (decision 17). The surface raises its own edges
-   * (Now Playing, interruption end, PiP stop, AppState); this is for one the
-   * screen sees first.
+   * ignored unless the set is paused, and a person's pause survives every
+   * system edge (decision 17). The surface raises its own edges (Now
+   * Playing, interruption end, PiP stop, AppState); this is for one the
+   * screen sees first, and no screen calls it yet — DS,P has no play
+   * control of its own, so `remote-play` is the only person's edge today.
    */
   resume: (reason: ResumeReason) => void;
 }

@@ -93,7 +93,7 @@ The pause edge forgets the last clock reading for the same reason.
 
 | condition (in order) | action | why |
 |---|---|---|
-| cause `user` and reason `foreground` | `stay-paused` | decision 17: opening the app is not pressing play |
+| cause `user` and reason `foreground`, `interruption-ended` or `pip-stop` | `stay-paused` | decision 17: opening the app is not pressing play; a call that ends with `shouldResume` set was answered over a set the person had already paused; the PiP window's X pauses the player and then reports the stop (a play there restarts audio in a window just closed) — only a play the person pressed lifts the pause |
 | reason `interruption-ended` without `shouldResume` | `stay-paused` | Apple's own word |
 | the item failed while paused, a rung was cancelled, or the edge was never stamped | `rejoin` | only a fresh item can play |
 | elapsed ≥ `RESUME_SEEK_MAX_MS` = 45 s | `rejoin` | the session dies 60 s after its last Touch (a segment fetch or a master GET — contract §2; media-playlist polls never count) and AVPlayer buffers an undocumented distance after `pause()`, so 45 s is 60 s minus that margin; after the cut the media playlist 302s to the master and the same item cannot come back — never a seek |
@@ -225,3 +225,20 @@ delivered as a payload the surface can read without parsing a row:
    its timers are the port's. (05-PLAN's sketch listed `now()`.)
 9. **The chain moved to `replaceChain.ts` unchanged in behaviour** so NP-05's
    last-write-wins claim has a test; the surface's step body is where it was.
+10. **A person's pause survives every system edge, not only `foreground`**
+    (05-PLAN §WP-04 wrote `cause === 'user' && reason === 'foreground'`
+    alone). Why: `pip-stop` follows the pause AVKit makes when the PiP
+    window's X is pressed, and `interruption-ended` with `shouldResume` says
+    only that the session may resume, not that the app was playing before
+    the call; either would have un-paused a set the person had stopped.
+    Reversal: shrink `SYSTEM_EDGES` in `pipelinePolicy.ts` to `foreground`.
+11. **`'user'` is not a `ResumeReason`** (05-PLAN listed it). Why: nothing
+    dispatches it — DS,P has no play control of its own; `resume(reason)`
+    stays on the handle for the screen edge the plan named, uncalled today.
+12. **A `timeUpdate` never resumes a paused set** (05-PLAN's wiring named
+    "`playingChange true` while paused"; the first cut also read an
+    advancing `timeUpdate` as the same). Why: AVFoundation's periodic
+    observer fires at the stop, so every pause un-paused itself (§3).
+13. **A failure within 2 s of the pause edge is the failure's, in either
+    KVO order** (§2). Why: the item-failed-first order is expo's comment,
+    not Apple's word; the other order would have been NP-11 again, silently.

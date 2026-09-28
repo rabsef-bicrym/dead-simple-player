@@ -62,17 +62,19 @@ describe('decideResume', () => {
     expect(decideResume(at(600_000))).toBe('rejoin');
   });
 
-  it('a user\'s pause survives a foreground edge (decision 17), and only that edge', () => {
+  it('a user\'s pause survives every system edge (decision 17); only the person\'s play lifts it', () => {
     expect(decideResume(at(5_000, { reason: 'foreground' }))).toBe('stay-paused');
     expect(decideResume(at(100_000, { reason: 'foreground' }))).toBe('stay-paused');
+    expect(decideResume(at(5_000, { reason: 'pip-stop' }))).toBe('stay-paused');           // the PiP window's X pauses, then stops
+    expect(decideResume(at(5_000, { reason: 'interruption-ended', shouldResume: true }))).toBe('stay-paused'); // paused before the call
     expect(decideResume(at(5_000, { reason: 'remote-play' }))).toBe('play');
-    expect(decideResume(at(5_000, { reason: 'pip-stop' }))).toBe('play');
-    expect(decideResume(at(5_000, { reason: 'user' }))).toBe('play');
+    expect(decideResume(at(70_000, { reason: 'remote-play' }))).toBe('rejoin');
   });
 
-  it('an interruption\'s pause resumes on foreground', () => {
+  it('an interruption\'s pause resumes on foreground and on the PiP window closing', () => {
     expect(decideResume(at(5_000, { cause: 'interruption', reason: 'foreground' }))).toBe('play');
     expect(decideResume(at(30_000, { cause: 'interruption', reason: 'foreground' }))).toBe('seek-live-then-play');
+    expect(decideResume(at(5_000, { cause: 'interruption', reason: 'pip-stop' }))).toBe('play');
   });
 
   it('interruption-ended honours shouldResume', () => {
