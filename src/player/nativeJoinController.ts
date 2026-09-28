@@ -83,8 +83,9 @@ export type JoinEvent =
    * The module's `onTimeControl status=paused` for the item bound to `g`.
    * `playing` is the prop at arrival; `itemFailed` is the item's status in the
    * same payload (AVPlayer pauses a failed item — that is the error path's).
+   * The cause is decided here, from `interruptionAt` and `failedAt`.
    */
-  | { type: 'paused-unrequested'; g: number; playing: boolean; itemFailed: boolean; cause?: PauseCause }
+  | { type: 'paused-unrequested'; g: number; playing: boolean; itemFailed: boolean }
   /** AVAudioSession's interruption began. */
   | { type: 'interruption-began' }
   /** A reason to play again; ignored unless the set is paused. */
@@ -125,7 +126,7 @@ function trace(name: string, detail: string, g: number): GateAction {
 
 function isError(event: GateEvent): event is Extract<GateEvent, { g: number }> {
   if (!ERROR_EVENTS.has(event.type)) return false;
-  return event.type !== 'start-result' || event.result !== 'ok' && event.result !== 'adopted';
+  return event.type !== 'start-result' || (event.result !== 'ok' && event.result !== 'adopted');
 }
 
 function errorMessage(event: Extract<GateEvent, { g: number }>): string {
@@ -218,16 +219,16 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
         return { state: s, actions };
       }
       const nearInterruption = s.interruptionAt != null && now - s.interruptionAt <= PAUSE_ATTRIBUTION_MS;
-      const cause: PauseCause = event.cause ?? (nearInterruption ? 'interruption' : 'user');
+      const cause: PauseCause = nearInterruption ? 'interruption' : 'user';
       s = { ...s, phase: 'paused', pausedAt: now, pauseCause: cause, failedWhilePaused: false, progressSince: null, lastTime: null };
       actions.push(trace('paused', `cause=${cause}`, g));
       actions.push({ type: 'paused', at: now, cause });
       if (s.gate.retry) {
         // A rung was armed for this generation: it would start an attempt
         // under a pause nobody lifted. The resume rejoins instead.
-        actions.push({ type: 'cancel-retry' });
+        s = gateEvent(s, { type: 'cancel-retry' }, actions);
         actions.push(trace('retry cancelled', 'paused', g));
-        s = { ...s, gate: { ...s.gate, retry: null }, failedWhilePaused: true };
+        s = { ...s, failedWhilePaused: true };
       }
       return { state: s, actions };
     }
