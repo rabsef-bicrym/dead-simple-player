@@ -63,8 +63,13 @@ cause)`.
 Cause: `interruption` when AVAudioSession's `interruptionNotification`
 (`began`) arrived within `PAUSE_ATTRIBUTION_MS` = 2 s either side of the
 edge (a later `began` re-attributes: `paused cause=interruption
-(re-attributed)`); otherwise `user` — Now Playing, the PiP window's pause
-button, or anything else the person did.
+(re-attributed)`), or while the interruption is still open — `began`
+arrived and its `ended` has not (`interruptionOpen`): the session is the
+call's at any distance, and a set the person un-paused mid-call that the
+session pauses again is still the call's to lift; otherwise `user` — Now
+Playing, the PiP window's pause button, or anything else the person did.
+Only the `ended` closes the interruption, whatever the set was doing when
+it came; a tune does not (the session is not the generation's).
 
 While paused (decision 17 — a paused set stays paused):
 
@@ -98,6 +103,7 @@ The pause edge forgets the last clock reading for the same reason.
 | condition (in order) | action | why |
 |---|---|---|
 | cause `user` and reason `foreground`, `interruption-ended` or `pip-stop` | `stay-paused` | decision 17: opening the app is not pressing play; a call that ends with `shouldResume` set was answered over a set the person had already paused; the PiP window's X pauses the player and then reports the stop (a play there restarts audio in a window just closed) — only a play the person pressed lifts the pause |
+| an interruption is open (`began` without `ended`) and reason `foreground` or `pip-stop` | `stay-paused` | the session is still the call's: iOS activates the app under the call banner, Apple does not order the `ended` against it, and a `play()` there is refused — silently (the controller would then call the set live while it sits paused, and the `ended` finds nothing to lift) or with a fresh `.paused` edge; the `ended` with `shouldResume` is the resume (SI-02). The row carries `interruption=open`. A press — Now Playing, the same-channel select — still plays: the person's word |
 | reason `interruption-ended` without `shouldResume` | `stay-paused` | Apple's own word |
 | the item failed while paused, a rung was cancelled, or the edge was never stamped | `rejoin` | only a fresh item can play |
 | elapsed ≥ `RESUME_SEEK_MAX_MS` = 45 s | `rejoin` | the session dies 60 s after its last Touch (a segment fetch or a master GET — contract §2; media-playlist polls never count) and AVPlayer buffers an undocumented distance after `pause()`, so 45 s is 60 s minus that margin; after the cut the media playlist 302s to the master and the same item cannot come back — never a seek |
@@ -197,7 +203,10 @@ delivered as a payload the surface can read without parsing a row:
   reason=rejoin:resume:remote-play` → picture within ~2 s; no `play` row and
   no self-un-pause at +65 s;
 - a phone call: `N audio interrupt began` → `paused cause=interruption` →
-  `N audio interrupt ended shouldResume=true` → `resume … → play|seek-live-then-play`;
+  (the person comes back to the app under the call banner: `resume
+  reason=foreground cause=interruption … interruption=open → stay-paused`,
+  no `play`) → `N audio interrupt ended shouldResume=true` → `resume … →
+  play|seek-live-then-play`;
 - auto-PiP never starts under the static (`N pip auto=false` while tuning);
 - the dial rested ≥ 1.5 s on a cold channel: `docker logs` shows `Starting
   HLS session` at the rest, and the tune's `replaceAsync start → resolve` is
@@ -270,3 +279,16 @@ delivered as a payload the surface can read without parsing a row:
     a zero dwell and call it from `onGate`, a HEAD at the gate 340 ms ahead
     of the tune's GET, on the contract's word that a second master request
     joins the session's wait (§1 Stage B).
+15. **The foreground and the PiP stop wait for an open interruption's
+    `ended`** (05-PLAN's wiring resumed an interruption's pause on AppState
+    `active`). Why: AppState goes `active` when the person returns to the
+    app under the call banner, Apple does not order the `ended` notification
+    against it, and a `play()` while the session is still interrupted is
+    refused — the controller would have called the set live (the later
+    `ended` ignored: only Now Playing or the X could lift it) or stamped the
+    session's second pause `cause=user` (the later `ended` answered
+    stay-paused) — SI-02 lost either way. Cost: an `ended` that never comes
+    leaves the set paused until Now Playing or the channel selected again
+    (the one documented case, `appWasSuspended`, the iOS 16 SDK retired:
+    "wasSuspended reason no longer present"). Reversal: drop the
+    `interruptionOpen` clause in `decideResume`.

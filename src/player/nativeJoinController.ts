@@ -57,6 +57,15 @@ export interface JoinState {
   /** The last `interruption-began`, for attributing a pause edge either side of it. */
   interruptionAt: number | null;
   /**
+   * `interruption-began` arrived and its `ended` has not. While it is open a
+   * pause edge is the interruption's at any distance, and the foreground and
+   * the PiP stop do not play (`decideResume`): AppState goes `active` under
+   * a call banner, and a `play()` there is refused by the session. Only the
+   * `ended` edge clears it — never a tune, which is the generation's, not
+   * the session's.
+   */
+  interruptionOpen: boolean;
+  /**
    * The last failure of the current generation while not paused, for
    * attributing a pause edge either side of it: AVPlayer pauses a failed
    * item, and which KVO runs first — the item's `.failed` or the player's
@@ -122,6 +131,7 @@ export function createJoinState(nextGeneration: number): JoinState {
     pauseCause: null,
     failedWhilePaused: false,
     interruptionAt: null,
+    interruptionOpen: false,
     failedAt: null,
   };
 }
@@ -247,7 +257,7 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
         return { state: s, actions };
       }
       const nearInterruption = s.interruptionAt != null && now - s.interruptionAt <= PAUSE_ATTRIBUTION_MS;
-      const cause: PauseCause = nearInterruption ? 'interruption' : 'user';
+      const cause: PauseCause = s.interruptionOpen || nearInterruption ? 'interruption' : 'user';
       s = { ...s, phase: 'paused', pausedAt: now, pauseCause: cause, failedWhilePaused: false, progressSince: null, lastTime: null };
       actions.push(trace('paused', `cause=${cause}`, g));
       actions.push({ type: 'paused', at: now, cause });
@@ -262,7 +272,7 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
       return { state: s, actions };
     }
     case 'interruption-began': {
-      s = { ...s, interruptionAt: now };
+      s = { ...s, interruptionAt: now, interruptionOpen: true };
       if (s.phase === 'paused' && s.pausedAt != null && s.pauseCause === 'user' && now - s.pausedAt <= PAUSE_ATTRIBUTION_MS) {
         actions.push(trace('paused', 'cause=interruption (re-attributed)', g));
         s = { ...s, pauseCause: 'interruption' };
@@ -270,6 +280,8 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
       return { state: s, actions };
     }
     case 'resume-edge': {
+      // The session is the app's again whether or not the set is paused.
+      if (event.reason === 'interruption-ended') s = { ...s, interruptionOpen: false };
       if (s.phase !== 'paused') return { state: s, actions };
       const decision = decideResume({
         pausedAt: s.pausedAt,
@@ -278,9 +290,11 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
         reason: event.reason,
         shouldResume: event.shouldResume,
         failedWhilePaused: s.failedWhilePaused,
+        interruptionOpen: s.interruptionOpen,
       });
       const elapsed = s.pausedAt == null ? '?' : String(now - s.pausedAt);
-      actions.push(trace('resume', `reason=${event.reason} cause=${s.pauseCause ?? '-'} elapsed=${elapsed}ms failed=${s.failedWhilePaused} → ${decision}`, g));
+      const open = s.interruptionOpen ? ' interruption=open' : '';
+      actions.push(trace('resume', `reason=${event.reason} cause=${s.pauseCause ?? '-'} elapsed=${elapsed}ms failed=${s.failedWhilePaused}${open} → ${decision}`, g));
       return { state: applyResume(s, decision, event.reason, actions), actions };
     }
     default: {

@@ -79,6 +79,15 @@ describe('decideResume', () => {
     expect(decideResume(at(5_000, { cause: 'interruption', reason: 'pip-stop' }))).toBe('play');
   });
 
+  it('while the interruption is open, the foreground and the PiP stop wait for its ended; a press does not', () => {
+    expect(decideResume(at(5_000, { cause: 'interruption', reason: 'foreground', interruptionOpen: true }))).toBe('stay-paused');
+    expect(decideResume(at(70_000, { cause: 'interruption', reason: 'foreground', interruptionOpen: true }))).toBe('stay-paused');
+    expect(decideResume(at(5_000, { cause: 'interruption', reason: 'pip-stop', interruptionOpen: true }))).toBe('stay-paused');
+    expect(decideResume(at(5_000, { cause: 'interruption', reason: 'remote-play', interruptionOpen: true }))).toBe('play');
+    expect(decideResume(at(5_000, { cause: 'interruption', reason: 'user', interruptionOpen: true }))).toBe('play');
+    expect(decideResume(at(5_000, { cause: 'interruption', reason: 'interruption-ended', shouldResume: true, interruptionOpen: true }))).toBe('play');
+  });
+
   it('interruption-ended honours shouldResume', () => {
     expect(decideResume(at(5_000, { cause: 'interruption', reason: 'interruption-ended', shouldResume: false }))).toBe('stay-paused');
     expect(decideResume(at(5_000, { cause: 'interruption', reason: 'interruption-ended' }))).toBe('stay-paused');

@@ -69,6 +69,13 @@ export interface ResumeQuery {
   reason: ResumeReason;
   /** AVAudioSession's `shouldResume` option on an `interruption-ended` edge. */
   shouldResume?: boolean;
+  /**
+   * An interruption began and its `ended` has not arrived: the audio
+   * session is still the call's (or Siri's, or the alarm's), whatever
+   * AppState says — iOS activates the app under a call banner, and the
+   * `ended` notification is delivered whenever the system gets to it.
+   */
+  interruptionOpen?: boolean;
   /** The item failed (or a retry was cancelled) while paused: only a fresh item can play. */
   failedWhilePaused: boolean;
 }
@@ -80,13 +87,18 @@ export interface ResumeQuery {
  * closing (AVKit pauses the player when its X is pressed, then reports the
  * stop; a resume there would restart audio in a window just closed); only
  * a play the person pressed — Now Playing, or the channel already on the
- * set selected again — lifts it. An interruption that ends without
- * `shouldResume` stays quiet; a failed item or a pause past the session's
- * life rejoins from the channel URL; a pause past the window seeks first;
- * anything shorter just plays.
+ * set selected again — lifts it. While an interruption is open, the
+ * foreground and the PiP stop wait for its `ended`: a `play()` under a
+ * live call is refused by the session — silently (the controller would
+ * then call the set live while it sits paused, and the `ended` that follows
+ * finds nothing to resume) or with a fresh pause edge (SI-02 lost either
+ * way). An interruption that ends without `shouldResume` stays quiet; a
+ * failed item or a pause past the session's life rejoins from the channel
+ * URL; a pause past the window seeks first; anything shorter just plays.
  */
 export function decideResume(q: ResumeQuery): ResumeAction {
   if (q.cause === 'user' && SYSTEM_EDGES.has(q.reason)) return 'stay-paused';
+  if (q.interruptionOpen && (q.reason === 'foreground' || q.reason === 'pip-stop')) return 'stay-paused';
   if (q.reason === 'interruption-ended' && !q.shouldResume) return 'stay-paused';
   if (q.failedWhilePaused || q.pausedAt === null) return 'rejoin';
   const elapsed = q.now - q.pausedAt;
