@@ -165,7 +165,7 @@ describe('the first frame — latch and replay (FF-03)', () => {
     }
   });
 
-  it('health (readyToPlay / playingChange / timeUpdate) never emits first-frame and resets the ladder', () => {
+  it('progress (playingChange true / an advancing timeUpdate) never emits first-frame and never touches the ladder', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
@@ -178,6 +178,28 @@ describe('the first frame — latch and replay (FF-03)', () => {
     h.dispatch({ type: 'ready' });
     expect(h.of('first-frame')).toHaveLength(0);
     expect(h.of('ready')).toHaveLength(1);
+    expect(h.of('buffering')).toEqual([{ type: 'buffering', on: false }, { type: 'buffering', on: false }]);
+    // PW-10: a rung is climbed back only by sustained progress, which the join controller judges.
+    expect(h.state.failures).toBe(1);
+    h.dispatch({ type: 'native-first-frame', g: 2, item: 'a', via: 'rfdKvo' });
+    expect(h.state.failures).toBe(1);
+  });
+
+  it('healthy resets the ladder once, with a row, and is silent when there is nothing to reset', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.dispatch({ type: 'settle', g: 1 });
+    h.drain();
+    h.dispatch({ type: 'healthy' });
+    expect(h.actions).toEqual([]);
+    h.dispatch({ type: 'status-error', g: 1, error: media('x') });
+    h.dispatch({ type: 'retry-fired', g: 1 });
+    h.dispatch({ type: 'settle', g: 2 });
+    h.dispatch({ type: 'status-error', g: 2, error: media('y') });
+    expect(h.state.failures).toBe(2);
+    h.drain();
+    h.dispatch({ type: 'healthy' });
+    expect(h.names()).toEqual(['healthy failures reset from 2']);
     expect(h.state.failures).toBe(0);
   });
 
@@ -273,7 +295,7 @@ describe('errors — latch, ladder, health', () => {
       h.dispatch({ type: 'native-item-failed', g, item: 'i', error: media(`e${i}`) });
       const errors = h.of('error');
       if (i < SURFACE_ERROR_AFTER) expect(errors).toHaveLength(0);
-      else expect(errors).toEqual([{ type: 'error', error: { kind: 'recovery-exhausted', message: `e${i}` } }]);
+      else expect(errors).toEqual([{ type: 'error', error: { kind: 'recovery-exhausted', message: `e${i}`, terminal: false } }]);
       expect(h.of('schedule-retry')).toHaveLength(1);
       h.dispatch({ type: 'retry-fired', g });
     }

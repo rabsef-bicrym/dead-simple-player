@@ -10,6 +10,12 @@ export type PlayerErrorKind =
 export interface PlayerError {
   kind: PlayerErrorKind;
   message: string;
+  /**
+   * `false`: the surface keeps trying — the plate relabels, the tune record
+   * stays open, a later frame still closes it (the native ladder's third
+   * failure, the web's `recovery-exhausted`). Absent or `true`: final.
+   */
+  terminal?: boolean;
 }
 
 export interface PlayerMetadata {

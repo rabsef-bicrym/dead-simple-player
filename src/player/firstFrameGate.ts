@@ -18,14 +18,21 @@
  * replaying a fire latched for it. Errors, readiness, rebuilds and timers
  * never emit it (R1). The retry timer this reducer schedules starts a FETCH
  * (`schedule-retry` → `retry-fired` → `replace`); it never ends anything.
+ *
+ * The ladder's numbers live in `pipelinePolicy.ts` (one table for both
+ * surfaces); its budget replenishes on `healthy` — sustained progress, judged
+ * by `nativeJoinController.ts` — never on readiness or on the first frame
+ * alone (PW-10: a stream that plays a second and dies would otherwise never
+ * back off past the first rung).
  */
 import type { DSPStartResult } from '../../modules/dsp-picture';
+import { JOIN_BACKOFF_MS, JOIN_SURFACE_AFTER, nextRetry } from './pipelinePolicy';
 import type { PlayerError } from './types';
 
-/** The ladder, indexed by `failures - 1`; the last entry repeats (R1: X is the escape). */
-export const RETRY_DELAYS_MS = [0, 2000, 4000, 8000, 15000, 30000] as const;
+/** The ladder, indexed by `failures - 1`; the last entry repeats (R1: X is the escape). The policy's table, re-exported. */
+export const RETRY_DELAYS_MS = JOIN_BACKOFF_MS;
 /** The plate relabels ("THE SIGNAL WILL NOT JOIN") after this many consecutive failures; attempts continue (R4). */
-export const SURFACE_ERROR_AFTER = 3;
+export const SURFACE_ERROR_AFTER = JOIN_SURFACE_AFTER;
 
 /** What `startPlayback(g)` returned: the module's word for it, spelled once (modules/dsp-picture/index.ts). */
 export type StartResult = DSPStartResult;
@@ -71,8 +78,10 @@ export type GateEvent =
   | { type: 'native-item-lost'; g: number; item: string }
   /** expo's `statusChange error`, stamped with the generation current at arrival (its payload names no item). */
   | { type: 'status-error'; g: number; error: PlayerError }
-  /** Buffer health: `readyToPlay`, `playingChange true`, an advancing `timeUpdate`. */
+  /** Progress: `playingChange true` or an advancing `timeUpdate` (NP-02: never `readyToPlay`, which is expo's keep-up forecast). */
   | { type: 'ready' }
+  /** Sustained progress (`HEALTHY_AFTER_MS` of it): the ladder's budget replenishes. */
+  | { type: 'healthy' }
   /** The retry timer for `g` fired. */
   | { type: 'retry-fired'; g: number }
   /** The layout cleanup: every later fact is stale. */
@@ -115,7 +124,7 @@ export function createGateState(nextGeneration: number): GateState {
 
 /** The delay before attempt `failures + 1`, by the ladder (race-2 R8: the first retry is immediate). */
 export function retryDelayMs(failures: number): number {
-  return RETRY_DELAYS_MS[Math.min(Math.max(failures, 1) - 1, RETRY_DELAYS_MS.length - 1)];
+  return nextRetry(failures).delayMs;
 }
 
 function trace(name: string, detail: string | undefined, g: number): GateAction {
@@ -140,15 +149,16 @@ function reportFirstFrame(s: GateState, g: number, actions: GateAction[]): GateS
   if (g !== s.sourceGeneration || s.firstFrameReported) return s;
   actions.push({ type: 'buffering', on: false });
   actions.push({ type: 'first-frame', g });
-  return { ...s, firstFrameReported: true, pendingFirstFrame: null, failures: 0 };
+  return { ...s, firstFrameReported: true, pendingFirstFrame: null };
 }
 
+// Progress is not health: `failures` is untouched here and reset only by `healthy`.
 function reportReady(s: GateState, actions: GateAction[]): GateState {
   if (s.settledGeneration !== s.sourceGeneration) return s;
   actions.push({ type: 'buffering', on: false });
-  if (s.readyReported) return { ...s, failures: 0 };
+  if (s.readyReported) return s;
   actions.push({ type: 'ready' });
-  return { ...s, readyReported: true, failures: 0 };
+  return { ...s, readyReported: true };
 }
 
 /**
@@ -168,11 +178,11 @@ function fail(s: GateState, g: number, error: PlayerError, reason: string, actio
   if (s.retry) return s;
   const failures = s.failures + 1;
   actions.push(trace('playerError', `${error.kind}: ${error.message} failures=${failures}`, g));
-  // The plate relabels while attempts continue: `recovery-exhausted` is the
-  // kind watch.tsx does not treat as an ending (its handlePlayerError closes
-  // the tune record for every other kind), so a later frame still closes it.
-  if (failures >= SURFACE_ERROR_AFTER) actions.push({ type: 'error', error: { kind: 'recovery-exhausted', message: error.message } });
-  const delayMs = retryDelayMs(failures);
+  const { delayMs, surface } = nextRetry(failures);
+  // The plate relabels while attempts continue: `terminal: false` tells
+  // watch.tsx this is not an ending (the tune record stays open, a later
+  // frame still closes it); `recovery-exhausted` is the kind the plate reads.
+  if (surface) actions.push({ type: 'error', error: { kind: 'recovery-exhausted', message: error.message, terminal: false } });
   actions.push({ type: 'buffering', on: true });
   actions.push(trace('retry scheduled', `in=${delayMs}ms`, g));
   actions.push({ type: 'schedule-retry', g, delayMs, reason });
@@ -315,6 +325,11 @@ export function reduceGate(state: GateState, event: GateEvent): GateResult {
     }
     case 'ready':
       return { state: reportReady(s, actions), actions };
+    case 'healthy': {
+      if (s.failures === 0) return { state: s, actions };
+      actions.push(trace('healthy', `failures reset from ${s.failures}`, s.sourceGeneration));
+      return { state: { ...s, failures: 0 }, actions };
+    }
     case 'retry-fired': {
       if (!s.retry || s.retry.g !== event.g) return { state: s, actions };
       const { reason } = s.retry;
