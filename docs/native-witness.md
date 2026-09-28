@@ -326,7 +326,7 @@ ok|adopted|unbound|stale|failed|no picture view` · `startPlayback threw <msg>` 
 requested=<uri>` · `playerError <kind>: <msg> failures=n` (or `latched…` /
 `dropped (settle pending)…` / `stale…` / `held while paused: …`) · `error replay` · `retry scheduled in=<ms>` ·
 `retry cancelled paused` · `healthy failures reset from n` · `item lost i=` · `paused cause=user|interruption`
-(or `cause=interruption (re-attributed)`) · `resume reason=<r> cause=<c> elapsed=<ms> failed=<b> →
+(or `cause=interruption (re-attributed)`, or `cause=failure …` — not a pause) · `resume reason=<r> cause=<c> elapsed=<ms> failed=<b> →
 play|seek-live-then-play|rejoin|stay-paused` · `attempt #n reason=rejoin:resume:<r>` · `pip
 start|stop|request refused while tuning` · `link → channel N`. The screen's own: `sourceReady set`,
 `tuning cleared`, `error surfaced`, `pip request ignored: active`.

@@ -40,9 +40,19 @@ A pause is AVPlayer's own `timeControlStatus == .paused` (module event
 current generation, while the `playing` prop still wants playback, the source
 is not cleared, and the bound item has not failed. That last clause is the
 payload's `itemStatus`: AVPlayer pauses a failed item, and that edge belongs
-to the error path (the idle cut, NP-14), not to the pause policy. Expo's
-`playingChange false` is not the edge: it prints `false` for
-`.waitingToPlayAtSpecifiedRate` (a stall) exactly as for `.paused`.
+to the error path (the idle cut, NP-14), not to the pause policy. Which KVO
+runs first — the item's `.failed` or the player's `.paused` — is not
+documented (expo's comment "iOS changes timeControlStatus after an error",
+`VideoPlayerObserver.swift:442`, is the only word), so the controller reads
+both orders: a pause edge within `PAUSE_ATTRIBUTION_MS` = 2 s *after* a
+failure of the current generation is the failure's (`paused cause=failure
+(failed <ms> before the edge)`; the armed rung stays armed), and a failure
+within 2 s *after* a `cause=user` edge withdraws that pause (`paused
+cause=failure (re-attributed, failed <ms> after the edge)`) and runs the
+ladder — otherwise a mid-programme cut (decision 6(c)) would sit as a
+person's pause until a Now Playing press. Expo's `playingChange false` is
+not the edge: it prints `false` for `.waitingToPlayAtSpecifiedRate` (a
+stall) exactly as for `.paused`.
 
 What the app asked for never reaches `paused`: `playing=false` (the prop),
 a cleared source (R7's pause+mute), the unmount, and the `expect()` pause
@@ -58,9 +68,10 @@ button, or anything else the person did.
 
 While paused (decision 17 — a paused set stays paused):
 
-- the ladder does not run: an error for the current generation is held
-  (`playerError held while paused: <msg>`), `failedWhilePaused` is set, the
-  plate does not relabel;
+- the ladder does not run: an error for the current generation more than
+  2 s after a person's pause edge, or at any distance from an
+  interruption's, is held (`playerError held while paused: <msg>`),
+  `failedWhilePaused` is set, the plate does not relabel;
 - a rung already armed for this generation is cancelled (`retry cancelled
   paused`) and counts as a failure while paused — the resume rejoins;
 - a retry timer that beats the cancel starts nothing.

@@ -193,6 +193,7 @@ describe('the pause edge', () => {
     const g = h.live();
     h.dispatch({ type: 'native-item-failed', g, item: 'i', error: media('blip') });
     expect(h.state.gate.retry).not.toBeNull();
+    h.advance(PAUSE_ATTRIBUTION_MS + 1);                      // past the failure's own pause edge
     h.drain();
     h.pause();
     expect(h.of('cancel-retry')).toHaveLength(1);
@@ -208,11 +209,95 @@ describe('the pause edge', () => {
   });
 });
 
+describe('a failure beside the pause edge (either KVO order)', () => {
+  it('pause then fail within 2 s: the pause is withdrawn and the ladder runs', () => {
+    const h = harness();
+    const g = h.live();
+    h.pause();                                                 // the player's .paused KVO ran first: itemStatus read ready
+    expect(h.state.phase).toBe('paused');
+    h.advance(300);
+    h.drain();
+    h.dispatch({ type: 'native-item-failed', g, item: 'i', error: media('302 to master') });
+    expect(h.names()).toEqual([
+      'paused cause=failure (re-attributed, failed 300ms after the edge)',
+      'playerError media: 302 to master failures=1',
+      'buffering',
+      'retry scheduled in=0ms',
+      'schedule-retry',
+    ]);
+    expect(h.of('schedule-retry')).toEqual([{ type: 'schedule-retry', g, delayMs: 0, reason: 'retry' }]);
+    expect(h.state.phase).toBe('live');
+    expect(h.state.pausedAt).toBeNull();
+    expect(h.state.failedWhilePaused).toBe(false);
+    expect(h.state.gate.failures).toBe(1);
+    h.drain();
+    h.pause();                                                 // the same failure's edge, delivered again after the fail
+    expect(h.names()).toEqual(['paused cause=failure (failed 0ms before the edge)']);
+    expect(h.state.phase).toBe('live');
+    h.dispatch({ type: 'retry-fired', g });
+    expect(h.of('replace')).toHaveLength(1);
+  });
+
+  it('pause then fail within 2 s during the join returns to joining, not live', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.dispatch({ type: 'settle', g: 1 });
+    h.pause();
+    h.advance(1_000);
+    h.dispatch({ type: 'status-error', g: 1, error: media('expo') });
+    expect(h.state.phase).toBe('joining');
+    expect(h.of('schedule-retry')).toHaveLength(1);
+  });
+
+  it('fail then pause within 2 s: the edge is the failure\'s own pause; the armed rung stays armed', () => {
+    const h = harness();
+    const g = h.live();
+    h.dispatch({ type: 'native-item-failed', g, item: 'i', error: media('blip') });
+    expect(h.of('schedule-retry')).toHaveLength(1);
+    h.advance(300);
+    h.drain();
+    h.pause();                                                 // itemStatus read ready at the tcs edge
+    expect(h.names()).toEqual(['paused cause=failure (failed 300ms before the edge)']);
+    expect(h.of('paused')).toHaveLength(0);
+    expect(h.of('cancel-retry')).toHaveLength(0);
+    expect(h.state.phase).toBe('live');
+    expect(h.state.pausedAt).toBeNull();
+    expect(h.state.gate.retry).not.toBeNull();
+    h.drain();
+    h.dispatch({ type: 'retry-fired', g });
+    expect(h.of('replace')).toEqual([{ type: 'replace', g: g + 1 }]);
+    expect(h.state.failedAt).toBeNull();                       // the new generation starts clean
+  });
+
+  it('pause then fail at +62 s is held (decision 17); an interruption\'s pause holds whatever the distance', () => {
+    const late = harness();
+    const g = late.live();
+    late.pause();
+    late.advance(62_000);
+    late.drain();
+    late.dispatch({ type: 'native-item-failed', g, item: 'i', error: media('cut') });
+    expect(late.names()).toEqual(['playerError held while paused: cut']);
+    expect(late.state.phase).toBe('paused');
+    expect(late.state.failedWhilePaused).toBe(true);
+
+    const call = harness();
+    const c = call.live();
+    call.dispatch({ type: 'interruption-began' });
+    call.pause();
+    call.advance(300);
+    call.drain();
+    call.dispatch({ type: 'native-item-failed', g: c, item: 'i', error: media('cut') });
+    expect(call.names()).toEqual(['playerError held while paused: cut']);
+    expect(call.state.phase).toBe('paused');
+  });
+});
+
 describe('errors while paused (decision 17)', () => {
   it('are held: no ladder, no plate, and the resume rejoins', () => {
     const h = harness();
     const g = h.live();
     h.pause();
+    h.advance(PAUSE_ATTRIBUTION_MS + 1);
     h.drain();
     h.dispatch({ type: 'native-item-failed', g, item: 'i', error: media('302 to master') });
     expect(h.names()).toEqual(['playerError held while paused: 302 to master']);
@@ -226,7 +311,7 @@ describe('errors while paused (decision 17)', () => {
     h.drain();
     h.advance(1_000);
     h.dispatch({ type: 'resume-edge', reason: 'pip-stop' });
-    expect(h.names()[0]).toMatch(/^resume reason=pip-stop cause=user elapsed=1000ms failed=true → rejoin$/);
+    expect(h.names()[0]).toMatch(/^resume reason=pip-stop cause=user elapsed=3001ms failed=true → rejoin$/);
     expect(h.of('replace')).toHaveLength(1);
     expect(h.names()).toContain('attempt #2 reason=rejoin:resume:pip-stop');
   });
@@ -235,6 +320,7 @@ describe('errors while paused (decision 17)', () => {
     const h = harness();
     h.live();
     h.pause();
+    h.advance(PAUSE_ATTRIBUTION_MS + 1);
     h.drain();
     h.dispatch({ type: 'status-error', g: 42, error: media('old') });
     expect(h.names()).toEqual(['playerError stale g=42: old']);
@@ -430,6 +516,7 @@ describe('the owner\'s scenarios, replayed', () => {
     expect(h.names()).toEqual(['playerError held while paused: the media playlist 302d to the master']);
     expect(h.of('schedule-retry')).toHaveLength(0);
     expect(h.of('play')).toHaveLength(0);                        // no self-un-pause at +65 s
+    expect(h.state.phase).toBe('paused');
     h.at(t0 + 70_000);
     h.drain();
     h.dispatch({ type: 'resume-edge', reason: 'remote-play' });
