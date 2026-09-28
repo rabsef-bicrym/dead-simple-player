@@ -180,9 +180,12 @@ describe('the pause edge', () => {
     expect(b.state.pauseCause).toBe('interruption');
     expect(b.names()).toContain('paused cause=interruption (re-attributed)');
 
+    // The window is for the KVO that lands after a brief interruption's
+    // ended; while one is open the distance does not matter (SI-02, below).
     const c = harness();
     c.live();
     c.dispatch({ type: 'interruption-began' });
+    c.dispatch({ type: 'resume-edge', reason: 'interruption-ended', shouldResume: false });
     c.advance(PAUSE_ATTRIBUTION_MS + 1);
     c.pause();
     expect(c.state.pauseCause).toBe('user');
@@ -411,13 +414,28 @@ describe('the resume edge', () => {
     expect(user.of('play')).toHaveLength(0);
     expect(user.of('seek-live-then-play')).toHaveLength(0);
 
+    // An interruption's pause, once its ended has come and gone without
+    // shouldResume (another app took the session), lifts on the foreground.
     const call = harness();
     call.live();
     call.dispatch({ type: 'interruption-began' });
     call.pause();
     call.advance(10_000);
+    call.dispatch({ type: 'resume-edge', reason: 'interruption-ended', shouldResume: false });
+    expect(call.state.phase).toBe('paused');
     call.dispatch({ type: 'resume-edge', reason: 'foreground' });
     expect(call.of('play')).toHaveLength(1);
+  });
+
+  it('a same-channel select ignores an open interruption: the person pressed it', () => {
+    const h = harness();
+    h.live();
+    h.dispatch({ type: 'interruption-began' });
+    h.pause();
+    h.advance(3_000);
+    h.drain();
+    h.dispatch({ type: 'resume-edge', reason: 'user' });
+    expect(h.names()).toEqual(['resume reason=user cause=interruption elapsed=3000ms failed=false interruption=open → play', 'play']);
   });
 
   it('interruption-ended resumes only with shouldResume', () => {
@@ -484,6 +502,99 @@ describe('the resume edge', () => {
     h.drain();
     h.dispatch({ type: 'resume-edge', reason: 'foreground' });
     expect(h.actions).toEqual([]);
+  });
+});
+
+describe('an interruption still open (SI-02)', () => {
+  it('the foreground under a call banner, and a PiP stop, wait for the call\'s ended; the ended resumes', () => {
+    const h = harness();
+    h.live();
+    h.dispatch({ type: 'interruption-began' });
+    h.pause();
+    expect(h.state.pauseCause).toBe('interruption');
+    expect(h.state.interruptionOpen).toBe(true);
+    h.advance(1_500);
+    h.drain();
+    h.dispatch({ type: 'resume-edge', reason: 'foreground' });        // AppState active: the person came back to the app mid-call
+    expect(h.names()).toEqual(['resume reason=foreground cause=interruption elapsed=1500ms failed=false interruption=open → stay-paused']);
+    expect(h.of('play')).toHaveLength(0);
+    expect(h.state.phase).toBe('paused');
+    h.advance(8_500);
+    h.drain();
+    h.dispatch({ type: 'resume-edge', reason: 'pip-stop' });
+    expect(h.names()).toEqual(['resume reason=pip-stop cause=interruption elapsed=10000ms failed=false interruption=open → stay-paused']);
+    expect(h.state.phase).toBe('paused');
+    h.drain();
+    h.dispatch({ type: 'resume-edge', reason: 'interruption-ended', shouldResume: true });
+    expect(h.names()).toEqual(['resume reason=interruption-ended cause=interruption elapsed=10000ms failed=false → play', 'play']);
+    expect(h.state.phase).toBe('live');
+    expect(h.state.interruptionOpen).toBe(false);
+  });
+
+  it(`a pause edge while the interruption is open is the interruption's, past ${PAUSE_ATTRIBUTION_MS} ms too`, () => {
+    const late = harness();
+    late.live();
+    late.dispatch({ type: 'interruption-began' });
+    late.advance(PAUSE_ATTRIBUTION_MS + 5_000);
+    late.pause();
+    expect(late.state.pauseCause).toBe('interruption');
+
+    // A press during the call plays (the person's word); the session pauses
+    // it again 4 s after the call began: still the call's, so its ended lifts it.
+    const twice = harness();
+    twice.live();
+    twice.dispatch({ type: 'interruption-began' });
+    twice.pause();
+    twice.dispatch({ type: 'resume-edge', reason: 'foreground' });
+    expect(twice.state.phase).toBe('paused');
+    twice.advance(3_000);
+    twice.dispatch({ type: 'resume-edge', reason: 'remote-play' });
+    expect(twice.of('play')).toHaveLength(1);
+    expect(twice.state.phase).toBe('live');
+    twice.advance(1_000);
+    twice.drain();
+    twice.pause();
+    expect(twice.names()).toEqual(['paused cause=interruption', 'paused']);
+    twice.dispatch({ type: 'resume-edge', reason: 'foreground' });
+    expect(twice.of('play')).toHaveLength(0);
+    twice.dispatch({ type: 'resume-edge', reason: 'interruption-ended', shouldResume: true });
+    expect(twice.of('play')).toHaveLength(1);
+    expect(twice.state.phase).toBe('live');
+  });
+
+  it('the ended closes the interruption whether or not the set is paused; the next pause is the person\'s', () => {
+    const h = harness();
+    h.live();
+    h.dispatch({ type: 'interruption-began' });                     // Siri, over a set it did not pause
+    h.dispatch({ type: 'resume-edge', reason: 'interruption-ended', shouldResume: false });
+    expect(h.actions).toEqual([]);
+    expect(h.state.interruptionOpen).toBe(false);
+    h.advance(5_000);
+    h.pause();
+    expect(h.state.pauseCause).toBe('user');
+    h.drain();
+    h.dispatch({ type: 'resume-edge', reason: 'foreground' });
+    expect(h.names()).toEqual(['resume reason=foreground cause=user elapsed=0ms failed=false → stay-paused']);
+  });
+
+  it('a tune during a call keeps the interruption open: the session is not the generation\'s', () => {
+    const h = harness();
+    h.live();
+    h.dispatch({ type: 'interruption-began' });
+    h.pause();
+    h.dispatch({ type: 'invalidate' });
+    h.dispatch({ type: 'take', reason: 'source' });
+    expect(h.state.phase).toBe('joining');
+    expect(h.state.interruptionOpen).toBe(true);
+    h.dispatch({ type: 'settle', g: h.state.gate.sourceGeneration });
+    h.advance(30_000);
+    h.pause();
+    expect(h.state.pauseCause).toBe('interruption');
+    h.dispatch({ type: 'resume-edge', reason: 'foreground' });
+    expect(h.of('play')).toHaveLength(0);
+    h.dispatch({ type: 'resume-edge', reason: 'interruption-ended', shouldResume: true });
+    expect(h.of('play')).toHaveLength(1);
+    expect(h.state.phase).toBe('joining');
   });
 });
 
