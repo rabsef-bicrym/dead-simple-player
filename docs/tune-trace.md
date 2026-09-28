@@ -81,12 +81,17 @@ JS rows (`src/player/PlayerSurface.native.tsx`, `src/player/firstFrameGate.ts`,
 | `tuning cleared` | — | `watch.tsx`: the decision; the static's unmount is the next commit |
 | `static mount` / `static unmount` | — | `TuningStatic`'s effect: the real mount and unmount |
 | `S live` / `S boil` | `n=<install #>` | the static's animation started / the render server is advancing it |
-| `playerError` | `<kind>: <msg> failures=n` · `latched (settle pending): <msg>` · `stale g=<g>: <msg>` | a failure on the ladder, latched, or dropped |
+| `playerError` | `<kind>: <msg> failures=n` · `latched (settle pending): <msg>` · `stale g=<g>: <msg>` · `held while paused: <msg>` | a failure on the ladder, latched, dropped, or held because the set is paused (decision 17) |
 | `error replay` | — | a failure latched before settle, delivered by the settle |
 | `retry scheduled` | `in=<ms>` | the ladder armed a rebuild (a fetch; never a reveal) |
+| `retry cancelled` | `paused` | a rung armed for this generation was dropped by a pause; the resume rejoins |
+| `healthy` | `failures reset from n` | five seconds of sustained progress replenished the ladder |
 | `item lost` | `i=` | native unbound a started, unfired item (FF-14) |
-| `pip` | `start\|stop\|request refused while tuning` | PiP edges; decision 1 |
-| `error surfaced` | `<kind>: <message>` | `watch.tsx`, named by tune id; `recovery-exhausted` relabels the plate and is not an ending |
+| `paused` | `cause=user\|interruption` · `cause=interruption (re-attributed)` | AVPlayer's own `.paused` on the settled generation, unrequested by the app; an interruption within 2 s names the cause |
+| `resume` | `reason=<r> cause=<c> elapsed=<ms> failed=<b> → play\|seek-live-then-play\|rejoin\|stay-paused` | a resume edge judged by the tiers (`docs/pipeline-policy.md` §3); `rejoin` is followed by `attempt #n reason=rejoin:resume:<r>` |
+| `pip` | `start\|stop\|request refused while tuning` | PiP edges; decision 1; a `stop` is a resume edge for a set paused in the window |
+| `pip` | `request ignored: active` | `watch.tsx`: PICTURE OUT while PiP is already up |
+| `error surfaced` | `<kind>: <message>` | `watch.tsx`, named by tune id; an error the surface marked `terminal: false` (the ladder's third-failure relabel, the web's `recovery-exhausted`) is not an ending |
 | `link → channel N` | — | `watch.tsx`, after `tuneTo`, under the tune the link caused |
 | `UNTRACED START` | — | the synthetic tune opened for a row that had no tune of this launch |
 
@@ -95,11 +100,13 @@ listed with their fields in `docs/native-witness.md` §5. The ones a reading
 turns on: `N expect` (rate 0 across the swap), `N item` (the item bound to a
 generation, before `replaceAsync resolve`), `N config` (the live-offset
 request, measured), `N start` / `N nudge` (the one owner of playback start),
-`N tcs` (`tb=` is the timebase), `N rfd` (our layer's readiness, and whether it
-was delivered after the bind), `N hold` (why the predicate did not hold, by
-letter), `N fire` (the predicate held, every conjunct printed), `N unbind`
-(one per `N item`), `N errorLog` / `N itemStatus ready→failed` (the session
-died).
+`N tcs` (`tb=` is the timebase; `paused` is the pause edge, `waiting` a
+stall), `N rfd` (our layer's readiness, and whether it was delivered after
+the bind), `N hold` (why the predicate did not hold, by letter), `N fire`
+(the predicate held, every conjunct printed), `N unbind` (one per `N item`),
+`N errorLog` / `N itemStatus ready→failed` (the session died), `N audio
+interrupt began|ended shouldResume=` and `N remote play|pause` (what paused
+the set and what asked it to play again).
 
 ## Reading protocol
 
@@ -127,7 +134,16 @@ died).
   else native — no second `N item`, no second `firstFrame`.
 - `playerError … failures=n` → `retry scheduled in=<ms>` → `attempt #n+1`:
   the ladder `[0, 2, 4, 8, 15, 30] s`; on the third failure `error surfaced
-  recovery-exhausted: …` relabels the plate while the attempts continue.
+  recovery-exhausted: …` relabels the plate while the attempts continue;
+  `healthy failures reset from n` after five seconds of progress is what
+  lets the next failure start at the bottom again.
+- A lock-screen pause reads `N tcs paused` → `paused cause=user`; if the
+  session dies under it, `N itemStatus ready→failed` → `playerError held
+  while paused: …` and nothing else — no `retry scheduled`, no `play`. The
+  press that brings it back is `N remote play` → `resume reason=remote-play
+  … failed=true → rejoin` → `attempt #n reason=rejoin:resume:remote-play` →
+  the chain → `N fire`. A `resume … → stay-paused` on `reason=foreground`
+  with `cause=user` is decision 17 doing its job, not a stuck set.
 - `-- closed: left --` without `sourceReady set` is leaving mid-static;
   `-- closed: superseded --` means the next tune started first, and the rows
   that still belonged to this one sit under its `after`, marked `late`.
