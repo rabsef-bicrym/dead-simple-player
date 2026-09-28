@@ -232,9 +232,9 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
         if (!advanced || s.phase === 'paused') return { state: s, actions };
       }
       if (s.phase === 'paused') {
-        // `timeControlStatus == .playing` on a paused set: an outside play()
-        // the module could not attribute. The tiers still apply.
-        return reduceJoin(s, { type: 'resume-edge', reason: 'remote-play' }, now);
+        // `timeControlStatus == .playing` on a paused set: the timebase runs
+        // and no press was named. The tiers still apply.
+        return reduceJoin(s, { type: 'resume-edge', reason: 'rate' }, now);
       }
       s = gateEvent(s, { type: 'ready' }, actions);
       if (s.phase !== 'live' && s.phase !== 'joining') return { state: s, actions };
