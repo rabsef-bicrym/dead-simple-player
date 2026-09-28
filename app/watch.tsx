@@ -37,6 +37,7 @@ import { SignOff } from '../src/components/ds8m/SignOff';
 import { TuningStatic } from '../src/components/ds8m/TuningStatic';
 import { VideoHardwareControls } from '../src/components/ds8m/VideoHardwareControls';
 import { useCabinet } from '../src/hooks/useCabinet';
+import { usePrewarm } from '../src/hooks/usePrewarm';
 import { PlayerSurface } from '../src/player/PlayerSurface';
 import type { PlayerError, PlayerSurfaceHandle } from '../src/player/types';
 import type { Channel, Programme } from '../src/types';
@@ -121,12 +122,17 @@ export default function WatchScreen() {
 
   // The traveling set's night: POWER concludes the broadcast day.
   const [signOff, setSignOff] = useState(false);
+  // The service panel is pushed over this screen, which stays mounted under
+  // it; the pre-warm must not keep a session alive for a dial nobody sees.
+  const [focused, setFocused] = useState(true);
   useFocusEffect(
     useCallback(() => {
+      setFocused(true);
       // Settings owns a separate hook instance, so re-read its active aerial
       // before resuming this screen. A changed host/port then reloads data and
       // gives every channel a stream URL from the newly selected server.
       reloadServerConfig().catch(() => {});
+      return () => setFocused(false);
     }, [reloadServerConfig]),
   );
 
@@ -143,6 +149,9 @@ export default function WatchScreen() {
   const [buffering, setBuffering] = useState(true);
   const [showBufferingOverlay, setShowBufferingOverlay] = useState(false);
   const [pictureOutAvailable, setPictureOutAvailable] = useState(false);
+  // Decision 1: JS knows when PiP happens. The surface writes the `pip` row;
+  // this is the screen's copy, read when PICTURE OUT is asked for again.
+  const pipActiveRef = useRef(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const [housekeepingForeground, setHousekeepingForeground] = useState(() => (
     Platform.OS === 'web'
@@ -350,6 +359,20 @@ export default function WatchScreen() {
   const safeIndex = channels.length > 0 ? Math.min(currentIndex, channels.length - 1) : 0;
   const currentChannel = channels[safeIndex];
   currentStreamUrlRef.current = currentChannel?.streamUrl ?? null;
+
+  // The pre-warm (SI-01, decision 6(a)): the channel under the resting cursor
+  // has a session by the time the person commits. The DS-6 dial and the
+  // phone's landscape shifter only — the board cursor and the portrait
+  // column never rest on a station the way a dial does; a signed-off set,
+  // the service panel and the background warm nothing. Its timers schedule
+  // HEADs of a URL nobody is watching; nothing on the tune path reads it.
+  const prewarmEnabled = homeVisible
+    && !boardVisible
+    && !signOff
+    && focused
+    && housekeepingForeground
+    && (!isPhone || isLandscape);
+  const prewarm = usePrewarm(channels[dialIndex]?.streamUrl ?? null, prewarmEnabled);
   // ── Clock + EPG lookups ──
   useEffect(() => {
     if (!housekeepingForeground) return;
@@ -509,6 +532,9 @@ export default function WatchScreen() {
   // it lingers over the new surface and every key looks dead beneath it.
   const tuneTo = useCallback((index: number, origin: TuneOrigin = 'remote') => {
     beginTransition();
+    // Before the commit that hides Home: the tune's own master GET is the
+    // next Touch this channel gets, and no second one runs beside it.
+    prewarm.rest(null);
     if (isPhone && !isLandscape) showPortraitControls();
     setRegisterTuneRequest(null);
     // Same-channel arrival: a healthy tune (in progress or tuned) is never
@@ -575,7 +601,7 @@ export default function WatchScreen() {
       watchReveal.setValue(1);
       setWatchRevealDone(true);
     }
-  }, [beginTransition, cancelFlash, channels, flashChannel, isLandscape, isPhone, pictureOpacity, pictureScaleX, pictureScaleY, reducedMotion, safeIndex, showPortraitControls, tuning, watchReveal]);
+  }, [beginTransition, cancelFlash, channels, flashChannel, isLandscape, isPhone, pictureOpacity, pictureScaleX, pictureScaleY, prewarm, reducedMotion, safeIndex, showPortraitControls, tuning, watchReveal]);
 
   const requestTune = useCallback((index: number, origin: TuneOrigin) => {
     if (isPhone && !isLandscape) {
@@ -875,6 +901,10 @@ export default function WatchScreen() {
 
   const requestPictureOut = useCallback(() => {
     // This remains a direct, synchronous call from the key/plate gesture.
+    if (pipActiveRef.current) {
+      traceEvent('pip', 'request ignored: active', { tuneId: tuneIdRef.current });
+      return;
+    }
     playerRef.current?.requestPictureInPicture();
   }, []);
 
@@ -1094,12 +1124,22 @@ export default function WatchScreen() {
     if (!isBuffering) setShowBufferingOverlay(false);
   }, []);
 
+  // The clock advanced (NP-02): the "no progress" window the buffering plate
+  // measures against restarts here, never on a readiness forecast.
+  const handleProgress = useCallback(() => {
+    lastProgressAt.current = Date.now();
+  }, []);
+
+  const handlePictureInPictureChange = useCallback((active: boolean) => {
+    pipActiveRef.current = active;
+  }, []);
+
   const handlePlayerError = useCallback((error: PlayerError) => {
     traceEvent('error surfaced', `${error.kind}: ${error.message}`, { tuneId: tuneIdRef.current });
-    // The web's recovery-exhausted plate is not an ending: its pipeline keeps
-    // rebuilding, handlePlaybackStarted clears the plate, and a later first
-    // frame still closes the tune. Every other kind is final.
-    if (error.kind !== 'recovery-exhausted') closeTune('error-surfaced');
+    // A relabel the surface marks `terminal: false` is not an ending: its
+    // ladder keeps polling, handlePlaybackStarted clears the plate, and a
+    // later first frame still closes the tune. Everything else is final.
+    if (error.terminal !== false) closeTune('error-surfaced');
     setPlayerError(error.message);
     bufferingRef.current = false;
     setBuffering(false);
@@ -1169,8 +1209,9 @@ export default function WatchScreen() {
       </Text>
     </View>
   ) : (
-    // PiP start/stop is the surface's own `pip` row for now: nothing here reads
-    // it, so no state. WP-04 wires `onPictureInPictureChange` when it does (decision 1).
+    // The surface owns the pause and resume policy (a person's pause stays
+    // paused, decision 17) and writes the `pip` row; the screen keeps only the
+    // PiP flag it reads at PICTURE OUT (decision 1).
     <PlayerSurface
       ref={playerRef}
       sourceUrl={currentChannel.streamUrl}
@@ -1189,9 +1230,11 @@ export default function WatchScreen() {
       mediaSessionControls={mediaSessionControls}
       onReady={handlePlaybackStarted}
       onFirstFrame={handleFirstFrame}
+      onProgress={handleProgress}
       onBuffering={handlePlayerBuffering}
       onError={handlePlayerError}
       onPictureInPictureAvailabilityChange={setPictureOutAvailable}
+      onPictureInPictureChange={handlePictureInPictureChange}
     />
   );
 
