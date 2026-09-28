@@ -21,7 +21,8 @@ public final class DSPPictureModule: Module {
     Name("DSPPicture")
 
     View(DSPPictureView.self) {
-      Events("onTrace", "onFirstFrame", "onItemLost", "onItemFailed", "onPictureInPictureChange")
+      Events("onTrace", "onFirstFrame", "onItemLost", "onItemFailed", "onPictureInPictureChange",
+             "onTimeControl", "onAudioInterruption", "onRemoteCommand")
 
       // Identity-guarded: Fabric re-applies every declared prop on any props
       // commit of the element (a rotation changes `style`), and a same-value
