@@ -58,7 +58,10 @@ describe('modules/dsp-picture — the local module', () => {
   it('declares each view\'s events by the exact names of its EventDispatcher properties (the Mirror match)', () => {
     expect(eventsDeclared(module, 'DSPPictureView').sort()).toEqual(dispatchers(picture).sort());
     expect(eventsDeclared(module, 'DSPStaticView').sort()).toEqual(dispatchers(staticView).sort());
-    expect(eventsDeclared(module, 'DSPPictureView')).toEqual(['onTrace', 'onFirstFrame', 'onItemLost', 'onItemFailed', 'onPictureInPictureChange']);
+    expect(eventsDeclared(module, 'DSPPictureView')).toEqual([
+      'onTrace', 'onFirstFrame', 'onItemLost', 'onItemFailed', 'onPictureInPictureChange',
+      'onTimeControl', 'onAudioInterruption', 'onRemoteCommand',
+    ]);
   });
 
   it('exports the two views under the names index.ts requires', () => {
@@ -85,6 +88,25 @@ describe('modules/dsp-picture — the local module', () => {
     expect((module.match(/\.runOnQueue\(\.main\)/g) ?? []).length).toBe(fns.length);
     const handle = index.slice(index.indexOf('export interface DSPPictureHandle'), index.indexOf('export interface DSPStaticViewProps'));
     for (const fn of fns) expect(handle).toMatch(new RegExp(`^\\s+${fn}\\(`, 'm'));
+  });
+
+  it('every event leaves through emit(), which nothing dispatches during teardown; the remote target is play and pause only', () => {
+    const body = code(picture);
+    // Direct dispatcher calls are the five witness events and the rows; the policy events go through emit().
+    expect(body).toMatch(/emit\(onTimeControl,/);
+    expect(body).toMatch(/self\?\.emit\(self\?\.onAudioInterruption,/);
+    expect(body).toMatch(/self\.emit\(self\.onRemoteCommand,/);
+    expect(body).not.toMatch(/\bonTimeControl\(\[|\bonAudioInterruption\(\[|\bonRemoteCommand\(\[/);
+    const emitFn = picture.slice(picture.indexOf('private func emit('), picture.indexOf('private func onMain('));
+    expect(emitFn).toMatch(/guard !tearingDown, let dispatcher else \{ return \}/);
+    expect(picture).toMatch(/\[\(center\.playCommand, "play"\), \(center\.pauseCommand, "pause"\)\]/);
+    expect(body).not.toMatch(/togglePlayPauseCommand/);
+    expect(picture).toMatch(/for \(command, target\) in remoteTargets \{ command\.removeTarget\(target\) \}/);
+    // Installed with the player, removed with it: a detached view leaves no target behind.
+    const attach = picture.slice(picture.indexOf('func setPlayer('), picture.indexOf('private func detachPlayer('));
+    const detach = picture.slice(picture.indexOf('private func detachPlayer('), picture.indexOf('func setContentFit('));
+    expect(attach).toMatch(/installRemoteCommands\(\)/);
+    expect(detach).toMatch(/removeRemoteCommands\(\)/);
   });
 
   it('the witness decides on nothing wall-clock: no display link, no timer, the item\'s own clock samples', () => {

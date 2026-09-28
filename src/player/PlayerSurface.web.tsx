@@ -144,7 +144,13 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       rejoin: () => {
         rejoinRef.current?.();
       },
-    }), []);
+      // The web's pause discipline and tiers are WP-06's; until then a
+      // resume is the play the element would attempt on its own.
+      resume: () => {
+        const video = videoRef.current;
+        if (video && video.paused) attemptPlayback(video);
+      },
+    }), [attemptPlayback]);
 
     // A source change tears the complete pipeline down. loadSource is never
     // used to retune an existing Hls instance.
@@ -245,6 +251,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           callbacksRef.current.onError({
             kind: 'recovery-exhausted',
             message: 'The signal has not returned. The receiver will keep trying.',
+            terminal: false,
           });
         }
         if (rebuildTimer) clearTimeout(rebuildTimer);

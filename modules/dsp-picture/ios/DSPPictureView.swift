@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import ExpoModulesCore
+import MediaPlayer
 import UIKit
 
 /**
@@ -9,8 +10,19 @@ import UIKit
  docs/native-witness.md; the line references there point here.
 
  Public API only: AVPlayer, AVPlayerItem, AVPlayerLayer, AVPlayerItemVideoOutput
- (+ pull delegate), AVPictureInPictureController, UIApplication and
- AVAudioSession notifications. No expo-video symbol is referenced.
+ (+ pull delegate), AVPictureInPictureController, MPRemoteCommandCenter,
+ UIApplication and AVAudioSession notifications. No expo-video symbol is
+ referenced.
+
+ Three events feed the surface's pause policy (nativeJoinController.ts) and
+ decide nothing here: `onTimeControl` is the player's `timeControlStatus` /
+ `rate` edge with the bound item's status (expo's `playingChange` collapses
+ `.paused` and `.waitingToPlayAtSpecifiedRate` into `false`; a pause edge
+ needs the status itself); `onAudioInterruption` is AVAudioSession's
+ interruption with `shouldResume`; `onRemoteCommand` is a Now Playing
+ play / pause the person pressed — an extra target beside expo-video's own
+ (NowPlayingManager.swift:176-196; it removes only its own tokens), so a
+ press on a failed item still reaches JS when no rate change can.
 
  Invariants checkable from rows alone:
  1. `N expect g=G` precedes `N item … g=G` for the same G; a nil edge between
@@ -88,6 +100,9 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
   let onItemLost = EventDispatcher()
   let onItemFailed = EventDispatcher()
   let onPictureInPictureChange = EventDispatcher()
+  let onTimeControl = EventDispatcher()
+  let onAudioInterruption = EventDispatcher()
+  let onRemoteCommand = EventDispatcher()
 
   // MARK: configuration
   var liveOffsetSeconds: Double = 8.0
@@ -107,6 +122,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
   private var audioObservers: [NSObjectProtocol] = []
   private var pip: AVPictureInPictureController?
   private var pipObserver: NSKeyValueObservation?
+  private var remoteTargets: [(MPRemoteCommand, Any)] = []
   private var pipAuto = false
   private var pipActive = false
   private var pending: Expectation?
@@ -184,6 +200,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
     row("N attach", "tcs=\(tcsName(p)) rate=\(p.rate) waits=\(p.automaticallyWaitsToMinimizeStalling) item=\(p.currentItem == nil ? "nil" : "set") ext=\(p.isExternalPlaybackActive)")
     installPlayerObservers(p)                // the .initial currentItem KVO binds a pre-existing item here (g=-1)
     installPip()
+    installRemoteCommands()
   }
 
   private func detachPlayer(reason: String) {
@@ -194,6 +211,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
     pipObserver?.invalidate(); pipObserver = nil
     pip?.delegate = nil; pip = nil
     pipActive = false
+    removeRemoteCommands()
     playerLayer.player = nil
     player = nil
     pending = nil
@@ -229,6 +247,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
         guard let self else { return }
         self.row("N tcs", "\(self.tcsName(p)) reason=\(self.reasonName(p)) rate=\(p.rate) tb=\(self.tbRate()) tbEff=\(self.tbEffectiveRate())")
         if p.timeControlStatus == .playing { self.bound?.everPlaying = true }
+        self.emitTimeControl(p, src: "tcs")
         self.sample(src: "kvo")
       }
     })
@@ -242,6 +261,7 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
           self.row("N start", "adopted reason=external rate=\(p.rate)", b)
           self.nudge(b, p, reason: "external")
         }
+        self.emitTimeControl(p, src: "rate")
         self.sample(src: "kvo")
       }
     })
@@ -590,11 +610,51 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
       let opts = (info[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
       let resume = (opts & AVAudioSession.InterruptionOptions.shouldResume.rawValue) != 0
       self?.row("N audio", "interrupt \(began ? "began" : "ended") shouldResume=\(resume)")
+      self?.emit(self?.onAudioInterruption, ["t": CACurrentMediaTime() * 1000, "began": began, "shouldResume": resume])
     })
     audioObservers.append(nc.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { [weak self] note in
       let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
       self?.row("N audio", "route reason=\(reason)")
     })
+  }
+
+  // MARK: the timebase, as an event (the surface's pause edge and play-intent edge)
+
+  /// The same fact the `N tcs` / `N rate` rows print, delivered as a payload the surface can read without
+  /// parsing a row: the status (`paused` is a pause; `waiting` is a stall), the rate, and the bound item's
+  /// status (AVPlayer pauses a failed item — that edge belongs to the error path, not the pause policy).
+  private func emitTimeControl(_ p: AVPlayer, src: String) {
+    let b = bound
+    emit(onTimeControl, ["t": CACurrentMediaTime() * 1000, "g": b?.generation ?? (pending?.generation ?? -1), "i": b?.tag ?? "-",
+                         "src": src, "status": tcsName(p), "reason": reasonName(p), "rate": Double(p.rate),
+                         "itemStatus": b.map { self.statusName($0.item.status) } ?? "none"])
+  }
+
+  // MARK: Now Playing remote commands (the resume policy's "the person pressed play" edge)
+
+  /// A second target on play and pause beside expo-video's (NowPlayingManager.swift:176-196): every target
+  /// is invoked, expo's still drives the player, ours only tells JS. Not on togglePlayPause: a target there
+  /// would claim the headphone button for a command nothing drives.
+  private func installRemoteCommands() {
+    guard remoteTargets.isEmpty else { return }
+    let center = MPRemoteCommandCenter.shared()
+    let commands: [(MPRemoteCommand, String)] = [(center.playCommand, "play"), (center.pauseCommand, "pause")]
+    for (command, name) in commands {
+      let target = command.addTarget { [weak self] _ in
+        self?.onMain {
+          guard let self else { return }
+          self.row("N remote", name)
+          self.emit(self.onRemoteCommand, ["t": CACurrentMediaTime() * 1000, "command": name])
+        }
+        return .success
+      }
+      remoteTargets.append((command, target))
+    }
+  }
+
+  private func removeRemoteCommands() {
+    for (command, target) in remoteTargets { command.removeTarget(target) }
+    remoteTargets.removeAll()
   }
 
   // MARK: PiP (decision 1: auto only while !tuning, fed by JS; an active PiP is a screen)
@@ -665,6 +725,11 @@ public final class DSPPictureView: ExpoView, AVPictureInPictureControllerDelegat
     }
     let bb = b ?? bound
     onTrace(["t": CACurrentMediaTime() * 1000, "g": g ?? bb?.generation ?? (pending?.generation ?? -1), "i": bb?.tag ?? "-", "name": name, "detail": detail])
+  }
+  /// Every event payload goes out through here: nothing dispatches during teardown (see `tearingDown`).
+  private func emit(_ dispatcher: EventDispatcher?, _ payload: [String: Any]) {
+    guard !tearingDown, let dispatcher else { return }
+    dispatcher(payload)
   }
   private func onMain(_ f: @escaping () -> Void) {
     if Thread.isMainThread { f() } else { DispatchQueue.main.async(execute: f) }

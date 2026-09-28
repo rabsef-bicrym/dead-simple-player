@@ -30,6 +30,24 @@ export interface DSPFirstFrame { g: number; i: string; t: number; via: 'rfdKvo' 
 export interface DSPItemLost { g: number; i: string; t: number }
 export interface DSPItemFailed { g: number; i: string; t: number; domain: string; code: number; message: string }
 export interface DSPPipChange { active: boolean; possible: boolean }
+/**
+ * AVPlayer's `timeControlStatus` / `rate` edge with the bound item's status (the `N tcs` / `N rate` rows as
+ * a payload). `paused` is a pause; `waiting` is a stall — expo's `playingChange` prints `false` for both.
+ */
+export interface DSPTimeControl {
+  t: number;
+  g: number;
+  i: string;
+  src: 'tcs' | 'rate';
+  status: 'paused' | 'waiting' | 'playing';
+  reason: string;
+  rate: number;
+  itemStatus: 'unknown' | 'ready' | 'failed' | 'none';
+}
+/** AVAudioSession's interruption; `shouldResume` is its option on the `ended` edge. */
+export interface DSPAudioInterruption { t: number; began: boolean; shouldResume: boolean }
+/** A Now Playing play / pause the person pressed (a second target beside expo-video's, which drives the player). */
+export interface DSPRemoteCommand { t: number; command: 'play' | 'pause' }
 export interface DSPStatus { player: boolean; item: string; g: number; fired: boolean; current: 'none' | 'set'; pip: boolean; ext: boolean }
 /** `failed`: the item was already `.failed` when asked to start (an adopted g=-1 item's only route to the ladder). */
 export type DSPStartResult = 'ok' | 'adopted' | 'unbound' | 'stale' | 'failed';
@@ -47,6 +65,9 @@ export interface DSPPictureViewProps extends ViewProps {
   onItemLost: (e: { nativeEvent: DSPItemLost }) => void;
   onItemFailed: (e: { nativeEvent: DSPItemFailed }) => void;
   onPictureInPictureChange: (e: { nativeEvent: DSPPipChange }) => void;
+  onTimeControl: (e: { nativeEvent: DSPTimeControl }) => void;
+  onAudioInterruption: (e: { nativeEvent: DSPAudioInterruption }) => void;
+  onRemoteCommand: (e: { nativeEvent: DSPRemoteCommand }) => void;
 }
 
 /** The view functions expo-modules-core assigns to the component ref (NativeViewManagerAdapter.native.tsx:138-145). */

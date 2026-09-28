@@ -7,36 +7,42 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { useEventListener } from 'expo';
 import { isPictureInPictureSupported, useVideoPlayer, type VideoSource } from 'expo-video';
 import {
   DSPPictureNativeView,
   pictureAvailable,
   playerId,
+  type DSPAudioInterruption,
   type DSPFirstFrame,
   type DSPItemFailed,
   type DSPItemLost,
   type DSPPictureHandle,
   type DSPPipChange,
+  type DSPRemoteCommand,
   type DSPStartResult,
+  type DSPTimeControl,
   type DSPTraceRow,
 } from '../../modules/dsp-picture';
 import { traceBindGeneration, traceEvent, traceTuneWitness } from '../services/tuneTrace';
 import {
-  createGateState,
-  reduceGate,
-  type GateAction,
-  type GateEvent,
-  type GateState,
-} from './firstFrameGate';
+  createJoinState,
+  reduceJoin,
+  type JoinAction,
+  type JoinEvent,
+  type JoinState,
+} from './nativeJoinController';
+import { createSerialChain } from './replaceChain';
 import type { PlayerMetadata, PlayerSurfaceHandle, PlayerSurfaceProps } from './types';
 
 /**
  * The native surface: one persistent AVPlayer per mount (R6), its picture
  * hosted by modules/dsp-picture (the AVPlayerLayer, the first-frame witness,
- * PiP and the `N` rows — docs/native-witness.md), and the first-frame gate
- * (`firstFrameGate.ts`) deciding what every fact means.
+ * PiP and the `N` rows — docs/native-witness.md), and the join controller
+ * (`nativeJoinController.ts` over `firstFrameGate.ts`) deciding what every
+ * fact means. This file is I/O: it observes, stamps `Date.now()`, dispatches,
+ * and performs the actions that come back.
  *
  * The order of a tune: `tuneTo` → `invalidate()` (synchronous; a generation
  * before any setState) → the source effect takes that generation → the chain:
@@ -45,13 +51,14 @@ import type { PlayerMetadata, PlayerSurfaceHandle, PlayerSurfaceProps } from './
  * one patch hunk) → `settle(g)` in the same continuation (replays a latched
  * fire or error, FF-03) → `startPlayback(g, uri)` (native `playImmediately`,
  * re-issued on data; the one owner of playback start). Nothing in JS calls
- * `play()` before the first frame.
+ * `play()` before the first frame; the one `play()` here resumes a settled
+ * generation the person or the audio session had paused.
  *
  * What ends the static: `onFirstFrame(g)`, reachable only from the gate's
  * `first-frame` action, reachable only from the module's `onFirstFrame` for
  * the settled current generation (or its replay at settle). Errors,
- * `readyToPlay`, `playingChange`, `timeUpdate`, rebuilds, rotation, PiP and
- * app state never touch it (R1).
+ * `readyToPlay`, `playingChange`, `timeUpdate`, rebuilds, rotation, PiP,
+ * pauses, resumes and app state never touch it (R1).
  *
  * Timers: one, the retry ladder's, which starts a FETCH and ends nothing.
  */
@@ -63,14 +70,18 @@ let nextGeneration = 0;
 /** Decision 6(d): a measured request; `N config` prints what the item took. */
 const LIVE_OFFSET_SECONDS = 8;
 
+/**
+ * Channel-only Now Playing metadata (decision 3): the source effect depends
+ * on the URL alone (a programme rollover must never re-tune the stream, R6),
+ * so nothing that changes during a programme is written here (NP-08).
+ */
 function videoSource(sourceUrl: string | null, metadata?: PlayerMetadata): VideoSource {
   if (!sourceUrl) return null;
   return {
     uri: sourceUrl,
     contentType: 'hls',
     metadata: {
-      title: metadata?.programmeTitle ?? metadata?.channelName ?? 'Dead Simple Player',
-      artist: metadata?.programmeTitle ? metadata.channelName : undefined,
+      title: metadata?.channelName ?? 'Dead Simple Player',
       artwork: metadata?.artworkUrl,
     },
   };
@@ -90,8 +101,10 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       pictureInPictureAuto = true,
       onReady,
       onFirstFrame,
+      onProgress,
       onBuffering,
       onError,
+      onPlaybackPaused,
       onPictureInPictureAvailabilityChange,
       onPictureInPictureChange,
     },
@@ -102,9 +115,9 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     const viewAttachedRef = useRef(viewAttached);
     const [renderNativeView, setRenderNativeView] = useState(viewAttached);
     const mountedRef = useRef(true);
-    const gate = useRef<GateState>(createGateState(nextGeneration));
+    const join = useRef<JoinState>(createJoinState(nextGeneration));
     const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const replacementChain = useRef<Promise<void>>(Promise.resolve());
+    const replacementChain = useRef(createSerialChain());
     const timeUpdateTracedGeneration = useRef(0);
     const pipActiveRef = useRef(false);
     const sourceRef = useRef(videoSource(sourceUrl, metadata));
@@ -115,8 +128,10 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     const callbacksRef = useRef({
       onReady,
       onFirstFrame,
+      onProgress,
       onBuffering,
       onError,
+      onPlaybackPaused,
       onPictureInPictureAvailabilityChange,
       onPictureInPictureChange,
     });
@@ -129,8 +144,10 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     callbacksRef.current = {
       onReady,
       onFirstFrame,
+      onProgress,
       onBuffering,
       onError,
+      onPlaybackPaused,
       onPictureInPictureAvailabilityChange,
       onPictureInPictureChange,
     };
@@ -156,71 +173,92 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     // untagged (g 0 routes to the newest tune) rather than wearing a number
     // no tune knows and lighting the dropped line.
     const arrivalGeneration = useCallback(
-      () => (mountedRef.current ? gate.current.sourceGeneration : 0),
+      () => (mountedRef.current ? join.current.gate.sourceGeneration : 0),
       [],
     );
 
     // `dispatch` is a stable trampoline so the chain (which needs it) and the
     // action runner (which needs the chain) can each be a plain callback.
-    const dispatchRef = useRef<(event: GateEvent) => void>(() => {});
-    const dispatch = useCallback((event: GateEvent) => dispatchRef.current(event), []);
+    const dispatchRef = useRef<(event: JoinEvent) => void>(() => {});
+    const dispatch = useCallback((event: JoinEvent) => dispatchRef.current(event), []);
+
+    // The one play() in this file: a resume of a settled generation (the
+    // person pressed play, an interruption ended, PiP closed). Nothing
+    // starts an item here — native `nudge` does — and nothing plays before
+    // settle, whatever asked.
+    const playNow = useCallback(() => {
+      if (!mountedRef.current) return;
+      const { settledGeneration, sourceGeneration } = join.current.gate;
+      if (settledGeneration === 0 || settledGeneration !== sourceGeneration) return;
+      if (!playingRef.current || !sourceUrlRef.current) return;
+      player.play();
+    }, [player]);
+
+    // The middle resume tier's seek (NP-03, NP-16): wall-clock minus the
+    // synthetic PDT at the playhead; the `offset > 0` guard no-ops at the
+    // edge, and AVPlayer clamps the seek to its seekable range. Never the
+    // ≥ 45 s path — that item is dead, and the tier rejoins instead.
+    const seekToLiveEdgeNow = useCallback(() => {
+      if (!mountedRef.current) return;
+      const offset = player.currentOffsetFromLive;
+      if (typeof offset === 'number' && Number.isFinite(offset) && offset > 0) {
+        player.seekBy(offset);
+      }
+    }, [player]);
 
     // expo-video cancels its native loader when replaceAsync calls overlap.
-    // Keep exactly one request in flight; stale queued generations become
-    // no-ops. Every await is followed by the generation re-check.
+    // Keep exactly one request in flight (`replaceChain.ts`); stale queued
+    // generations become no-ops at dequeue. Every await is followed by the
+    // generation re-check.
     const replaceForGeneration = useCallback((source: VideoSource, generation: number) => {
       const uri = typeof source === 'object' && source?.uri ? source.uri : 'source absent';
-      const current = () => gate.current.sourceGeneration;
-      const replacement = replacementChain.current
-        .catch(() => {})
-        .then(async () => {
-          if (!mountedRef.current || current() !== generation) return;
-          // Break the old audio signal before replacing its item. Static and
-          // cleared-source states must never carry sound between stations (R5).
-          player.muted = mutedRef.current;
-          const picture = pictureRef.current;
-          if (picture) {
-            // Rate 0 across the swap; the next non-nil item binds to this
-            // generation. A rejection here is plumbing, not media: the item
-            // binds unexpected and startPlayback adopts it by URL.
-            try {
-              await picture.expect(generation, uri);
-            } catch (error: unknown) {
-              traceEvent('expect failed', error instanceof Error ? error.message : String(error), { g: generation });
-            }
-            if (!mountedRef.current || current() !== generation) return;
-          }
-          traceEvent('replaceAsync start', uri, { g: generation });
-          await player.replaceAsync(source);
-          traceEvent('replaceAsync resolve', uri, { g: generation });
-          if (!mountedRef.current || current() !== generation) return;
-          // Same continuation as the resolve: no window for a fact to fall in.
-          dispatch({ type: 'settle', g: generation });
-          player.showNowPlayingNotification = true;
-          if (!playingRef.current) return;
-          const started = pictureRef.current;
-          if (!started) {
-            // No picture view (the module is not linked): nothing can witness
-            // a frame, so nothing starts and the static stays (R1); the
-            // header reads witness=absent.
-            traceEvent('startPlayback', 'no picture view', { g: generation });
-            return;
-          }
-          let result: DSPStartResult;
+      const current = () => join.current.gate.sourceGeneration;
+      return replacementChain.current.enqueue(async () => {
+        if (!mountedRef.current || current() !== generation) return;
+        // Break the old audio signal before replacing its item. Static and
+        // cleared-source states must never carry sound between stations (R5).
+        player.muted = mutedRef.current;
+        const picture = pictureRef.current;
+        if (picture) {
+          // Rate 0 across the swap; the next non-nil item binds to this
+          // generation. A rejection here is plumbing, not media: the item
+          // binds unexpected and startPlayback adopts it by URL.
           try {
-            result = await started.startPlayback(generation, uri);
+            await picture.expect(generation, uri);
           } catch (error: unknown) {
-            traceEvent('startPlayback threw', error instanceof Error ? error.message : String(error), { g: generation });
-            result = 'unbound';
+            traceEvent('expect failed', error instanceof Error ? error.message : String(error), { g: generation });
           }
           if (!mountedRef.current || current() !== generation) return;
-          dispatch({ type: 'start-result', g: generation, result });
-        });
-      replacementChain.current = replacement.catch(() => {});
-      return replacement;
+        }
+        traceEvent('replaceAsync start', uri, { g: generation });
+        await player.replaceAsync(source);
+        traceEvent('replaceAsync resolve', uri, { g: generation });
+        if (!mountedRef.current || current() !== generation) return;
+        // Same continuation as the resolve: no window for a fact to fall in.
+        dispatch({ type: 'settle', g: generation });
+        player.showNowPlayingNotification = true;
+        if (!playingRef.current) return;
+        const started = pictureRef.current;
+        if (!started) {
+          // No picture view (the module is not linked): nothing can witness
+          // a frame, so nothing starts and the static stays (R1); the
+          // header reads witness=absent.
+          traceEvent('startPlayback', 'no picture view', { g: generation });
+          return;
+        }
+        let result: DSPStartResult;
+        try {
+          result = await started.startPlayback(generation, uri);
+        } catch (error: unknown) {
+          traceEvent('startPlayback threw', error instanceof Error ? error.message : String(error), { g: generation });
+          result = 'unbound';
+        }
+        if (!mountedRef.current || current() !== generation) return;
+        dispatch({ type: 'start-result', g: generation, result });
+      });
     }, [dispatch, player]);
 
-    const perform = useCallback((action: GateAction) => {
+    const perform = useCallback((action: JoinAction) => {
       switch (action.type) {
         case 'trace':
           traceEvent(action.name, action.detail, { g: action.g });
@@ -234,11 +272,24 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         case 'ready':
           if (callbackIsLive()) callbacksRef.current.onReady();
           return;
+        case 'progress':
+          if (callbackIsLive()) callbacksRef.current.onProgress?.(action.g);
+          return;
         case 'first-frame':
           if (callbackIsLive()) callbacksRef.current.onFirstFrame?.(action.g);
           return;
         case 'error':
           if (callbackIsLive()) callbacksRef.current.onError(action.error);
+          return;
+        case 'paused':
+          if (callbackIsLive()) callbacksRef.current.onPlaybackPaused?.(action.at, action.cause);
+          return;
+        case 'play':
+          playNow();
+          return;
+        case 'seek-live-then-play':
+          seekToLiveEdgeNow();
+          playNow();
           return;
         case 'replace':
           void replaceForGeneration(sourceRef.current, action.g)
@@ -263,12 +314,12 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           retryTimer.current = null;
           return;
       }
-    }, [callbackIsLive, dispatch, replaceForGeneration]);
+    }, [callbackIsLive, dispatch, playNow, replaceForGeneration, seekToLiveEdgeNow]);
 
-    dispatchRef.current = (event: GateEvent) => {
-      const { state, actions } = reduceGate(gate.current, event);
-      gate.current = state;
-      nextGeneration = Math.max(nextGeneration, state.nextGeneration);
+    dispatchRef.current = (event: JoinEvent) => {
+      const { state, actions } = reduceJoin(join.current, event, Date.now());
+      join.current = state;
+      nextGeneration = Math.max(nextGeneration, state.gate.nextGeneration);
       for (const action of actions) perform(action);
     };
 
@@ -298,17 +349,45 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       dispatch({ type: 'native-item-failed', g, item: i, error: { kind: 'media', message: `${domain}/${code} ${message}` } });
     }, [dispatch]);
 
+    // The pause edge is the player's own `.paused` for the bound item, with
+    // the item's status in the same payload; the controller decides whether
+    // anyone asked for it. A rate rising on a paused set is an outside play
+    // (Now Playing) the tiers must judge — the command target below catches
+    // the press even when a failed item lets no rate change through.
+    const onNativeTimeControl = useCallback((e: { nativeEvent: DSPTimeControl }) => {
+      const { g, src, status, rate, itemStatus } = e.nativeEvent;
+      if (status === 'paused' && rate === 0) {
+        dispatch({ type: 'paused-unrequested', g, playing: playingRef.current, itemFailed: itemStatus === 'failed' });
+      } else if (src === 'rate' && rate > 0) {
+        dispatch({ type: 'resume-edge', reason: 'remote-play' });
+      }
+    }, [dispatch]);
+
+    const onNativeAudioInterruption = useCallback((e: { nativeEvent: DSPAudioInterruption }) => {
+      const { began, shouldResume } = e.nativeEvent;
+      if (began) dispatch({ type: 'interruption-began' });
+      else dispatch({ type: 'resume-edge', reason: 'interruption-ended', shouldResume });
+    }, [dispatch]);
+
+    const onNativeRemoteCommand = useCallback((e: { nativeEvent: DSPRemoteCommand }) => {
+      // expo-video's own target drives the player; this one only names the
+      // press. A pause shows up as the `.paused` edge and needs no word here.
+      if (e.nativeEvent.command === 'play') dispatch({ type: 'resume-edge', reason: 'remote-play' });
+    }, [dispatch]);
+
     const onNativePip = useCallback((e: { nativeEvent: DSPPipChange }) => {
       const { active, possible } = e.nativeEvent;
       if (pipActiveRef.current !== active) {
         pipActiveRef.current = active;
         traceEvent('pip', active ? 'start' : 'stop', { g: arrivalGeneration() });
         if (mountedRef.current) callbacksRef.current.onPictureInPictureChange?.(active);
+        // The PiP window closing is a resume edge for a set paused inside it.
+        if (!active) dispatch({ type: 'resume-edge', reason: 'pip-stop' });
       }
       if (mountedRef.current) callbacksRef.current.onPictureInPictureAvailabilityChange?.(possible);
-    }, [arrivalGeneration]);
+    }, [arrivalGeneration, dispatch]);
 
-    // ── expo-video's events: rows and buffer health; never a start, never a first frame ──
+    // ── expo-video's events: rows, progress and errors; never a start, never a first frame ──
 
     useEventListener(player, 'statusChange', ({ status, error }) => {
       const g = arrivalGeneration();
@@ -316,8 +395,6 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       if (!callbackIsLive()) return;
       if (status === 'loading') {
         callbacksRef.current.onBuffering(true);
-      } else if (status === 'readyToPlay') {
-        dispatch({ type: 'ready' });
       } else if (status === 'error') {
         dispatch({
           type: 'status-error',
@@ -328,11 +405,15 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
           },
         });
       }
+      // `readyToPlay` is expo's keep-up forecast (isPlaybackLikelyToKeepUp),
+      // not progress: it is a row and nothing else (NP-02).
     });
 
+    // `playingChange` is `timeControlStatus == .playing` and its negation —
+    // a stall or a pause; the module's `onTimeControl` says which.
     useEventListener(player, 'playingChange', ({ isPlaying }) => {
       traceEvent('playingChange', String(isPlaying), { g: arrivalGeneration() });
-      if (isPlaying) dispatch({ type: 'ready' });
+      dispatch(isPlaying ? { type: 'progress' } : { type: 'stalled' });
     });
 
     useEventListener(player, 'timeUpdate', ({ currentTime }) => {
@@ -342,8 +423,17 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         // The URI is the requested prop, not the ticking item's identity.
         traceEvent('first timeUpdate', `${currentTime.toFixed(3)}s requested=${sourceUrlRef.current ?? 'source absent'}`, { g: generation });
       }
-      dispatch({ type: 'ready' });
+      dispatch({ type: 'progress', currentTime });
     });
+
+    // The foreground edge: a resume for a set an interruption paused; a
+    // person's pause stays paused (decision 17, decided in the controller).
+    useEffect(() => {
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') dispatch({ type: 'resume-edge', reason: 'foreground' });
+      });
+      return () => subscription.remove();
+    }, [dispatch]);
 
     useLayoutEffect(() => {
       mountedRef.current = true;
@@ -384,7 +474,7 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       if (Platform.OS === 'ios' && !pictureAvailable) {
         // The binary carries no DSPPicture module object (index.ts reads that
         // object, not the view manager, which never throws): the header says so.
-        traceTuneWitness('absent', { g: gate.current.sourceGeneration });
+        traceTuneWitness('absent', { g: join.current.gate.sourceGeneration });
       }
       return () => {
         if (retryTimer.current) clearTimeout(retryTimer.current);
@@ -395,23 +485,19 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
     }, [dispatch, player, sourceUrl]);
 
     // The pre-swap play() is gone: `playing` is a constant true in DS,P, and a
-    // future false→true is honoured only on a settled generation. A source
-    // change never reaches this effect.
+    // future false→true is honoured only on a settled generation (playNow's
+    // guard). A source change never reaches this effect.
     useEffect(() => {
       if (!mountedRef.current) return;
-      const { settledGeneration, sourceGeneration } = gate.current;
+      const { settledGeneration, sourceGeneration } = join.current.gate;
       if (settledGeneration === 0 || settledGeneration !== sourceGeneration) return;
-      if (playing && sourceUrlRef.current) player.play();
+      if (playing) playNow();
       else player.pause();
-    }, [player, playing]);
+    }, [playNow, player, playing]);
 
     useEffect(() => {
       if (mountedRef.current) player.muted = muted;
     }, [muted, player]);
-
-    useEffect(() => {
-      if (viewAttached && player.status === 'readyToPlay') dispatch({ type: 'ready' });
-    }, [dispatch, player.status, viewAttached]);
 
     useEffect(() => {
       // Detach in two commits: first disarm automatic PiP and apply the hidden
@@ -451,26 +537,24 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       },
       rejoin: (reason: string) => {
         if (!mountedRef.current) return;
-        traceEvent('rejoin', reason, { g: gate.current.sourceGeneration });
+        traceEvent('rejoin', reason, { g: join.current.gate.sourceGeneration });
         dispatch({ type: 'take', reason: 'rejoin', detail: `rejoin:${reason}` });
+      },
+      resume: (reason) => {
+        if (!mountedRef.current) return;
+        dispatch({ type: 'resume-edge', reason });
       },
       requestPictureInPicture: () => {
         if (!mountedRef.current || !nativeViewAttachedRef.current) return;
         if (!pictureInPictureAutoRef.current) {
           // Decision 1: never while tuning.
-          traceEvent('pip', 'request refused while tuning', { g: gate.current.sourceGeneration });
+          traceEvent('pip', 'request refused while tuning', { g: join.current.gate.sourceGeneration });
           return;
         }
         void pictureRef.current?.startPictureInPicture().catch(() => {});
       },
-      seekToLiveEdge: () => {
-        if (!mountedRef.current) return;
-        const offset = player.currentOffsetFromLive;
-        if (typeof offset === 'number' && Number.isFinite(offset) && offset > 0) {
-          player.seekBy(offset);
-        }
-      },
-    }), [dispatch, player]);
+      seekToLiveEdge: seekToLiveEdgeNow,
+    }), [dispatch, seekToLiveEdgeNow]);
 
     if (!renderNativeView) return null;
     // Expo Go, a non-iOS build, or a binary without the module: watch.tsx
@@ -493,6 +577,9 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         onItemLost={onNativeItemLost}
         onItemFailed={onNativeItemFailed}
         onPictureInPictureChange={onNativePip}
+        onTimeControl={onNativeTimeControl}
+        onAudioInterruption={onNativeAudioInterruption}
+        onRemoteCommand={onNativeRemoteCommand}
       />
     );
   },
