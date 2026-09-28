@@ -223,7 +223,10 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
   const g = s.gate.sourceGeneration;
   switch (event.type) {
     case 'progress': {
-      if (s.gate.settledGeneration === 0 || s.gate.settledGeneration !== g) return { state: s, actions };
+      // Idle is settled too (a cleared source settles at once, firstFrameGate
+      // `take`), so the generation check alone would let the old item's last
+      // tick report ready and progress for a set showing nothing.
+      if (s.phase === 'idle' || s.gate.settledGeneration === 0 || s.gate.settledGeneration !== g) return { state: s, actions };
       if (event.currentTime != null) {
         const advanced = s.lastTime != null && event.currentTime > s.lastTime;
         s = { ...s, lastTime: event.currentTime };
@@ -237,7 +240,6 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
         return reduceJoin(s, { type: 'resume-edge', reason: 'rate' }, now);
       }
       s = gateEvent(s, { type: 'ready' }, actions);
-      if (s.phase !== 'live' && s.phase !== 'joining') return { state: s, actions };
       actions.push({ type: 'progress', g });
       const since = s.progressSince ?? now;
       s = { ...s, progressSince: since };

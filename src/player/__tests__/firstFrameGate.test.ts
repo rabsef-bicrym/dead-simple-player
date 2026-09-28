@@ -1,13 +1,11 @@
 import {
-  RETRY_DELAYS_MS,
-  SURFACE_ERROR_AFTER,
   createGateState,
   reduceGate,
-  retryDelayMs,
   type GateAction,
   type GateEvent,
   type GateState,
 } from '../firstFrameGate';
+import { JOIN_BACKOFF_MS, JOIN_SURFACE_AFTER, nextRetry } from '../pipelinePolicy';
 import {
   __resetTuneTraceForTests,
   getTuneTraceDroppedCount,
@@ -268,9 +266,9 @@ describe('errors — latch, ladder, health', () => {
     ]);
   });
 
-  it('the delay table is [0, 2000, 4000, 8000, 15000, 30000] by failures-1, the last repeating (race-2 R8)', () => {
-    expect(RETRY_DELAYS_MS).toEqual([0, 2000, 4000, 8000, 15000, 30000]);
-    expect([1, 2, 3, 4, 5, 6, 7, 20].map(retryDelayMs)).toEqual([0, 2000, 4000, 8000, 15000, 30000, 30000, 30000]);
+  it('the delay table is the policy\'s [0, 2000, 4000, 8000, 15000, 30000] by failures-1, the last repeating (race-2 R8)', () => {
+    expect(JOIN_BACKOFF_MS).toEqual([0, 2000, 4000, 8000, 15000, 30000]);
+    expect([1, 2, 3, 4, 5, 6, 7, 20].map((n) => nextRetry(n).delayMs)).toEqual([0, 2000, 4000, 8000, 15000, 30000, 30000, 30000]);
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     const seen: number[] = [];
@@ -285,7 +283,7 @@ describe('errors — latch, ladder, health', () => {
     expect(seen).toEqual([0, 2000, 4000, 8000, 15000, 30000, 30000, 30000]);
   });
 
-  it(`the plate relabels after ${SURFACE_ERROR_AFTER} consecutive failures and attempts continue (R1, R4)`, () => {
+  it(`the plate relabels after ${JOIN_SURFACE_AFTER} consecutive failures and attempts continue (R1, R4)`, () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     for (let i = 1; i <= 4; i += 1) {
@@ -294,7 +292,7 @@ describe('errors — latch, ladder, health', () => {
       h.drain();
       h.dispatch({ type: 'native-item-failed', g, item: 'i', error: media(`e${i}`) });
       const errors = h.of('error');
-      if (i < SURFACE_ERROR_AFTER) expect(errors).toHaveLength(0);
+      if (i < JOIN_SURFACE_AFTER) expect(errors).toHaveLength(0);
       else expect(errors).toEqual([{ type: 'error', error: { kind: 'recovery-exhausted', message: `e${i}`, terminal: false } }]);
       expect(h.of('schedule-retry')).toHaveLength(1);
       h.dispatch({ type: 'retry-fired', g });

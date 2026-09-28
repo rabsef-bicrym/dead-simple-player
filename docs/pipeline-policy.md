@@ -26,9 +26,11 @@ is I/O; the module (`modules/dsp-picture`) reports three more facts. Tests:
 | `JOIN_SURFACE_AFTER` | 3 | the plate relabels "THE SIGNAL WILL NOT JOIN" (R4) with `terminal: false`; attempts continue |
 | `HEALTHY_AFTER_MS` | 5 000 | `failures` resets only after this much *sustained* progress — never on `readyToPlay` (expo's keep-up forecast) and never on the first frame alone. PW-10: a stream that painted, played a second and died would otherwise never climb past the first rung and never surface. A stall (`playingChange false`) restarts the clock. |
 
-The gate (`firstFrameGate.ts`) schedules every retry and re-exports these
-under its old names; the controller decides *when* the ladder may run (never
-while paused) and *when* it replenishes (`healthy`). Rows: `playerError …
+The gate (`firstFrameGate.ts`) schedules every retry from this table and
+has no numbers of its own (`grep RETRY_DELAYS_MS\|SURFACE_ERROR_AFTER\|retryDelayMs
+src` finds nothing: never two ladders); the controller decides *when* the
+ladder may run (never while paused) and *when* it replenishes (`healthy`).
+Rows: `playerError …
 failures=n` → `retry scheduled in=<ms>` → `attempt #n+1 reason=…`; on the
 third, `error surfaced recovery-exhausted: …` (the screen's row) while the
 attempts go on; `healthy failures reset from n` when the signal has held.

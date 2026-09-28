@@ -9,13 +9,10 @@ import {
   nextRetry,
   type ResumeQuery,
 } from '../pipelinePolicy';
-import { RETRY_DELAYS_MS, SURFACE_ERROR_AFTER } from '../firstFrameGate';
 
 describe('the ladder', () => {
-  it('is ff-spec §6.1\'s table, and the gate reads the same one (never two ladders)', () => {
+  it('is ff-spec §6.1\'s table', () => {
     expect(JOIN_BACKOFF_MS).toEqual([0, 2000, 4000, 8000, 15000, 30000]);
-    expect(RETRY_DELAYS_MS).toBe(JOIN_BACKOFF_MS);
-    expect(SURFACE_ERROR_AFTER).toBe(JOIN_SURFACE_AFTER);
     expect(JOIN_SURFACE_AFTER).toBe(3);
   });
 
