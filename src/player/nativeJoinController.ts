@@ -55,6 +55,14 @@ export interface JoinState {
   failedWhilePaused: boolean;
   /** The last `interruption-began`, for attributing a pause edge either side of it. */
   interruptionAt: number | null;
+  /**
+   * The last failure of the current generation while not paused, for
+   * attributing a pause edge either side of it: AVPlayer pauses a failed
+   * item, and which KVO runs first — the item's `.failed` or the player's
+   * `.paused` — is not documented. The payload's `itemStatus` names the
+   * first order; this stamp and `pausedAt` name the second.
+   */
+  failedAt: number | null;
 }
 
 export type JoinEvent =
@@ -105,6 +113,7 @@ export function createJoinState(nextGeneration: number): JoinState {
     pauseCause: null,
     failedWhilePaused: false,
     interruptionAt: null,
+    failedAt: null,
   };
 }
 
@@ -137,7 +146,7 @@ function errorMessage(event: Extract<GateEvent, { g: number }>): string {
 
 /** What leaving the paused phase, or starting a fresh join, forgets. */
 function clearPause(s: JoinState): JoinState {
-  return { ...s, pausedAt: null, pauseCause: null, failedWhilePaused: false, progressSince: null, lastTime: null };
+  return { ...s, pausedAt: null, pauseCause: null, failedWhilePaused: false, progressSince: null, lastTime: null, failedAt: null };
 }
 
 function gateEvent(s: JoinState, event: GateEvent, actions: JoinAction[]): JoinState {
@@ -153,6 +162,10 @@ function gateEvent(s: JoinState, event: GateEvent, actions: JoinAction[]): JoinS
       break;
     case 'unmount':
       next = { ...clearPause(next), phase: 'idle' };
+      break;
+    case 'retry-fired':
+      // The gate's rebuild is a take under a new generation: nothing of the old one's rides along.
+      if (result.state.sourceGeneration !== s.gate.sourceGeneration) next = { ...clearPause(next), phase: 'joining' };
       break;
     default:
       if (result.actions.some((a) => a.type === 'first-frame')) next = { ...next, phase: 'live' };
@@ -197,6 +210,13 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
     case 'paused-unrequested': {
       if (event.g !== g || s.gate.settledGeneration !== g || !s.gate.hasSource) return { state: s, actions };
       if (!event.playing || event.itemFailed || s.phase === 'paused') return { state: s, actions };
+      if (s.failedAt != null && now - s.failedAt <= PAUSE_ATTRIBUTION_MS) {
+        // The player's `.paused` behind a failure it has already reported:
+        // the failure's own pause, whatever `itemStatus` read at the edge.
+        // Not a pause — the ladder is running and stays armed.
+        actions.push(trace('paused', `cause=failure (failed ${now - s.failedAt}ms before the edge)`, g));
+        return { state: s, actions };
+      }
       const nearInterruption = s.interruptionAt != null && now - s.interruptionAt <= PAUSE_ATTRIBUTION_MS;
       const cause: PauseCause = event.cause ?? (nearInterruption ? 'interruption' : 'user');
       s = { ...s, phase: 'paused', pausedAt: now, pauseCause: cause, failedWhilePaused: false, progressSince: null, lastTime: null };
@@ -248,11 +268,25 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
       return { state: s, actions };
     }
     default: {
-      if (s.phase === 'paused' && isError(event) && event.g === g) {
-        // A paused set stays paused (decision 17): the ladder does not run, the
-        // plate does not relabel; the resume edge rejoins.
-        actions.push(trace('playerError', `held while paused: ${errorMessage(event)}`, g));
-        return { state: { ...s, failedWhilePaused: true }, actions };
+      if (isError(event) && event.g === g) {
+        if (s.phase === 'paused') {
+          const sincePause = s.pausedAt == null ? Infinity : now - s.pausedAt;
+          if (s.pauseCause === 'user' && sincePause <= PAUSE_ATTRIBUTION_MS) {
+            // The player's `.paused` KVO ran before the item's `.failed`: the
+            // edge read itemStatus=ready and was taken for a person's pause.
+            // This failure is what paused it. The pause is withdrawn and the
+            // ladder runs — otherwise a mid-programme cut (decision 6(c))
+            // would sit as `paused cause=user` until a Now Playing press.
+            actions.push(trace('paused', `cause=failure (re-attributed, failed ${sincePause}ms after the edge)`, g));
+            s = { ...clearPause(s), phase: phaseAfterResume(s), failedAt: now };
+            return { state: gateEvent(s, event, actions), actions };
+          }
+          // A paused set stays paused (decision 17): the ladder does not run,
+          // the plate does not relabel; the resume edge rejoins.
+          actions.push(trace('playerError', `held while paused: ${errorMessage(event)}`, g));
+          return { state: { ...s, failedWhilePaused: true }, actions };
+        }
+        s = { ...s, failedAt: now };
       }
       if (s.phase === 'paused' && event.type === 'retry-fired') return { state: s, actions };
       return { state: gateEvent(s, event, actions), actions };

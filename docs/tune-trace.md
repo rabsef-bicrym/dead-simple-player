@@ -88,6 +88,7 @@ JS rows (`src/player/PlayerSurface.native.tsx`, `src/player/firstFrameGate.ts`,
 | `healthy` | `failures reset from n` | five seconds of sustained progress replenished the ladder |
 | `item lost` | `i=` | native unbound a started, unfired item (FF-14) |
 | `paused` | `cause=user\|interruption` · `cause=interruption (re-attributed)` | AVPlayer's own `.paused` on the settled generation, unrequested by the app; an interruption within 2 s names the cause |
+| `paused` | `cause=failure (failed <ms> before the edge)` · `cause=failure (re-attributed, failed <ms> after the edge)` | not a pause: the failed item's own `.paused`, read in either KVO order; the ladder runs (`docs/pipeline-policy.md` §2) |
 | `resume` | `reason=<r> cause=<c> elapsed=<ms> failed=<b> → play\|seek-live-then-play\|rejoin\|stay-paused` | a resume edge judged by the tiers (`docs/pipeline-policy.md` §3); `rejoin` is followed by `attempt #n reason=rejoin:resume:<r>` |
 | `pip` | `start\|stop\|request refused while tuning` | PiP edges; decision 1; a `stop` is a resume edge for a set paused in the window |
 | `pip` | `request ignored: active` | `watch.tsx`: PICTURE OUT while PiP is already up |
