@@ -17,6 +17,11 @@
  *     coordinator touches before it waits);
  *   - abort a touch still open after `PREWARM_ABORT_MS` (a cold master may
  *     block up to 30 s; the session is already running);
+ *   - stop re-touching `PREWARM_REST_MAX_MS` into a rest: a set left on
+ *     Home — the kiosk's fullscreen shell, a console after Esc — is not
+ *     browsing, and would otherwise pin a transcode for as long as it sat
+ *     there; the channel goes cold 60 s later, and the next move of the
+ *     dial (or a return to the channel) starts over;
  *   - `rest(null)` — a tune, leaving Home, the board, the service panel, the
  *     background — stops everything; the server's own 60 s timer is the
  *     cooldown. One channel at a time: `work_ahead_limit=1` pins one QSV
@@ -29,6 +34,8 @@
 export const PREWARM_DWELL_MS = 400;
 export const PREWARM_RETOUCH_MS = 45_000;
 export const PREWARM_ABORT_MS = 8_000;
+/** A rest this old stops re-touching: the person has left the set on Home, not paused on a station. */
+export const PREWARM_REST_MAX_MS = 5 * 60_000;
 
 export interface PrewarmPort {
   /** One HEAD of `url`; settles however the request does. `signal` aborts it. */
@@ -48,6 +55,7 @@ export function createPrewarmer(port: PrewarmPort): Prewarmer {
   let dwell: unknown = null;
   let retouch: unknown = null;
   let abortTimer: unknown = null;
+  let restLife: unknown = null;
   let inFlight: AbortController | null = null;
 
   const clear = (handle: unknown) => {
@@ -88,6 +96,8 @@ export function createPrewarmer(port: PrewarmPort): Prewarmer {
     dwell = null;
     clear(retouch);
     retouch = null;
+    clear(restLife);
+    restLife = null;
     clear(abortTimer);
     abortTimer = null;
     if (inFlight) {
@@ -107,6 +117,15 @@ export function createPrewarmer(port: PrewarmPort): Prewarmer {
         dwell = null;
         if (resting === url) touch(url);
       }, PREWARM_DWELL_MS);
+      // The rest's life: past it the re-touch armed by the last touch is
+      // dropped and nothing arms another; a touch in flight settles on its
+      // own. `resting` stays, so the same URL remains a no-op until the
+      // dial moves.
+      restLife = port.setTimer(() => {
+        restLife = null;
+        clear(retouch);
+        retouch = null;
+      }, PREWARM_REST_MAX_MS);
     },
     dispose() {
       stop();

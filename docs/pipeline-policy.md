@@ -161,6 +161,13 @@ visible) — `src/services/prewarm.ts`:
 - aborts a touch still open at `PREWARM_ABORT_MS` = 8 s: a cold master may
   block up to 30 s, but the worker is registered and `Run` fired before the
   wait (contract §1 Stage B step 3), so the abort cannot kill the session;
+- stops re-touching `PREWARM_REST_MAX_MS` = 5 min into a rest (judgment
+  17): a set left on Home — the kiosk's fullscreen shell, a DS-6 after Esc
+  — is not browsing, and would otherwise pin a transcode for as long as it
+  sat there, hours overnight; the re-touch armed by the last touch is
+  dropped, a touch in flight settles on its own, the channel goes cold 60 s
+  later, and the next move of the dial (or a return to the channel) starts
+  a fresh rest. The same URL stays a no-op meanwhile;
 - stops on `rest(null)`: a tune (`tuneTo` calls it before its first
   setState, so the tune's own master GET is the channel's next Touch and no
   second request runs beside it), leaving Home, the board, the service
@@ -311,3 +318,13 @@ delivered as a payload the surface can read without parsing a row:
     hold. Reversal (Swift, so EAS-gated): a `holdNudge(g)` on the module,
     called from the surface's `paused` action and cleared by the resume and
     the take, and `nudge` refuses while it holds.
+17. **A rest has a life: `PREWARM_REST_MAX_MS` = 5 min, then no re-touch
+    until the dial moves.** Decision 6(a) priced the pre-warm as "one QSV
+    transcode while browsing" and bounded the re-touch to "no more than
+    every 45 s while it rests"; the first cut re-touched for as long as the
+    URL rested, and on the kiosk (a fullscreen shell whose tab is never
+    hidden) or a console left on Home after Esc that is all night. Five
+    minutes is longer than anyone reads the panel; past it the next tune
+    from that rest is a cold one, which is today's tune. The port still has
+    no clock (judgment 8): the life is one more of its timers. Reversal:
+    delete the timer.
