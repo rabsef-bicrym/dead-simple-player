@@ -326,7 +326,7 @@ describe('the resume edge', () => {
     expect(h.state.phase).toBe('live');
   });
 
-  it('progress while paused is an outside play the module could not name: the tiers still apply', () => {
+  it('playingChange true while paused is an outside play the module could not name: the tiers still apply', () => {
     const h = harness();
     h.live();
     h.pause();
@@ -335,6 +335,34 @@ describe('the resume edge', () => {
     h.dispatch({ type: 'progress' });
     expect(h.of('seek-live-then-play')).toHaveLength(1);
     expect(h.state.phase).toBe('live');
+  });
+
+  it('a timeUpdate while paused never resumes: the stop sample, a tick reordered past the edge, a skip', () => {
+    const h = harness();
+    h.live();
+    h.tick(10.0);
+    h.pause();                                // the tcs KVO, inline in pause(); the clock is forgotten
+    expect(h.state.lastTime).toBeNull();
+    h.drain();
+    h.tick(10.3);                             // the periodic observer's "playback stopped" sample
+    expect(h.of('play')).toHaveLength(0);
+    expect(h.state.phase).toBe('paused');
+    h.tick(9.9);                              // a pre-pause tick the bridge delivered after the edge…
+    h.tick(10.3);                             // …then the stop sample again: an advance, still not a resume
+    expect(h.of('play')).toHaveLength(0);
+    expect(h.state.phase).toBe('paused');
+    h.tick(20.3);                             // a lock-screen skip while paused: a time jump
+    expect(h.actions).toEqual([]);
+    expect(h.state.lastTime).toBe(20.3);
+    h.dispatch({ type: 'progress' });         // timeControlStatus == .playing: the outside play
+    expect(h.of('play')).toHaveLength(1);
+    expect(h.state.phase).toBe('live');
+    expect(h.state.lastTime).toBeNull();      // the resume forgets the clock too: the next tick only records
+    h.drain();
+    h.tick(20.8);
+    expect(h.of('progress')).toHaveLength(0);
+    h.tick(21.3);
+    expect(h.of('progress')).toEqual([{ type: 'progress', g: 1 }]);
   });
 
   it('a tune while paused starts clean: the next generation carries no pause', () => {

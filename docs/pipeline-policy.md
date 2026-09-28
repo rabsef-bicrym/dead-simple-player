@@ -72,8 +72,13 @@ paused: a Now Playing **play** (the module's `onRemoteCommand` — a second
 target beside expo-video's, which still drives the player; and, as a second
 chance, a rising `rate`), an interruption **ended** (`onAudioInterruption`
 with `shouldResume`), a PiP **stop**, AppState **active** (`foreground`),
-and `resume(reason)` on the handle. Progress while paused (the timebase is
-running again and no edge said why) takes the same tiers as `remote-play`.
+and `resume(reason)` on the handle. `playingChange true` while paused (the
+timebase is running again and no edge said why) takes the same tiers as
+`remote-play`. A `timeUpdate` while paused never resumes: AVFoundation's
+periodic observer also fires "whenever time jumps and whenever playback
+starts or stops", so the sample behind the pause edge — or a pre-pause tick
+the bridge delivered after it — is a clock reading, not a running timebase.
+The pause edge forgets the last clock reading for the same reason.
 
 | condition (in order) | action | why |
 |---|---|---|
