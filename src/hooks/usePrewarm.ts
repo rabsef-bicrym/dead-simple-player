@@ -14,11 +14,12 @@ const port: PrewarmPort = {
 
 /**
  * Keeps the channel under the resting cursor warm while `enabled`, and
- * nothing warm otherwise (decision 6(a)): the DS-6 dial and the phone's
- * landscape shifter — never the board cursor, the portrait column, a
- * signed-off set, a screen that is not focused, or a set in the background.
- * The returned pre-warmer lets a tune stop it synchronously, before React's
- * commit would.
+ * nothing warm otherwise (decision 6(a)): the DS-6 dial, and on the phone
+ * in landscape the channel Home opened on (a shifter move tunes before the
+ * dwell) — never the board cursor, the portrait column, a signed-off set,
+ * a screen that is not focused, or a set in the background. The returned
+ * pre-warmer lets a tune stop it synchronously, before React's commit
+ * would.
  */
 export function usePrewarm(url: string | null, enabled: boolean): Prewarmer {
   const prewarmer = useRef<Prewarmer | null>(null);
