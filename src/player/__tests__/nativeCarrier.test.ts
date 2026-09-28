@@ -90,9 +90,9 @@ describe('modules/dsp-picture — the local module', () => {
     for (const fn of fns) expect(handle).toMatch(new RegExp(`^\\s+${fn}\\(`, 'm'));
   });
 
-  it('every event leaves through emit(), which nothing dispatches during teardown; the remote target is play and pause only', () => {
+  it('the policy events leave through emit(), which nothing dispatches during teardown; the remote target is play and pause only', () => {
     const body = code(picture);
-    // Direct dispatcher calls are the five witness events and the rows; the policy events go through emit().
+    // Direct dispatcher calls are the four witness events and the rows (row() has the same guard); the policy events go through emit().
     expect(body).toMatch(/emit\(onTimeControl,/);
     expect(body).toMatch(/self\?\.emit\(self\?\.onAudioInterruption,/);
     expect(body).toMatch(/self\.emit\(self\.onRemoteCommand,/);
