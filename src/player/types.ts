@@ -1,4 +1,5 @@
 import type { StyleProp, ViewStyle } from 'react-native';
+import type { PauseCause, ResumeReason } from './pipelinePolicy';
 
 export type PlayerErrorKind =
   | 'network'
@@ -10,8 +11,20 @@ export type PlayerErrorKind =
 export interface PlayerError {
   kind: PlayerErrorKind;
   message: string;
+  /**
+   * `false`: the surface keeps trying — the plate relabels, the tune record
+   * stays open, a later frame still closes it (the native ladder's third
+   * failure, the web's `recovery-exhausted`). Absent or `true`: final.
+   */
+  terminal?: boolean;
 }
 
+/**
+ * What the lock screen may show. Native writes the channel name and artwork
+ * only (decision 3): its source depends on the URL alone, so a programme
+ * rollover never reaches Now Playing and never re-tunes the stream (NP-08).
+ * The programme fields are the web's Media Session's.
+ */
 export interface PlayerMetadata {
   channelName: string;
   programmeTitle?: string;
@@ -19,6 +32,11 @@ export interface PlayerMetadata {
   artworkUrl?: string;
 }
 
+/**
+ * Web only: the Media Session's previous/next track handlers. On iOS the
+ * lock-screen keys are expo-video's Now Playing (play, pause, skip ±10 s);
+ * previous/next are not wired there and this prop is ignored (NP-07).
+ */
 export interface PlayerMediaSessionControls {
   onPreviousTrack: () => void;
   onNextTrack: () => void;
@@ -46,8 +64,25 @@ export interface PlayerSurfaceProps {
    * counter no trace record binds; its own witness and rows are WP-06's.
    */
   onFirstFrame?: (generation: number) => void;
+  /**
+   * The clock of `generation` advanced (`playingChange true`, an advancing
+   * `timeUpdate`): the screen's "no progress" clock resets on it (NP-02).
+   * Native only today; the web's rows are WP-06's.
+   */
+  onProgress?: (generation: number) => void;
   onBuffering: (buffering: boolean) => void;
   onError: (error: PlayerError) => void;
+  /**
+   * An unrequested pause edge — Now Playing, the PiP button, an audio-session
+   * interruption — stamped when it was seen and by whom. The surface keeps
+   * the stamp for its own resume tiers; this is the screen's notice, and its
+   * reader is WP-09's reducer (05-PLAN §WP-09: the store's `paused: { at,
+   * by } | null`, which the plate and the notes read). Until that rewire
+   * lands, watch.tsx passes nothing and the `paused` row is the record —
+   * not dead code. A `paused cause=failure (re-attributed…)` row withdraws
+   * one.
+   */
+  onPlaybackPaused?: (at: number, cause: PauseCause) => void;
   onPictureInPictureAvailabilityChange?: (available: boolean) => void;
   onPictureInPictureChange?: (active: boolean) => void;
 }
@@ -64,7 +99,18 @@ export interface PlayerSurfaceHandle {
   invalidate: () => void;
   /**
    * A fresh attempt on the current source under a new generation — a
-   * same-channel re-tune of a failing channel (decision 16), a resume.
+   * same-channel re-tune of a failing channel (decision 16); the surface's
+   * own resume tiers call it for a dead item.
    */
   rejoin: (reason: string) => void;
+  /**
+   * A reason to play again, judged by the resume tiers (`decideResume`):
+   * ignored unless the set is paused, and a person's pause survives every
+   * system edge (decision 17). The surface raises its own edges (Now
+   * Playing, interruption end, PiP stop, AppState); this is for the one the
+   * screen sees first: `tuneTo`'s same-channel short-circuit raises `user`
+   * — selecting the channel already on a paused set is the one play control
+   * DS,P has of its own.
+   */
+  resume: (reason: ResumeReason) => void;
 }
