@@ -176,7 +176,11 @@ Deliberately **not** in the predicate: `AVPlayerItem.status == .readyToPlay`
 ## 4. The JS contract (§6)
 
 `PlayerSurface.native.tsx` owns the I/O; `firstFrameGate.ts` owns every
-decision (`src/player/__tests__/firstFrameGate.test.ts` replays them).
+decision about generations, the latch and the ladder
+(`src/player/__tests__/firstFrameGate.test.ts` replays them), and
+`nativeJoinController.ts` composes it with the pause and resume policy
+(`docs/pipeline-policy.md`; `nativeJoinController.test.ts`). The surface
+dispatches every fact with `Date.now()` and performs what comes back.
 
 - **Generations move with intent.** `tuneTo` calls `playerRef.current?.
   invalidate()` before its first `setState`: `++nextGeneration` becomes the
@@ -219,12 +223,31 @@ decision (`src/player/__tests__/firstFrameGate.test.ts` replays them).
   30000]` ms (the last repeats); each attempt is a new generation with its
   own `expect`, item, sampler and rows (`attempt #n reason=`); after the
   third consecutive failure the plate reads "THE SIGNAL WILL NOT JOIN"
-  (`onError` with kind `recovery-exhausted`, which `watch.tsx` does not treat
-  as an ending) while attempts continue; buffer health (`readyToPlay`,
-  `playingChange true`, an advancing `timeUpdate`) resets `failures`. The
-  retry timer is the surface's only timer: it starts a fetch and ends nothing
-  (R1). The static ends only when the rebuilt generation's item fires the
-  predicate; the user's X is the escape.
+  (`onError` with kind `recovery-exhausted` and `terminal: false`, which
+  `watch.tsx` does not treat as an ending) while attempts continue; five
+  seconds of sustained progress (`healthy`, judged by the join controller)
+  resets `failures` — never `readyToPlay` (expo's keep-up forecast) and
+  never the first frame alone (PW-10). The ladder's numbers live in
+  `pipelinePolicy.ts`, one table for both surfaces. The retry timer is the
+  surface's only timer: it starts a fetch and ends nothing (R1). The static
+  ends only when the rebuilt generation's item fires the predicate; the
+  user's X is the escape. While the set is paused the ladder does not run
+  (`docs/pipeline-policy.md` §2).
+- **Progress, not readiness (NP-02).** `onBuffering(false)`, `onReady` and
+  `onProgress(g)` follow `playingChange true` or an advancing `timeUpdate`;
+  `statusChange readyToPlay` is a row and nothing else.
+- **The pause edge and the resume tiers** (decision 17, NP-03, NP-11,
+  SI-02): the module's `onTimeControl status=paused` for the settled
+  generation, with the prop still wanting playback and the item not failed,
+  is `paused cause=user|interruption`; while paused errors are held and no
+  rung runs; a Now Playing play (`onRemoteCommand`), an interruption end
+  (`onAudioInterruption`), a PiP stop, AppState active or `resume(reason)`
+  goes through `decideResume` — play under 20 s, seek-to-live then play
+  under 45 s, rejoin past that or after a failure while paused, and a
+  person's pause survives a foreground edge. `docs/pipeline-policy.md` §2–§3.
+- **Now Playing carries the channel name and artwork only** (decision 3):
+  the source depends on the URL alone, so nothing that changes during a
+  programme is written there (NP-08).
 - **`rejoin(reason)`** is a rebuild with a row: a same-channel arrival on a
   channel in error (`tuneTo` → `invalidate()` → `rejoin('retune')`, decision
   16); a healthy tune in progress is never restarted. `watch.tsx`'s
@@ -238,10 +261,10 @@ decision (`src/player/__tests__/firstFrameGate.test.ts` replays them).
   background mid-tune without PiP holds on `why=…A` until `N app active`;
   AirPlay fires `via=external`; rotation is `N bounds`/`N vr` only — no
   re-arm path exists (`setPlayer` is identity-guarded, FF-13). The `pip
-  start|stop` row is the surface's own (`onNativePip`); `watch.tsx` holds no
-  `pipActive` state yet — ff-spec §6.2's `useState` and its
-  `onPictureInPictureChange` prop are WP-04's, whose PiP/interruption policy
-  is the first reader (§10, judgment 5).
+  start|stop` row is the surface's own (`onNativePip`), a PiP stop is a
+  resume edge for a set paused inside the window, and `watch.tsx` keeps the
+  flag `onPictureInPictureChange` reports in a ref it reads at PICTURE OUT
+  (`pip request ignored: active`).
 
 ## 5. The rows (§7)
 
@@ -252,6 +275,10 @@ or −1: printed only when positive) — except `N expect`, which wears the
 expectation's generation while the old item is still bound, so it files under
 the tune that asked (check 11); its `i=` and `current=` name that old item.
 `i` = the item's short id (omitted when `-`). The card prints `+<JS offset>ms <name> <detail> [g=<g>] [i=<i>] (n+<t − nativeT0>)`.
+Beside the rows the module delivers the witness events (`onFirstFrame`,
+`onItemLost`, `onItemFailed`, `onPictureInPictureChange`) and three policy
+payloads that decide nothing natively — `onTimeControl`,
+`onAudioInterruption`, `onRemoteCommand` (`docs/pipeline-policy.md` §6).
 
 | Row | When | `detail` |
 |---|---|---|
@@ -284,7 +311,8 @@ the tune that asked (check 11); its `i=` and `current=` name that old item.
 | `N app` | lifecycle | `background pip=<b>` · `foreground` · `active` |
 | `N ext` | `isExternalPlaybackActive` change | `<b>` |
 | `N pip` | PiP | `possible=<b>` · `auto=<b>` · `start` · `stop` · `start refused possible= active=` · `failed <desc>` |
-| `N audio` | AVAudioSession | `interrupt began\|ended shouldResume=<b>` · `route reason=<n>` |
+| `N audio` | AVAudioSession | `interrupt began\|ended shouldResume=<b>` (+ event `onAudioInterruption`) · `route reason=<n>` |
+| `N remote` | a Now Playing command the person pressed | `play` · `pause` (+ event `onRemoteCommand`; expo-video's own target drives the player) |
 | `S live` / `S boil` | static: `animationDidStart` / two differing presentation samples | `n=<install #>` |
 
 JS rows (all stamped `g=` except the header and the static rows): `TUNE START`
@@ -296,8 +324,12 @@ ok|adopted|unbound|stale|failed|no picture view` · `startPlayback threw <msg>` 
 `sourceReady set` · `tuning cleared` · `static mount` · `static unmount` ·
 `statusChange <s>` · `playingChange <b>` · `first timeUpdate <t>s
 requested=<uri>` · `playerError <kind>: <msg> failures=n` (or `latched…` /
-`dropped (settle pending)…` / `stale…`) · `error replay` · `retry scheduled in=<ms>` · `item lost i=` · `pip
-start|stop|request refused while tuning` · `link → channel N`.
+`dropped (settle pending)…` / `stale…` / `held while paused: …`) · `error replay` · `retry scheduled in=<ms>` ·
+`retry cancelled paused` · `healthy failures reset from n` · `item lost i=` · `paused cause=user|interruption`
+(or `cause=interruption (re-attributed)`) · `resume reason=<r> cause=<c> elapsed=<ms> failed=<b> →
+play|seek-live-then-play|rejoin|stay-paused` · `attempt #n reason=rejoin:resume:<r>` · `pip
+start|stop|request refused while tuning` · `link → channel N`. The screen's own: `sourceReady set`,
+`tuning cleared`, `error surfaced`, `pip request ignored: active`.
 
 ## 6. Reading a paste — the checks (§10)
 
@@ -449,11 +481,11 @@ and the reversal.
    `CAAnimation.delegate` is `strong`; with an infinite
    `isRemovedOnCompletion = false` animation the spec's line is a retain cycle
    and a static view leaks per tune (§8). No row changes.
-5. **`watch.tsx` holds no `pipActive` state** (§6.2's `useState` and
-   `onPictureInPictureChange` prop). Why: the surface writes the `pip
-   start|stop` row itself and nothing on the screen reads the state today;
-   WP-04's PiP/interruption policy is the first reader and wires the prop
-   (that line belongs on 05-PLAN.md's WP-04 entry, outside this branch).
+5. **`watch.tsx` keeps `pipActive` in a ref, not state** (§6.2's
+   `useState`). Why: the surface writes the `pip start|stop` row itself and
+   owns the PiP-stop resume edge; the screen reads the flag only at PICTURE
+   OUT, and nothing renders on it. Wired with the pause policy
+   (`docs/pipeline-policy.md`, judgment 7).
 6. **Availability is read from the module object** (§4.5's `try { return
    requireNativeViewManager… } catch { return null }`). Why: the spec's catch
    never catches (§1, §7); the seat and `witness=absent` were unreachable.
