@@ -61,8 +61,10 @@ export function createPrewarmer(port: PrewarmPort): Prewarmer {
     inFlight = null;
   };
 
+  // Reached only from the dwell timer (after `rest()`'s `stop()`) and the
+  // re-touch timer (past the abort timer's close): nothing is in flight here,
+  // and `stop()` is the one place a touch is abandoned.
   const touch = (url: string) => {
-    if (inFlight) inFlight.abort();
     const controller = new AbortController();
     inFlight = controller;
     abortTimer = port.setTimer(() => {
