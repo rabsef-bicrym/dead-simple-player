@@ -323,6 +323,24 @@ describe('errors — latch, ladder, health', () => {
     expect(h.state.failures).toBe(0);
   });
 
+  it('cancel-retry drops the armed rung with the action that clears its timer, and is a no-op with none armed', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.dispatch({ type: 'settle', g: 1 });
+    h.dispatch({ type: 'status-error', g: 1, error: media('a') });
+    expect(h.state.retry).toEqual({ g: 1, reason: 'retry' });
+    h.drain();
+    h.dispatch({ type: 'cancel-retry' });
+    expect(h.names()).toEqual(['cancel-retry']);
+    expect(h.state.retry).toBeNull();
+    expect(h.state.failures).toBe(1);                    // the failure stays counted
+    h.drain();
+    h.dispatch({ type: 'cancel-retry' });
+    expect(h.actions).toEqual([]);
+    h.dispatch({ type: 'retry-fired', g: 1 });           // a timer that beat the clear starts nothing
+    expect(h.of('replace')).toHaveLength(0);
+  });
+
   it('a retry timer that fires for a superseded generation starts nothing', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });

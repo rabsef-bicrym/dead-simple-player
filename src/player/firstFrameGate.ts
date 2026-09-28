@@ -84,6 +84,8 @@ export type GateEvent =
   | { type: 'healthy' }
   /** The retry timer for `g` fired. */
   | { type: 'retry-fired'; g: number }
+  /** Drop the armed rung without firing it (the join controller's pause edge); the timer is cleared by the action. */
+  | { type: 'cancel-retry' }
   /** The layout cleanup: every later fact is stale. */
   | { type: 'unmount' };
 
@@ -329,6 +331,11 @@ export function reduceGate(state: GateState, event: GateEvent): GateResult {
       if (s.failures === 0) return { state: s, actions };
       actions.push(trace('healthy', `failures reset from ${s.failures}`, s.sourceGeneration));
       return { state: { ...s, failures: 0 }, actions };
+    }
+    case 'cancel-retry': {
+      if (!s.retry) return { state: s, actions };
+      actions.push({ type: 'cancel-retry' });
+      return { state: { ...s, retry: null }, actions };
     }
     case 'retry-fired': {
       if (!s.retry || s.retry.g !== event.g) return { state: s, actions };
