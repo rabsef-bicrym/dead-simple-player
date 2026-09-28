@@ -167,7 +167,7 @@ decision 6(a) accepted. Never from the board cursor or the portrait column.
 The phone's shifter gates every move at `GEAR_COMMIT_MS` = 340 ms — before
 the dwell — so there the pre-warm covers the channel Home opened on (the
 remembered or last channel, resting while the person reads the panel), not
-a swipe that tunes. Nothing on the tune path awaits or reads the
+a swipe that tunes (judgment 14). Nothing on the tune path awaits or reads the
 pre-warmer; no keepalive runs while paused (SP-05: it would hold a
 transcode for a viewer watching nothing — a paused set is a picture, and
 Home never opens over one).
@@ -259,3 +259,14 @@ delivered as a payload the surface can read without parsing a row:
 13. **A failure within 2 s of the pause edge is the failure's, in either
     KVO order** (§2). Why: the item-failed-first order is expo's comment,
     not Apple's word; the other order would have been NP-11 again, silently.
+14. **The phone-landscape shifter's half of the pre-warm is inert** (05-PLAN
+    §WP-04 and its §7 line 6 named "the DS-6 dial and the phone-landscape
+    shifter"). A shifter move can never reach the 400 ms dwell: `onGate`
+    commits the tune at `GEAR_COMMIT_MS` = 340 ms and `tuneTo` calls
+    `rest(null)`, so on the phone only the channel Home opened on is warmed
+    (§5). Why accepted: decision 6(a) names the dial alone, the acceptance
+    line (§7) is the dial's, and a swipe loses nothing against today — the
+    tune's own master GET is 340 ms behind the gate. Reversal: give `rest`
+    a zero dwell and call it from `onGate`, a HEAD at the gate 340 ms ahead
+    of the tune's GET, on the contract's word that a second master request
+    joins the session's wait (§1 Stage B).
