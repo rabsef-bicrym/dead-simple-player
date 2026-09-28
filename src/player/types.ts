@@ -75,9 +75,12 @@ export interface PlayerSurfaceProps {
   /**
    * An unrequested pause edge — Now Playing, the PiP button, an audio-session
    * interruption — stamped when it was seen and by whom. The surface keeps
-   * the stamp for its own resume tiers; this is the screen's notice, and no
-   * screen reads it yet (watch.tsx passes nothing; the `paused` row is the
-   * record). A `paused cause=failure (re-attributed…)` row withdraws one.
+   * the stamp for its own resume tiers; this is the screen's notice, and its
+   * reader is WP-09's reducer (05-PLAN §WP-09: the store's `paused: { at,
+   * by } | null`, which the plate and the notes read). Until that rewire
+   * lands, watch.tsx passes nothing and the `paused` row is the record —
+   * not dead code. A `paused cause=failure (re-attributed…)` row withdraws
+   * one.
    */
   onPlaybackPaused?: (at: number, cause: PauseCause) => void;
   onPictureInPictureAvailabilityChange?: (available: boolean) => void;
