@@ -69,6 +69,8 @@ describe('decideResume', () => {
     expect(decideResume(at(5_000, { reason: 'interruption-ended', shouldResume: true }))).toBe('stay-paused'); // paused before the call
     expect(decideResume(at(5_000, { reason: 'remote-play' }))).toBe('play');
     expect(decideResume(at(70_000, { reason: 'remote-play' }))).toBe('rejoin');
+    expect(decideResume(at(5_000, { reason: 'user' }))).toBe('play');                 // the channel selected again
+    expect(decideResume(at(70_000, { reason: 'user' }))).toBe('rejoin');
   });
 
   it('an interruption\'s pause resumes on foreground and on the PiP window closing', () => {

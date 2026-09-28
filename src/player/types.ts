@@ -104,9 +104,10 @@ export interface PlayerSurfaceHandle {
    * A reason to play again, judged by the resume tiers (`decideResume`):
    * ignored unless the set is paused, and a person's pause survives every
    * system edge (decision 17). The surface raises its own edges (Now
-   * Playing, interruption end, PiP stop, AppState); this is for one the
-   * screen sees first, and no screen calls it yet — DS,P has no play
-   * control of its own, so `remote-play` is the only person's edge today.
+   * Playing, interruption end, PiP stop, AppState); this is for the one the
+   * screen sees first: `tuneTo`'s same-channel short-circuit raises `user`
+   * — selecting the channel already on a paused set is the one play control
+   * DS,P has of its own.
    */
   resume: (reason: ResumeReason) => void;
 }

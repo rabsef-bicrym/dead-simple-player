@@ -53,8 +53,8 @@ export function nextRetry(failures: number): RetryDecision {
   };
 }
 
-/** Why the set is being asked to resume: the person pressed play (`remote-play`), or one of the system's own edges. */
-export type ResumeReason = 'remote-play' | 'interruption-ended' | 'foreground' | 'pip-stop';
+/** Why the set is being asked to resume: the person pressed play (`remote-play`), selected the channel already on the set (`user`), or one of the system's own edges. */
+export type ResumeReason = 'remote-play' | 'user' | 'interruption-ended' | 'foreground' | 'pip-stop';
 /** The edges nobody pressed: a person's pause survives every one of them (decision 17). */
 const SYSTEM_EDGES: ReadonlySet<ResumeReason> = new Set<ResumeReason>(['foreground', 'interruption-ended', 'pip-stop']);
 /** Who paused it: a person (Now Playing, the PiP button) or the audio session (a call, Siri, an alarm). */
@@ -79,7 +79,8 @@ export interface ResumeQuery {
  * `shouldResume` (the person paused before the call), not the PiP window
  * closing (AVKit pauses the player when its X is pressed, then reports the
  * stop; a resume there would restart audio in a window just closed); only
- * a play the person pressed lifts it. An interruption that ends without
+ * a play the person pressed — Now Playing, or the channel already on the
+ * set selected again — lifts it. An interruption that ends without
  * `shouldResume` stays quiet; a failed item or a pause past the session's
  * life rejoins from the channel URL; a pause past the window seeks first;
  * anything shorter just plays.

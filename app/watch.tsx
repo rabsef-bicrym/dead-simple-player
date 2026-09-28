@@ -546,6 +546,10 @@ export default function WatchScreen() {
     // restarted — a second cold master GET can throttle the session; a
     // channel in error is (decision 16).
     if (playbackActiveRef.current && index === safeIndex && !playerErrorRef.current) {
+      // A paused set selected again is the person's play (decision 17):
+      // the tiers judge it, and a playing set ignores it. Without this the
+      // picture stays frozen with no play control anywhere in the app.
+      playerRef.current?.resume('user');
       setHomeVisible(false);
       setBoardVisible(false);
       setBoardClosing(false);
