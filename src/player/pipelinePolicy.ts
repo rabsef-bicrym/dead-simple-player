@@ -53,8 +53,15 @@ export function nextRetry(failures: number): RetryDecision {
   };
 }
 
-/** Why the set is being asked to resume: the person pressed play (`remote-play`), selected the channel already on the set (`user`), or one of the system's own edges. */
-export type ResumeReason = 'remote-play' | 'user' | 'interruption-ended' | 'foreground' | 'pip-stop';
+/**
+ * Why the set is being asked to resume: the person pressed play
+ * (`remote-play`, the Now Playing target), selected the channel already on
+ * the set (`user`), the player's rate rose with no press named (`rate` —
+ * expo's own Now Playing target, or the module's `nudge` re-issuing
+ * `playImmediately` during a join; the timebase runs and the controller
+ * follows it), or one of the system's own edges.
+ */
+export type ResumeReason = 'remote-play' | 'user' | 'rate' | 'interruption-ended' | 'foreground' | 'pip-stop';
 /** The edges nobody pressed: a person's pause survives every one of them (decision 17). */
 const SYSTEM_EDGES: ReadonlySet<ResumeReason> = new Set<ResumeReason>(['foreground', 'interruption-ended', 'pip-stop']);
 /** Who paused it: a person (Now Playing, the PiP button) or the audio session (a call, Siri, an alarm). */

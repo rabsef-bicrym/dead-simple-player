@@ -85,16 +85,19 @@ While paused (decision 17 — a paused set stays paused):
 ## 3. The resume tiers
 
 Resume edges, all through `decideResume` and all ignored unless the set is
-paused: a Now Playing **play** (the module's `onRemoteCommand` — a second
-target beside expo-video's, which still drives the player; and, as a second
-chance, a rising `rate`), an interruption **ended** (`onAudioInterruption`
-with `shouldResume`), a PiP **stop**, AppState **active** (`foreground`),
-and `resume(reason)` on the handle — the screen raises `user` from
-`tuneTo`'s same-channel short-circuit: a paused set selected again (the
-register, the board, a link) is the person's play, and a playing set
-ignores it. `playingChange true` while paused (the
-timebase is running again and no edge said why) takes the same tiers as
-`remote-play`. A `timeUpdate` while paused never resumes: AVFoundation's
+paused: a Now Playing **play** (`remote-play`: the module's
+`onRemoteCommand` — a second target beside expo-video's, which still drives
+the player), a rising **rate** on a paused set (`rate`: a play nobody here
+issued — expo's own target, or the module's `nudge` re-issuing
+`playImmediately` during a join; the timebase runs and the controller
+follows it, through the same tiers, and the row says `rate`, not a press),
+an interruption **ended** (`onAudioInterruption` with `shouldResume`), a
+PiP **stop**, AppState **active** (`foreground`), and `resume(reason)` on
+the handle — the screen raises `user` from `tuneTo`'s same-channel
+short-circuit: a paused set selected again (the register, the board, a
+link) is the person's play, and a playing set ignores it. `playingChange
+true` while paused (the timebase is running again and no edge said why) is
+`rate` too. A `timeUpdate` while paused never resumes: AVFoundation's
 periodic observer also fires "whenever time jumps and whenever playback
 starts or stops", so the sample behind the pause edge — or a pre-pause tick
 the bridge delivered after it — is a clock reading, not a running timebase.
@@ -227,7 +230,8 @@ delivered as a payload the surface can read without parsing a row:
    (`VideoPlayerObserver.swift:442-445`), so the owner's own scenario (pause,
    cut, press play) would have no edge at all. Reversal: delete
    `installRemoteCommands` and the `onRemoteCommand` handler; the rising
-   `rate` remains as the weaker edge.
+   `rate` remains as the weaker edge, and the row would no longer say who
+   pressed.
 3. **The ladder's budget replenishes on five seconds of progress, not on
    `readyToPlay`** (ff-spec §6.1 wrote "health (`reportReady`)"). Why:
    PW-10; `readyToPlay` is `isPlaybackLikelyToKeepUp`. Reversal: make the
@@ -292,3 +296,16 @@ delivered as a payload the surface can read without parsing a row:
     (the one documented case, `appWasSuspended`, the iOS 16 SDK retired:
     "wasSuspended reason no longer present"). Reversal: drop the
     `interruptionOpen` clause in `decideResume`.
+16. **A person's pause during the join does not survive the module's
+    `nudge`, and the row says so.** `nudge` re-issues `playImmediately` on
+    every `loadedTimeRanges` KVO until the first `.playing`
+    (`DSPPictureView.swift`, `!everPlaying`), so a pause after settle and
+    before the first frame is un-paused by the next chunk of data; the
+    rising rate reaches the controller as `resume reason=rate … → play`, a
+    play nobody pressed, printed as such — the first cut printed it as
+    `remote-play`, a Now Playing press that never happened. The un-pause
+    itself is WP-03's mechanism and stands: a set that has not shown its
+    first frame is joining, not playing, and a pause there has nothing to
+    hold. Reversal (Swift, so EAS-gated): a `holdNudge(g)` on the module,
+    called from the surface's `paused` action and cleared by the resume and
+    the take, and `nudge` refuses while it holds.

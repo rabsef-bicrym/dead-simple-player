@@ -349,17 +349,20 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
       dispatch({ type: 'native-item-failed', g, item: i, error: { kind: 'media', message: `${domain}/${code} ${message}` } });
     }, [dispatch]);
 
-    // The pause edge is the player's own `.paused` for the bound item, with
-    // the item's status in the same payload; the controller decides whether
-    // anyone asked for it. A rate rising on a paused set is an outside play
-    // (Now Playing) the tiers must judge — the command target below catches
-    // the press even when a failed item lets no rate change through.
+    // The pause edge is the player's own `.paused` for the bound item (rate
+    // 0 by definition; the payload carries it for the row), with the item's
+    // status in the same payload; the controller decides whether anyone
+    // asked for it. A rate rising on a paused set is a play nobody here
+    // issued — expo's Now Playing target, or the module's nudge during a
+    // join — and the tiers judge it as `rate`; the command target below
+    // names the press itself, even when a failed item lets no rate change
+    // through.
     const onNativeTimeControl = useCallback((e: { nativeEvent: DSPTimeControl }) => {
-      const { g, src, status, rate, itemStatus } = e.nativeEvent;
-      if (status === 'paused' && rate === 0) {
+      const { g, src, status, itemStatus } = e.nativeEvent;
+      if (status === 'paused') {
         dispatch({ type: 'paused-unrequested', g, playing: playingRef.current, itemFailed: itemStatus === 'failed' });
-      } else if (src === 'rate' && rate > 0) {
-        dispatch({ type: 'resume-edge', reason: 'remote-play' });
+      } else if (src === 'rate' && e.nativeEvent.rate > 0) {
+        dispatch({ type: 'resume-edge', reason: 'rate' });
       }
     }, [dispatch]);
 

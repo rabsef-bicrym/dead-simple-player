@@ -451,15 +451,28 @@ describe('the resume edge', () => {
     expect(h.state.phase).toBe('live');
   });
 
-  it('playingChange true while paused is an outside play the module could not name: the tiers still apply', () => {
+  it('playingChange true while paused is a play nobody named (`rate`): the tiers still apply', () => {
     const h = harness();
     h.live();
     h.pause();
     h.advance(30_000);
     h.drain();
     h.dispatch({ type: 'progress' });
+    expect(h.names()[0]).toBe('resume reason=rate cause=user elapsed=30000ms failed=false → seek-live-then-play');
     expect(h.of('seek-live-then-play')).toHaveLength(1);
     expect(h.state.phase).toBe('live');
+  });
+
+  it('a rate rising during a paused join (the module\'s nudge) is `rate`, not a press: the row says so', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.dispatch({ type: 'settle', g: 1 });
+    h.pause();
+    h.advance(800);
+    h.drain();
+    h.dispatch({ type: 'resume-edge', reason: 'rate' });
+    expect(h.names()).toEqual(['resume reason=rate cause=user elapsed=800ms failed=false → play', 'play']);
+    expect(h.state.phase).toBe('joining');
   });
 
   it('a timeUpdate while paused never resumes: the stop sample, a tick reordered past the edge, a skip', () => {

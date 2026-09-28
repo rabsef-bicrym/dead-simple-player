@@ -71,6 +71,8 @@ describe('decideResume', () => {
     expect(decideResume(at(70_000, { reason: 'remote-play' }))).toBe('rejoin');
     expect(decideResume(at(5_000, { reason: 'user' }))).toBe('play');                 // the channel selected again
     expect(decideResume(at(70_000, { reason: 'user' }))).toBe('rejoin');
+    expect(decideResume(at(5_000, { reason: 'rate' }))).toBe('play');                 // the timebase runs: the controller follows it
+    expect(decideResume(at(70_000, { reason: 'rate' }))).toBe('rejoin');
   });
 
   it('an interruption\'s pause resumes on foreground and on the PiP window closing', () => {
