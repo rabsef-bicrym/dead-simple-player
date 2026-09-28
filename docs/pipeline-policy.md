@@ -74,7 +74,8 @@ While paused (decision 17 — a paused set stays paused):
   `failedWhilePaused` is set, the plate does not relabel;
 - a rung already armed for this generation is cancelled (`retry cancelled
   paused`) and counts as a failure while paused — the resume rejoins;
-- a retry timer that beats the cancel starts nothing.
+- a retry timer that beats the cancel starts nothing: the rung is the
+  gate's and already null there (`firstFrameGate.ts`, `retry-fired`).
 
 ## 3. The resume tiers
 

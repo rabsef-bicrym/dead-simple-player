@@ -37,6 +37,7 @@ import {
   PAUSE_ATTRIBUTION_MS,
   decideResume,
   type PauseCause,
+  type ResumeAction,
   type ResumeReason,
 } from './pipelinePolicy';
 
@@ -65,8 +66,15 @@ export interface JoinState {
   failedAt: number | null;
 }
 
+/**
+ * What the surface may dispatch. The gate's `ready`, `healthy` and
+ * `cancel-retry` are not among them: they are this controller's own verdicts,
+ * raised from sustained progress and from the pause edge. A surface that
+ * could dispatch `ready` from expo's `readyToPlay` would reinstate the
+ * readiness signal NP-02 removed.
+ */
 export type JoinEvent =
-  | GateEvent
+  | Exclude<GateEvent, { type: 'ready' | 'healthy' | 'cancel-retry' }>
   /**
    * `playingChange true` (no time) or a `timeUpdate` (its `currentTime`).
    * While paused only the former is a resume. AVFoundation's periodic time
@@ -179,6 +187,26 @@ function phaseAfterResume(s: JoinState): JoinPhase {
   return s.gate.firstFrameReported ? 'live' : 'joining';
 }
 
+/**
+ * The state after a resume decision on a paused set. Exhaustive: a new
+ * `ResumeAction` fails to compile here rather than falling through.
+ */
+function applyResume(s: JoinState, decision: ResumeAction, reason: ResumeReason, actions: JoinAction[]): JoinState {
+  switch (decision) {
+    case 'stay-paused':
+      return s;
+    case 'play':
+      actions.push({ type: 'play' });
+      return { ...clearPause(s), phase: phaseAfterResume(s) };
+    case 'seek-live-then-play':
+      actions.push({ type: 'seek-live-then-play' });
+      return { ...clearPause(s), phase: phaseAfterResume(s) };
+    case 'rejoin':
+      // A fresh generation from the channel URL: the item is dead, or old enough to be.
+      return gateEvent(clearPause(s), { type: 'take', reason: 'rejoin', detail: `rejoin:resume:${reason}` }, actions);
+  }
+}
+
 export function reduceJoin(state: JoinState, event: JoinEvent, now: number): JoinResult {
   const actions: JoinAction[] = [];
   let s = state;
@@ -225,7 +253,8 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
       actions.push({ type: 'paused', at: now, cause });
       if (s.gate.retry) {
         // A rung was armed for this generation: it would start an attempt
-        // under a pause nobody lifted. The resume rejoins instead.
+        // under a pause nobody lifted. The resume rejoins instead. The rung
+        // is the gate's: a timer that beats this cancel finds it null there.
         s = gateEvent(s, { type: 'cancel-retry' }, actions);
         actions.push(trace('retry cancelled', 'paused', g));
         s = { ...s, failedWhilePaused: true };
@@ -252,21 +281,7 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
       });
       const elapsed = s.pausedAt == null ? '?' : String(now - s.pausedAt);
       actions.push(trace('resume', `reason=${event.reason} cause=${s.pauseCause ?? '-'} elapsed=${elapsed}ms failed=${s.failedWhilePaused} → ${decision}`, g));
-      switch (decision) {
-        case 'stay-paused':
-          return { state: s, actions };
-        case 'play':
-          actions.push({ type: 'play' });
-          return { state: { ...clearPause(s), phase: phaseAfterResume(s) }, actions };
-        case 'seek-live-then-play':
-          actions.push({ type: 'seek-live-then-play' });
-          return { state: { ...clearPause(s), phase: phaseAfterResume(s) }, actions };
-        case 'rejoin':
-          // A fresh generation from the channel URL: the item is dead, or old enough to be.
-          s = gateEvent(clearPause(s), { type: 'take', reason: 'rejoin', detail: `rejoin:resume:${event.reason}` }, actions);
-          return { state: s, actions };
-      }
-      return { state: s, actions };
+      return { state: applyResume(s, decision, event.reason, actions), actions };
     }
     default: {
       if (isError(event) && event.g === g) {
@@ -289,7 +304,6 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
         }
         s = { ...s, failedAt: now };
       }
-      if (s.phase === 'paused' && event.type === 'retry-fired') return { state: s, actions };
       return { state: gateEvent(s, event, actions), actions };
     }
   }
