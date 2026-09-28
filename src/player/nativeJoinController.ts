@@ -47,7 +47,7 @@ export interface JoinState {
   phase: JoinPhase;
   /** The stamp of the first progress since the last join, resume or stall; null until progress. */
   progressSince: number | null;
-  /** The last `currentTime` a `timeUpdate` carried; progress is a larger one. */
+  /** The last `currentTime` a `timeUpdate` carried; progress is a larger one. Forgotten at every edge — join, pause, resume — so the first sample after one only records. */
   lastTime: number | null;
   pausedAt: number | null;
   pauseCause: PauseCause | null;
@@ -59,7 +59,15 @@ export interface JoinState {
 
 export type JoinEvent =
   | GateEvent
-  /** `playingChange true` (no time) or a `timeUpdate` (its `currentTime`). */
+  /**
+   * `playingChange true` (no time) or a `timeUpdate` (its `currentTime`).
+   * While paused only the former is a resume. AVFoundation's periodic time
+   * observer is "also invoked whenever time jumps and whenever playback
+   * starts or stops" (expo-video emits every invocation as a `timeUpdate`,
+   * VideoPlayerObserver.swift:329-343), so the sample that follows the pause
+   * edge — or a pre-pause tick the bridge delivered after it — would read as
+   * the timebase running again and un-pause the set within one event turn.
+   */
   | { type: 'progress'; currentTime?: number }
   /** `playingChange false`: the timebase stopped — a stall or a pause; progress is no longer sustained. */
   | { type: 'stalled' }
@@ -167,11 +175,13 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
       if (event.currentTime != null) {
         const advanced = s.lastTime != null && event.currentTime > s.lastTime;
         s = { ...s, lastTime: event.currentTime };
-        if (!advanced) return { state: s, actions };
+        // A sample while paused is the stop sample, a seek, or a tick the
+        // bridge delivered late: it records the clock and decides nothing.
+        if (!advanced || s.phase === 'paused') return { state: s, actions };
       }
       if (s.phase === 'paused') {
-        // The timebase is running again and no edge named why: an outside
-        // play() the module could not attribute. The tiers still apply.
+        // `timeControlStatus == .playing` on a paused set: an outside play()
+        // the module could not attribute. The tiers still apply.
         return reduceJoin(s, { type: 'resume-edge', reason: 'remote-play' }, now);
       }
       s = gateEvent(s, { type: 'ready' }, actions);
@@ -189,7 +199,7 @@ export function reduceJoin(state: JoinState, event: JoinEvent, now: number): Joi
       if (!event.playing || event.itemFailed || s.phase === 'paused') return { state: s, actions };
       const nearInterruption = s.interruptionAt != null && now - s.interruptionAt <= PAUSE_ATTRIBUTION_MS;
       const cause: PauseCause = event.cause ?? (nearInterruption ? 'interruption' : 'user');
-      s = { ...s, phase: 'paused', pausedAt: now, pauseCause: cause, failedWhilePaused: false, progressSince: null };
+      s = { ...s, phase: 'paused', pausedAt: now, pauseCause: cause, failedWhilePaused: false, progressSince: null, lastTime: null };
       actions.push(trace('paused', `cause=${cause}`, g));
       actions.push({ type: 'paused', at: now, cause });
       if (s.gate.retry) {
