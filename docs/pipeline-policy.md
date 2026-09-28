@@ -83,7 +83,10 @@ paused: a Now Playing **play** (the module's `onRemoteCommand` — a second
 target beside expo-video's, which still drives the player; and, as a second
 chance, a rising `rate`), an interruption **ended** (`onAudioInterruption`
 with `shouldResume`), a PiP **stop**, AppState **active** (`foreground`),
-and `resume(reason)` on the handle. `playingChange true` while paused (the
+and `resume(reason)` on the handle — the screen raises `user` from
+`tuneTo`'s same-channel short-circuit: a paused set selected again (the
+register, the board, a link) is the person's play, and a playing set
+ignores it. `playingChange true` while paused (the
 timebase is running again and no edge said why) takes the same tiers as
 `remote-play`. A `timeUpdate` while paused never resumes: AVFoundation's
 periodic observer also fires "whenever time jumps and whenever playback
@@ -239,9 +242,15 @@ delivered as a payload the surface can read without parsing a row:
     only that the session may resume, not that the app was playing before
     the call; either would have un-paused a set the person had stopped.
     Reversal: shrink `SYSTEM_EDGES` in `pipelinePolicy.ts` to `foreground`.
-11. **`'user'` is not a `ResumeReason`** (05-PLAN listed it). Why: nothing
-    dispatches it — DS,P has no play control of its own; `resume(reason)`
-    stays on the handle for the screen edge the plan named, uncalled today.
+11. **`'user'` is the same-channel select.** `tuneTo`'s short-circuit (a
+    healthy tune is never restarted, decision 16) raises `resume('user')`:
+    a paused set selected again — the register, the board, a link — plays
+    through the tiers, the one play control DS,P has of its own; a playing
+    set ignores it. The first cut dropped `'user'` from the plan's
+    `ResumeReason` as undispatched, which left a paused set frozen behind
+    that short-circuit with nothing in the app to lift it. On the web the
+    handle's `resume` plays a paused element regardless of reason (WP-06
+    owns its tiers).
 12. **A `timeUpdate` never resumes a paused set** (05-PLAN's wiring named
     "`playingChange true` while paused"; the first cut also read an
     advancing `timeUpdate` as the same). Why: AVFoundation's periodic

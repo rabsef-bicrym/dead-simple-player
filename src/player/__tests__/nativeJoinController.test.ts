@@ -329,6 +329,20 @@ describe('errors while paused (decision 17)', () => {
 });
 
 describe('the resume edge', () => {
+  it('a same-channel select (`user`) is the person\'s play: it lifts a person\'s pause through the tiers; a playing set ignores it', () => {
+    const h = harness();
+    h.live();
+    h.dispatch({ type: 'resume-edge', reason: 'user' });
+    expect(h.actions).toEqual([]);                            // nothing to lift
+    expect(h.state.phase).toBe('live');
+    h.pause();
+    h.drain();
+    h.advance(5_000);
+    h.dispatch({ type: 'resume-edge', reason: 'user' });
+    expect(h.names()).toEqual(['resume reason=user cause=user elapsed=5000ms failed=false → play', 'play']);
+    expect(h.state.phase).toBe('live');
+  });
+
   it('is ignored unless the set is paused', () => {
     const h = harness();
     h.live();
