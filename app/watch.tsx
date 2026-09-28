@@ -372,6 +372,11 @@ export default function WatchScreen() {
     && focused
     && housekeepingForeground
     && (!isPhone || isLandscape);
+  // Whatever the dial rests on, the channel just left included: Home is
+  // never over a picture (R19 — `openHome` and the stop drop `playbackActive`
+  // before `homeVisible` rises, and the video unmounts under Home), so the
+  // session Home opens on is already dying and this HEAD is its only Touch
+  // while the person decides.
   const prewarm = usePrewarm(channels[dialIndex]?.streamUrl ?? null, prewarmEnabled);
   // ── Clock + EPG lookups ──
   useEffect(() => {

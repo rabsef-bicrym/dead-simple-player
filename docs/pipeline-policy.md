@@ -149,7 +149,13 @@ visible) — `src/services/prewarm.ts`:
 - stops on `rest(null)`: a tune (`tuneTo` calls it before its first
   setState, so the tune's own master GET is the channel's next Touch and no
   second request runs beside it), leaving Home, the board, the service
-  panel, sign-off, the background. The server's 60 s timer is the cooldown.
+  panel, sign-off, the background. The server's 60 s timer is the cooldown;
+- warms whatever the dial rests on, the channel just left included: Home is
+  never over a picture (R19 — `openHome` and the stop drop `playbackActive`
+  before `homeVisible` rises, and the video unmounts under Home), so when
+  Home opens on the channel the person was watching its session is already
+  dying, and this HEAD is the only Touch it gets while they decide. Winding
+  the dial off it leaves it to the server's timer.
 
 One channel at a time: with `work_ahead_limit=1` the pre-warm pins the one
 unthrottled QSV transcode while the person browses, which is the cost
@@ -159,7 +165,8 @@ the dwell — so there the pre-warm covers the channel Home opened on (the
 remembered or last channel, resting while the person reads the panel), not
 a swipe that tunes. Nothing on the tune path awaits or reads the
 pre-warmer; no keepalive runs while paused (SP-05: it would hold a
-transcode for a viewer watching nothing).
+transcode for a viewer watching nothing — a paused set is a picture, and
+Home never opens over one).
 
 A `Starting HLS session` storm in `docker logs` while winding the dial is
 the tell to raise the dwell (05-PLAN WP-04's abandon line: 700 ms first).
