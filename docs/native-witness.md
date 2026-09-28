@@ -244,7 +244,9 @@ dispatches every fact with `Date.now()` and performs what comes back.
   (`onAudioInterruption`), a PiP stop, AppState active or `resume(reason)`
   goes through `decideResume` — play under 20 s, seek-to-live then play
   under 45 s, rejoin past that or after a failure while paused, and a
-  person's pause survives a foreground edge. `docs/pipeline-policy.md` §2–§3.
+  person's pause survives every system edge (foreground, a call ending,
+  the PiP window closing): only a play the person pressed lifts it.
+  `docs/pipeline-policy.md` §2–§3.
 - **Now Playing carries the channel name and artwork only** (decision 3):
   the source depends on the URL alone, so nothing that changes during a
   programme is written there (NP-08).
@@ -262,7 +264,8 @@ dispatches every fact with `Date.now()` and performs what comes back.
   AirPlay fires `via=external`; rotation is `N bounds`/`N vr` only — no
   re-arm path exists (`setPlayer` is identity-guarded, FF-13). The `pip
   start|stop` row is the surface's own (`onNativePip`), a PiP stop is a
-  resume edge for a set paused inside the window, and `watch.tsx` keeps the
+  resume edge for a set an interruption paused inside the window (a
+  person's pause there stays paused — the X pauses first), and `watch.tsx` keeps the
   flag `onPictureInPictureChange` reports in a ref it reads at PICTURE OUT
   (`pip request ignored: active`).
 

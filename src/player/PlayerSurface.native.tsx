@@ -381,7 +381,8 @@ export const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>
         pipActiveRef.current = active;
         traceEvent('pip', active ? 'start' : 'stop', { g: arrivalGeneration() });
         if (mountedRef.current) callbacksRef.current.onPictureInPictureChange?.(active);
-        // The PiP window closing is a resume edge for a set paused inside it.
+        // The PiP window closing is a resume edge for a set an interruption
+        // paused inside it; a person's pause stays (the X pauses, then stops).
         if (!active) dispatch({ type: 'resume-edge', reason: 'pip-stop' });
       }
       if (mountedRef.current) callbacksRef.current.onPictureInPictureAvailabilityChange?.(possible);

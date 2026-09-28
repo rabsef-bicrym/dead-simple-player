@@ -53,8 +53,10 @@ export function nextRetry(failures: number): RetryDecision {
   };
 }
 
-/** Why the set is being asked to resume. */
-export type ResumeReason = 'remote-play' | 'interruption-ended' | 'foreground' | 'pip-stop' | 'user';
+/** Why the set is being asked to resume: the person pressed play (`remote-play`), or one of the system's own edges. */
+export type ResumeReason = 'remote-play' | 'interruption-ended' | 'foreground' | 'pip-stop';
+/** The edges nobody pressed: a person's pause survives every one of them (decision 17). */
+const SYSTEM_EDGES: ReadonlySet<ResumeReason> = new Set<ResumeReason>(['foreground', 'interruption-ended', 'pip-stop']);
 /** Who paused it: a person (Now Playing, the PiP button) or the audio session (a call, Siri, an alarm). */
 export type PauseCause = 'user' | 'interruption';
 export type ResumeAction = 'play' | 'seek-live-then-play' | 'rejoin' | 'stay-paused';
@@ -72,14 +74,18 @@ export interface ResumeQuery {
 }
 
 /**
- * The resume tiers (NP-03, decision 17). A user's pause is a decision and a
- * foreground edge does not overrule it; an interruption that ends without
+ * The resume tiers (NP-03, decision 17). A user's pause is a decision and no
+ * system edge overrules it — not the foreground, not a call ending with
+ * `shouldResume` (the person paused before the call), not the PiP window
+ * closing (AVKit pauses the player when its X is pressed, then reports the
+ * stop; a resume there would restart audio in a window just closed); only
+ * a play the person pressed lifts it. An interruption that ends without
  * `shouldResume` stays quiet; a failed item or a pause past the session's
  * life rejoins from the channel URL; a pause past the window seeks first;
  * anything shorter just plays.
  */
 export function decideResume(q: ResumeQuery): ResumeAction {
-  if (q.cause === 'user' && q.reason === 'foreground') return 'stay-paused';
+  if (q.cause === 'user' && SYSTEM_EDGES.has(q.reason)) return 'stay-paused';
   if (q.reason === 'interruption-ended' && !q.shouldResume) return 'stay-paused';
   if (q.failedWhilePaused || q.pausedAt === null) return 'rejoin';
   const elapsed = q.now - q.pausedAt;
