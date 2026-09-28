@@ -1,13 +1,11 @@
 import {
-  RETRY_DELAYS_MS,
-  SURFACE_ERROR_AFTER,
   createGateState,
   reduceGate,
-  retryDelayMs,
   type GateAction,
   type GateEvent,
   type GateState,
 } from '../firstFrameGate';
+import { JOIN_BACKOFF_MS, JOIN_SURFACE_AFTER, nextRetry } from '../pipelinePolicy';
 import {
   __resetTuneTraceForTests,
   getTuneTraceDroppedCount,
@@ -165,7 +163,7 @@ describe('the first frame — latch and replay (FF-03)', () => {
     }
   });
 
-  it('health (readyToPlay / playingChange / timeUpdate) never emits first-frame and resets the ladder', () => {
+  it('progress (playingChange true / an advancing timeUpdate) never emits first-frame and never touches the ladder', () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     h.dispatch({ type: 'settle', g: 1 });
@@ -178,6 +176,28 @@ describe('the first frame — latch and replay (FF-03)', () => {
     h.dispatch({ type: 'ready' });
     expect(h.of('first-frame')).toHaveLength(0);
     expect(h.of('ready')).toHaveLength(1);
+    expect(h.of('buffering')).toEqual([{ type: 'buffering', on: false }, { type: 'buffering', on: false }]);
+    // PW-10: a rung is climbed back only by sustained progress, which the join controller judges.
+    expect(h.state.failures).toBe(1);
+    h.dispatch({ type: 'native-first-frame', g: 2, item: 'a', via: 'rfdKvo' });
+    expect(h.state.failures).toBe(1);
+  });
+
+  it('healthy resets the ladder once, with a row, and is silent when there is nothing to reset', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.dispatch({ type: 'settle', g: 1 });
+    h.drain();
+    h.dispatch({ type: 'healthy' });
+    expect(h.actions).toEqual([]);
+    h.dispatch({ type: 'status-error', g: 1, error: media('x') });
+    h.dispatch({ type: 'retry-fired', g: 1 });
+    h.dispatch({ type: 'settle', g: 2 });
+    h.dispatch({ type: 'status-error', g: 2, error: media('y') });
+    expect(h.state.failures).toBe(2);
+    h.drain();
+    h.dispatch({ type: 'healthy' });
+    expect(h.names()).toEqual(['healthy failures reset from 2']);
     expect(h.state.failures).toBe(0);
   });
 
@@ -246,9 +266,9 @@ describe('errors — latch, ladder, health', () => {
     ]);
   });
 
-  it('the delay table is [0, 2000, 4000, 8000, 15000, 30000] by failures-1, the last repeating (race-2 R8)', () => {
-    expect(RETRY_DELAYS_MS).toEqual([0, 2000, 4000, 8000, 15000, 30000]);
-    expect([1, 2, 3, 4, 5, 6, 7, 20].map(retryDelayMs)).toEqual([0, 2000, 4000, 8000, 15000, 30000, 30000, 30000]);
+  it('the delay table is the policy\'s [0, 2000, 4000, 8000, 15000, 30000] by failures-1, the last repeating (race-2 R8)', () => {
+    expect(JOIN_BACKOFF_MS).toEqual([0, 2000, 4000, 8000, 15000, 30000]);
+    expect([1, 2, 3, 4, 5, 6, 7, 20].map((n) => nextRetry(n).delayMs)).toEqual([0, 2000, 4000, 8000, 15000, 30000, 30000, 30000]);
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     const seen: number[] = [];
@@ -263,7 +283,7 @@ describe('errors — latch, ladder, health', () => {
     expect(seen).toEqual([0, 2000, 4000, 8000, 15000, 30000, 30000, 30000]);
   });
 
-  it(`the plate relabels after ${SURFACE_ERROR_AFTER} consecutive failures and attempts continue (R1, R4)`, () => {
+  it(`the plate relabels after ${JOIN_SURFACE_AFTER} consecutive failures and attempts continue (R1, R4)`, () => {
     const h = harness();
     h.dispatch({ type: 'take', reason: 'source' });
     for (let i = 1; i <= 4; i += 1) {
@@ -272,8 +292,8 @@ describe('errors — latch, ladder, health', () => {
       h.drain();
       h.dispatch({ type: 'native-item-failed', g, item: 'i', error: media(`e${i}`) });
       const errors = h.of('error');
-      if (i < SURFACE_ERROR_AFTER) expect(errors).toHaveLength(0);
-      else expect(errors).toEqual([{ type: 'error', error: { kind: 'recovery-exhausted', message: `e${i}` } }]);
+      if (i < JOIN_SURFACE_AFTER) expect(errors).toHaveLength(0);
+      else expect(errors).toEqual([{ type: 'error', error: { kind: 'recovery-exhausted', message: `e${i}`, terminal: false } }]);
       expect(h.of('schedule-retry')).toHaveLength(1);
       h.dispatch({ type: 'retry-fired', g });
     }
@@ -299,6 +319,24 @@ describe('errors — latch, ladder, health', () => {
     h.dispatch({ type: 'status-error', g: 7, error: media('old') });
     expect(h.names()).toEqual(['playerError stale g=7: old']);
     expect(h.state.failures).toBe(0);
+  });
+
+  it('cancel-retry drops the armed rung with the action that clears its timer, and is a no-op with none armed', () => {
+    const h = harness();
+    h.dispatch({ type: 'take', reason: 'source' });
+    h.dispatch({ type: 'settle', g: 1 });
+    h.dispatch({ type: 'status-error', g: 1, error: media('a') });
+    expect(h.state.retry).toEqual({ g: 1, reason: 'retry' });
+    h.drain();
+    h.dispatch({ type: 'cancel-retry' });
+    expect(h.names()).toEqual(['cancel-retry']);
+    expect(h.state.retry).toBeNull();
+    expect(h.state.failures).toBe(1);                    // the failure stays counted
+    h.drain();
+    h.dispatch({ type: 'cancel-retry' });
+    expect(h.actions).toEqual([]);
+    h.dispatch({ type: 'retry-fired', g: 1 });           // a timer that beat the clear starts nothing
+    expect(h.of('replace')).toHaveLength(0);
   });
 
   it('a retry timer that fires for a superseded generation starts nothing', () => {

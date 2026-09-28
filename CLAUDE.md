@@ -16,6 +16,11 @@ A purpose-built IPTV player for ErsatzTV. Nothing else. No generality.
   and the static's snow. `docs/native-witness.md` is its contract;
   `patches/expo-video+3.0.16.patch` carries one hunk (replaceAsync resolves
   after the item is current). No Xcode here: EAS compiles the Swift.
+- After the first frame the native surface follows `docs/pipeline-policy.md`:
+  one join ladder (`src/player/pipelinePolicy.ts`), a pause a person makes
+  stays paused, resume by tiers keyed on the pause edge (the station kills a
+  session 60 s after its last segment fetch), and a pre-warm of the channel
+  under the resting dial (`src/services/prewarm.ts`).
 - `@shopify/react-native-skia` has had no importer since 2026-09-27 (the
   native static is `DSPStaticView`). It stays in package.json until the
   tooling pass (WP-14) next touches dependencies; then it and its pod go.

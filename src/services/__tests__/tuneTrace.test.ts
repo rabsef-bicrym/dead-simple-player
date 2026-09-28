@@ -551,6 +551,6 @@ describe('the native surface prints what docs/tune-trace.md says', () => {
 
   it('the witness header tells the module is in the build on the first N item row, or absent when it is not linked', () => {
     expect(source).toMatch(/if \(name === 'N item'\) traceTuneWitness\('present', \{ g: tag\.g \}\);/);
-    expect(source).toMatch(/traceTuneWitness\('absent', \{ g: gate\.current\.sourceGeneration \}\);/);
+    expect(source).toMatch(/traceTuneWitness\('absent', \{ g: join\.current\.gate\.sourceGeneration \}\);/);
   });
 });
