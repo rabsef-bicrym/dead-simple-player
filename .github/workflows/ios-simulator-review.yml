@@ -36,33 +36,34 @@ jobs:
       MAESTRO_CLI_NO_ANALYTICS: '1'
     steps:
       - name: Check out the review harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: harness
 
       - name: Check out the app revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: project
           ref: ${{ matrix.revision == 'baseline' && (inputs.baseline_ref || '0844d706eb042fdd4881b89c0e4ead21b7840560') || github.sha }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: project/package-lock.json
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Install app and simulator test tools
         run: |
+          mkdir -p review-artifacts
           npm ci
           brew tap mobile-dev-inc/tap
+          brew trust --formula mobile-dev-inc/tap/maestro
           brew install maestro ffmpeg
-          mkdir -p review-artifacts
 
       - name: Boot an available iPhone simulator
         run: |
@@ -122,7 +123,7 @@ jobs:
             --predicate 'process == "DS,P" OR eventMessage CONTAINS "DSPPicture"' \
             > review-artifacts/native.log
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: ios-review-${{ matrix.revision }}
