@@ -116,7 +116,10 @@ jobs:
           curl -fsS http://127.0.0.1:8409/iptv/channel/review.m3u8 > /dev/null
 
       - name: Build and launch the native app without distribution signing
-        run: npx expo run:ios --configuration Release --device "$IOS_SIMULATOR_UDID" --no-bundler 2>&1 | tee review-artifacts/native-build.log
+        run: |
+          # Expo's device discovery writes this cache before ensuring it exists.
+          mkdir -p "$HOME/.expo"
+          npx expo run:ios --configuration Release --device "$IOS_SIMULATOR_UDID" --no-bundler 2>&1 | tee review-artifacts/native-build.log
 
       - name: Exercise native portrait and landscape screens
         run: |
