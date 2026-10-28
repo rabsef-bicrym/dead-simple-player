@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { timeToProse } from '../../utils/prose';
 import { Plate } from '../ds6/Plate';
+import { clockShort, clock12 } from '../../utils/clock';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -22,16 +23,6 @@ interface MApronProps {
   /** The amber channel plate, tapped — back to the receiver. */
   onHome: () => void;
   onPictureOut?: () => void;
-}
-
-function clockShort(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-function clock12(d: Date): string {
-  const mer = d.getHours() < 12 ? 'A.M.' : 'P.M.';
-  return `${clockShort(d)} ${mer}`;
 }
 
 export function MApron({ channel, nowPlaying, clockNow, onNotes, onBoard, onHome, onPictureOut }: MApronProps) {

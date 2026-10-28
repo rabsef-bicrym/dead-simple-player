@@ -4,6 +4,7 @@ import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { durationProse, timeToProse } from '../../utils/prose';
+import { clockShort } from '../../utils/clock';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -42,11 +43,6 @@ function metaLine(p: Programme): string {
   else if (p.episodeNum) bits.push(p.episodeNum);
   if (p.previouslyShown) bits.push('an encore presentation');
   return bits.join(' · ').toUpperCase();
-}
-
-function clockShort(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {

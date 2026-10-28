@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { STEP, flapChars, drumNeed, Cell } from '../ds6/flap';
 import { playSound } from '../../utils/sound';
-import { conjoinEvening, boardTitle } from '../../services/evening';
+import { conjoinEvening } from '../../services/evening';
 import { FilamentLamp } from '../../ui/FilamentLamp';
 import {
   MECHANICAL_EASE_OUT,
@@ -16,6 +16,9 @@ import {
   motionDuration,
   useReducedMotion,
 } from '../../ui/motion';
+import { BLANK_BOARD_ROW, boardRows, type BoardRow } from '../../services/boardRows';
+import { ROWS_DS8M as ROWS } from '../../station/board';
+import { clock12 } from '../../utils/clock';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -28,62 +31,14 @@ import type { Channel, Programme } from '../../types';
  * bar and its ring pull roll it home.
  */
 
-const ROWS = 7;
 const LEN_L = { time: 5, title: 20, year: 4 };
 const LEN_P = { time: 5, title: 16, year: 4 };
 
-interface MRow {
-  time: string;
-  title: string;
-  year: string;
-  note: string;
-  live: boolean;
-  past: boolean;
-  next: boolean;
-  prog?: Programme;
-}
-
-const BLANK: MRow = { time: '', title: '', year: '', note: '', live: false, past: false, next: false };
-
-function clockShort(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-function clock12(d: Date): string {
-  const mer = d.getHours() < 12 ? 'A.M.' : 'P.M.';
-  return `${clockShort(d)} ${mer}`;
-}
-
-/** The evening, deduped of glue and conjoined of same-AIRING repeats. */
-function eveningFor(programmes: Programme[], channel?: Channel): Programme[] {
-  return conjoinEvening(programmes, channel?.id);
-}
-
-function rowsFor(progs: Programme[], liveIdx: number, scroll: number): MRow[] {
-  const start = (liveIdx < 0 ? 0 : liveIdx - 2) + scroll;
-  return Array.from({ length: ROWS }, (_, k) => {
-    const idx = start + k;
-    const p = idx >= 0 ? progs[idx] : undefined;
-    if (!p) return BLANK;
-    return {
-      time: clockShort(p.start),
-      title: boardTitle(p),
-      year: p.year ?? '',
-      note: p.description ?? '',
-      live: idx === liveIdx,
-      past: liveIdx >= 0 && idx < liveIdx,
-      next: idx === liveIdx + 1,
-      prog: p,
-    };
-  });
-}
-
-function rowsKey(rows: MRow[]): string {
+function rowsKey(rows: BoardRow[]): string {
   return rows.map((r) => `${r.time}|${r.title}|${r.year}`).join('~');
 }
 
-function maxNeed(prev: MRow[], cur: MRow[], LEN: typeof LEN_L): number {
+function maxNeed(prev: BoardRow[], cur: BoardRow[], LEN: typeof LEN_L): number {
   let max = 0;
   for (let r = 0; r < prev.length; r++) {
     max = Math.max(
@@ -120,14 +75,16 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
   const [shadeSettled, setShadeSettled] = useState(landscape || reducedMotion);
   const LEN = landscape ? LEN_L : LEN_P;
   const channel = channels[boardIndex];
-  const progs = eveningFor(programmes, channel);
-  const liveIdx = progs.findIndex((p) => p.start.getTime() <= clockNow.getTime() && p.stop.getTime() > clockNow.getTime());
-  const target = shadeSettled ? rowsFor(progs, liveIdx, scroll) : Array.from({ length: ROWS }, () => BLANK);
+  const progs = useMemo(() => conjoinEvening(programmes, channel?.id), [programmes, channel?.id]);
+  const target = useMemo(
+    () => shadeSettled ? boardRows(progs, clockNow, scroll, ROWS) : Array.from({ length: ROWS }, () => BLANK_BOARD_ROW),
+    [progs, clockNow, scroll, shadeSettled],
+  );
   const targetKey = rowsKey(target);
 
   // The drum machinery — same cadence as the console board.
-  const prevRef = useRef<MRow[]>(target);
-  const curRef = useRef<MRow[]>(target);
+  const prevRef = useRef<BoardRow[]>(target);
+  const curRef = useRef<BoardRow[]>(target);
   const keyRef = useRef(targetKey);
   const causeRef = useRef({ boardIndex, scroll });
   const needRef = useRef(0);

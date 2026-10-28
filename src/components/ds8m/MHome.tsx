@@ -19,6 +19,7 @@ import {
   motionDuration,
   useReducedMotion,
 } from '../../ui/motion';
+import { clock12, clockShort } from '../../utils/clock';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -35,17 +36,6 @@ import type { Channel, Programme } from '../../types';
  */
 
 const DAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-
-function clock12(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  const mer = d.getHours() < 12 ? 'A.M.' : 'P.M.';
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')} ${mer}`;
-}
-
-function clockShort(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
 
 /** A small stamped screwhead, drawn cheap. */
 function Screw({ style }: { style?: object }) {
