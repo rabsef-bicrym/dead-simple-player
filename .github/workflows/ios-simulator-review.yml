@@ -10,6 +10,16 @@ on:
   # Bootstrap native validation for this PR without merging an untested workflow.
   push:
     branches: [codex/refactor-guide-and-shared-presentation]
+    paths:
+      - 'app/**'
+      - 'src/**'
+      - 'modules/**'
+      - 'assets/**'
+      - 'package*.json'
+      - 'app.json'
+      - '.maestro/**'
+      - 'scripts/serve-review-fixtures.py'
+      - '.github/workflows/ios-simulator-review.yml'
 
 permissions:
   contents: read
@@ -114,6 +124,20 @@ jobs:
             --format junit --output review-artifacts/maestro.xml \
             --test-output-dir review-artifacts --debug-output review-artifacts/debug \
             ../harness/.maestro/ios-review.yaml
+
+      - name: Summarize build failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ['native-build.log', 'fixture-server.log']:
+              path = Path('review-artifacts') / name
+              if not path.exists():
+                  continue
+              tail = '\n'.join(path.read_text(errors='replace').splitlines()[-60:])
+              escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::notice title={name} tail::{escaped}')
+          PY
 
       - name: Capture final simulator state even on failure
         if: always() && env.IOS_SIMULATOR_UDID != ''
