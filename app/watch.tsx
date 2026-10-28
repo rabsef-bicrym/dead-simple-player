@@ -16,13 +16,14 @@ import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useServerConfig } from '../src/hooks/useServerConfig';
-import { getNowPlaying, getUpcoming } from '../src/parsers/xmltv';
+import { indexProgrammes, programmeMaps } from '../src/services/guide';
 import { fetchIptvChannels, fetchIptvGuide, type GuideState } from '../src/services/iptv';
 import { restoreLastChannelIndex } from '../src/services/channelStorage';
 import { flushTuneTrace, traceCloseTune, traceEvent, traceTuneStart, type TuneTraceCloseReason } from '../src/services/tuneTrace';
 import { STORAGE_KEYS } from '../src/constants/storage';
 import { CURSOR_HOME, ROWS_DS6, SCROLL_MAX, SCROLL_MIN } from '../src/station/board';
-import type { TuneOrigin } from '../src/station/commands';
+import type { Dir, TuneOrigin } from '../src/station/commands';
+import { swipeToCommand } from '../src/station/remote';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { Apron } from '../src/components/ds6/Apron';
 import { Home } from '../src/components/ds6/Home';
@@ -79,7 +80,6 @@ import {
  * No home-screen funnel. Turn it on and it's on.
  */
 
-const SWIPE_THRESHOLD = 70;
 const HUD_HIDE_MS = 4000;
 const BUFFERING_OVERLAY_DELAY_MS = 800;
 const BUFFER_STALL_WINDOW_MS = 1500;
@@ -387,26 +387,12 @@ export default function WatchScreen() {
     return () => clearInterval(interval);
   }, [housekeepingForeground]);
 
-  const nowPlaying = useMemo(
-    () => (currentChannel ? getNowPlaying(programmes, currentChannel.id, clockNow) : undefined),
-    [currentChannel, programmes, clockNow],
+  const programmesByChannel = useMemo(() => indexProgrammes(programmes), [programmes]);
+  const { nowPlayingMap, upNextMap } = useMemo(
+    () => programmeMaps(channels, programmesByChannel, clockNow),
+    [channels, programmesByChannel, clockNow],
   );
-
-  const { nowPlayingMap, upNextMap } = useMemo(() => {
-    const nowMap = new Map<string, Programme>();
-    const nextMap = new Map<string, Programme>();
-    for (const ch of channels) {
-      const prog = getNowPlaying(programmes, ch.id, clockNow);
-      if (prog) nowMap.set(ch.id, prog);
-      const upcoming = getUpcoming(programmes, ch.id, 6, clockNow);
-      // "Then comes" should name the next real programme, not the glue.
-      const strictlyNext = upcoming.find(
-        (p) => p.start.getTime() > clockNow.getTime() && !/interstitial/i.test(p.title),
-      );
-      if (strictlyNext) nextMap.set(ch.id, strictlyNext);
-    }
-    return { nowPlayingMap: nowMap, upNextMap: nextMap };
-  }, [channels, programmes, clockNow]);
+  const nowPlaying = currentChannel ? nowPlayingMap.get(currentChannel.id) : undefined;
 
   const progress = useMemo(() => {
     if (!nowPlaying) return 0;
@@ -816,87 +802,57 @@ export default function WatchScreen() {
   // never tune the picture hiding underneath.
   const onGestureEvent = useCallback(({ nativeEvent }: any) => {
     if (nativeEvent.state !== State.END) return;
-    const { translationX, translationY } = nativeEvent;
-    const horizontal = Math.abs(translationX) > Math.abs(translationY);
+    const command = swipeToCommand({
+      base: isPhone && signOff ? 'signoff' : homeVisible ? 'home' : 'watching',
+      board: boardVisible,
+      notes: detailProgramme !== null,
+      index: safeIndex,
+      dial: dialIndex,
+      count: channels.length,
+    }, {
+      dx: nativeEvent.translationX,
+      dy: nativeEvent.translationY,
+    }, { isPhone, landscape: isLandscape });
+    if (!command) return;
 
-    // While the notes are projected, fingers belong to the reading.
-    if (detailProgramme) return;
-
-    // ── The traveling set's vocabulary ──
-    if (isPhone) {
-      if (signOff) return;
-      if (boardVisible) {
-        if (horizontal) {
-          if (Math.abs(translationX) < SWIPE_THRESHOLD) return;
-          const dir = translationX < 0 ? 1 : -1;
-          setBoardIndex((i) => (i + dir + channels.length) % channels.length);
-          setBoardScroll(0);
-        } else if (translationY < -SWIPE_THRESHOLD) {
-          // Upright: the shade rolls home. On its side: page onward.
-          if (!isLandscape) setBoardClosing(true);
-          else setBoardScroll((s) => Math.min(s + 1, SCROLL_MAX));
-        } else if (translationY > SWIPE_THRESHOLD) {
-          setBoardScroll((s) => (isLandscape ? Math.max(s - 1, SCROLL_MIN) : Math.min(s + 1, SCROLL_MAX)));
-        }
-        return;
-      }
-      if (homeVisible) {
-        if (isLandscape) {
-          // A swipe runs the gate and tunes; no priming tap is required.
-          if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
-            const dir = translationX < 0 ? 1 : -1;
-            const next = (dialIndex + dir + channels.length) % channels.length;
-            onGate(next);
-          }
-        }
-        return;
-      }
-      // Watching: swipe across to tune. iOS owns drag-from-top; the shade
-      // opens only from its THIS EVENING plate.
-      if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
-        const dir = translationX < 0 ? 1 : -1;
-        requestTune((safeIndex + dir + channels.length) % channels.length, 'swipe');
-      }
-      return;
-    }
-
-    if (boardVisible) {
-      // Sideways rolls the channel drums; vertical walks the cursor
-      // through the evening, paging at the edges — same as the arrows.
-      if (horizontal) {
-        if (Math.abs(translationX) < SWIPE_THRESHOLD) return;
-        const dir = translationX < 0 ? 1 : -1;
-        setBoardIndex((i) => (i + dir + channels.length) % channels.length);
+    const pageBoard = (dir: Dir) => setBoardScroll((s) => (
+      dir === 1 ? Math.min(s + 1, SCROLL_MAX) : Math.max(s - 1, SCROLL_MIN)
+    ));
+    switch (command.type) {
+      case 'BOARD_CHANNEL':
+        setBoardIndex((i) => (i + command.dir + channels.length) % channels.length);
         setBoardScroll(0);
-        setBoardCursor(CURSOR_HOME);
-      } else if (translationY < -SWIPE_THRESHOLD) {
-        if (boardCursor < ROWS_DS6 - 1) setBoardCursor(boardCursor + 1);
-        else setBoardScroll((s) => Math.min(s + 1, SCROLL_MAX));
-      } else if (translationY > SWIPE_THRESHOLD) {
-        if (boardCursor > 0) setBoardCursor(boardCursor - 1);
-        else setBoardScroll((s) => Math.max(s - 1, SCROLL_MIN));
-      }
-      return;
-    }
-
-    if (homeVisible) {
-      // At the receiver: sideways winds the dial.
-      if (horizontal && Math.abs(translationX) > SWIPE_THRESHOLD) {
-        const dir = translationX < 0 ? 1 : -1;
-        setDialIndex((i) => (i + dir + channels.length) % channels.length);
-      }
-      return;
-    }
-
-    if (horizontal) {
-      if (translationX < -SWIPE_THRESHOLD) openHome(safeIndex);
-      else if (translationX > SWIPE_THRESHOLD) openBoard(safeIndex);
-      return;
-    }
-    if (translationY < -SWIPE_THRESHOLD && safeIndex < channels.length - 1) {
-      tuneTo(safeIndex + 1, 'swipe');
-    } else if (translationY > SWIPE_THRESHOLD && safeIndex > 0) {
-      tuneTo(safeIndex - 1, 'swipe');
+        if (!isPhone) setBoardCursor(CURSOR_HOME);
+        break;
+      case 'BOARD_PAGE':
+        pageBoard(command.dir);
+        break;
+      case 'BOARD_CLOSING':
+        setBoardClosing(true);
+        break;
+      case 'BOARD_CURSOR':
+        if (command.dir === 1 && boardCursor < ROWS_DS6 - 1) setBoardCursor(boardCursor + 1);
+        else if (command.dir === -1 && boardCursor > 0) setBoardCursor(boardCursor - 1);
+        else pageBoard(command.dir);
+        break;
+      case 'DIAL':
+        setDialIndex((i) => (i + command.dir + channels.length) % channels.length);
+        break;
+      case 'GATE':
+        onGate(command.index);
+        break;
+      case 'TUNE_REQUESTED':
+        requestTune(command.index, command.origin);
+        break;
+      case 'TUNE':
+        tuneTo(command.index, command.origin);
+        break;
+      case 'OPEN_HOME':
+        openHome(command.index);
+        break;
+      case 'OPEN_BOARD':
+        openBoard(command.index);
+        break;
     }
   }, [safeIndex, channels.length, tuneTo, requestTune, detailProgramme, boardVisible, boardCursor, homeVisible, openHome, openBoard, isPhone, isLandscape, signOff, dialIndex, onGate]);
 

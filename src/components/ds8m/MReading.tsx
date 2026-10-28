@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { walnut, brass, amber, fonts } from '../../constants/ds6';
 import { MColumnRegister } from './MHome';
 import { FilamentLamp } from '../../ui/FilamentLamp';
+import { clock12 } from '../../utils/clock';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -28,12 +29,6 @@ interface MReadingProps {
   /** The full register compresses as one linkage while the picture panel opens. */
   revealProgress?: Animated.Value;
   selectionRequest?: { index: number; token: number } | null;
-}
-
-function clock12(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  const mer = d.getHours() < 12 ? 'A.M.' : 'P.M.';
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')} ${mer}`;
 }
 
 export function MReading({

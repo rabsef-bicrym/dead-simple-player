@@ -23,7 +23,7 @@ import {
   type Scene,
   type StationRow,
 } from '../matrix';
-import { REMOTE_KEYS, SWIPE_THRESHOLD, keyToCommand, mediaSessionToCommand, stepIndex, swipeToCommand } from '../remote';
+import { REMOTE_KEYS, keyToCommand, mediaSessionToCommand, stepIndex, swipeToCommand } from '../remote';
 import { sameChannelArrival, sameChannelArrivalBead381, stopAccepted, type ArrivalScene } from '../transitions';
 
 const withCabinet = (row: InputRow): [string, InputRow] => [row.id, row];
@@ -270,10 +270,10 @@ describe('reachable combinations show what the JSX guards show (watch-state.md Â
 describe('watch.tsx has not drifted from the tables', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'app', 'watch.tsx'), 'utf8');
 
-  it('uses the same swipe threshold', () => {
-    const local = /const SWIPE_THRESHOLD = (\d+);/.exec(source);
-    if (local) expect(Number(local[1])).toBe(SWIPE_THRESHOLD);
-    else expect(source).toMatch(/SWIPE_THRESHOLD[^\n]*from '\.\.\/src\/station\/remote'/);
+  it('routes swipes through the tested remote vocabulary', () => {
+    expect(source).toContain("import { swipeToCommand } from '../src/station/remote'");
+    expect(source).toContain('const command = swipeToCommand(');
+    expect(source).not.toContain('const SWIPE_THRESHOLD =');
   });
 
   it('takes the board literals from board.ts', () => {

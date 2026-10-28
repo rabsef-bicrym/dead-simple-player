@@ -10,7 +10,8 @@
  *
  * Every branch cites the line it transcribes. Where the code is odd the
  * oddity is kept and named: the table is an oracle for later packages, not
- * an opinion. Nothing here runs in the app yet.
+ * an opinion. The watch screen uses swipeToCommand; the keyboard and
+ * media-session tables remain oracles for their existing handlers.
  *
  * Line numbers are bead381's (`app/watch.tsx` before this package added
  * one import at :24; read +1 for anything after it).
@@ -53,7 +54,7 @@ export interface Mode {
   nowPlaying?: boolean;
 }
 
-/** `watch.tsx:79`. WP-10 makes `watch.tsx` read this one. */
+/** Shared threshold for runtime swipe routing and the input matrix. */
 export const SWIPE_THRESHOLD = 70;
 
 export interface Swipe {
@@ -144,77 +145,62 @@ export function keyToCommand(mode: Mode, key: string, cabinet: Cabinet): Command
   }
 }
 
-/** `app/watch.tsx:737-821`, row by row. `null` is a swipe nothing answers. */
-export function swipeToCommand(mode: Mode, swipe: Swipe, cabinet: Cabinet): Command | null {
-  if (swipe.ended === false) return null;                                  // :738
-  const { dx, dy } = swipe;
-  const horizontal = Math.abs(dx) > Math.abs(dy);                          // :740
-  const dir: Dir = dx < 0 ? 1 : -1;                                        // :751, 767, 777, 788, 805
+type SwipeMode = Pick<Mode, 'base' | 'board' | 'notes' | 'index' | 'dial' | 'count'>;
 
-  // While the notes are projected, fingers belong to the reading. `:743`
-  if (mode.notes) return null;
+type SwipeCommand = Extract<Command, { type:
+  | 'BOARD_CHANNEL' | 'BOARD_CURSOR' | 'BOARD_PAGE' | 'BOARD_CLOSING'
+  | 'DIAL' | 'GATE' | 'TUNE' | 'TUNE_REQUESTED' | 'OPEN_HOME' | 'OPEN_BOARD'
+}>;
 
-  if (cabinet.isPhone) {
-    if (mode.base === 'signoff') return null;                              // :747
-    if (mode.board) {                                                      // :748-761
-      if (horizontal) {
-        if (Math.abs(dx) < SWIPE_THRESHOLD) return null;                   // :750 — 70 itself passes
-        return { type: 'BOARD_CHANNEL', dir };                             // :751-753 (no cursor on the phone)
-      }
-      if (dy < -SWIPE_THRESHOLD) {                                         // :754-757
-        // Upright: the shade rolls home. On its side: page onward.
-        return cabinet.landscape ? { type: 'BOARD_PAGE', dir: 1 } : { type: 'BOARD_CLOSING' };
-      }
-      if (dy > SWIPE_THRESHOLD) {                                          // :758-760
-        // Upright pages FORWARD on a downward swipe — no way back (decision 11 flips this).
-        return cabinet.landscape ? { type: 'BOARD_PAGE', dir: -1 } : { type: 'BOARD_PAGE', dir: 1 };
-      }
-      return null;
-    }
-    if (mode.base === 'home') {                                            // :762-773
-      if (cabinet.landscape && horizontal && Math.abs(dx) > SWIPE_THRESHOLD) {
-        // A swipe runs the gate and tunes; no priming tap is required. `:766-770`
-        return { type: 'GATE', index: wrapIndex(mode.dial + dir, mode.count) };
-      }
-      return null;                                                         // portrait: the column is the input
-    }
-    // Watching (and stopping, off): swipe across to tune. `:774-780`
-    if (horizontal && Math.abs(dx) > SWIPE_THRESHOLD) {
-      return { type: 'TUNE_REQUESTED', index: wrapIndex(mode.index + dir, mode.count), origin: 'swipe' };
-    }
-    return null;
-  }
-
-  if (mode.board) {                                                        // :782-799
-    if (horizontal) {
-      if (Math.abs(dx) < SWIPE_THRESHOLD) return null;                     // :787 — 70 itself passes
-      return { type: 'BOARD_CHANNEL', dir };                               // :788-791 (cursor comes home)
-    }
-    if (dy < -SWIPE_THRESHOLD) return { type: 'BOARD_CURSOR', dir: 1 };    // :792-794
-    if (dy > SWIPE_THRESHOLD) return { type: 'BOARD_CURSOR', dir: -1 };    // :795-797
-    return null;
-  }
-
-  if (mode.base === 'home') {                                              // :801-809
-    if (horizontal && Math.abs(dx) > SWIPE_THRESHOLD) return { type: 'DIAL', dir }; // :804-807
-    return null;
-  }
-
-  // Watching (and stopping, off, sign-off on a console-sized display). `:811-820`
+/** The board accepts exactly 70 points horizontally; vertical paging needs more. */
+function boardSwipe(dx: number, dy: number, horizontal: boolean, cabinet: Cabinet): SwipeCommand | null {
   if (horizontal) {
-    if (dx < -SWIPE_THRESHOLD) return { type: 'OPEN_HOME', index: mode.index, entrance: 'none' }; // :812
-    if (dx > SWIPE_THRESHOLD) return { type: 'OPEN_BOARD', index: mode.index };                   // :813
+    if (Math.abs(dx) < SWIPE_THRESHOLD) return null;
+    return { type: 'BOARD_CHANNEL', dir: dx < 0 ? 1 : -1 };
+  }
+  const dir = dy < -SWIPE_THRESHOLD ? 1 : dy > SWIPE_THRESHOLD ? -1 : null;
+  if (dir === null) return null;
+  if (!cabinet.isPhone) return { type: 'BOARD_CURSOR', dir };
+  if (cabinet.landscape) return { type: 'BOARD_PAGE', dir };
+  // Keep today's portrait vocabulary: up closes, down pages forward.
+  return dir === 1 ? { type: 'BOARD_CLOSING' } : { type: 'BOARD_PAGE', dir: 1 };
+}
+
+function homeSwipe(mode: SwipeMode, dx: number, horizontal: boolean, cabinet: Cabinet): SwipeCommand | null {
+  if (!horizontal || Math.abs(dx) <= SWIPE_THRESHOLD) return null;
+  const dir = dx < 0 ? 1 : -1;
+  if (!cabinet.isPhone) return { type: 'DIAL', dir };
+  if (cabinet.landscape) return { type: 'GATE', index: wrapIndex(mode.dial + dir, mode.count) };
+  return null; // portrait: the column is the input
+}
+
+function watchingSwipe(mode: SwipeMode, dx: number, dy: number, horizontal: boolean, cabinet: Cabinet): SwipeCommand | null {
+  if (cabinet.isPhone) {
+    if (!horizontal || Math.abs(dx) <= SWIPE_THRESHOLD) return null;
+    const dir = dx < 0 ? 1 : -1;
+    return { type: 'TUNE_REQUESTED', index: wrapIndex(mode.index + dir, mode.count), origin: 'swipe' };
+  }
+  if (horizontal) {
+    if (dx < -SWIPE_THRESHOLD) return { type: 'OPEN_HOME', index: mode.index, entrance: 'none' };
+    if (dx > SWIPE_THRESHOLD) return { type: 'OPEN_BOARD', index: mode.index };
     return null;
   }
-  if (dy < -SWIPE_THRESHOLD) {                                             // :816-817 bounded
-    const next = boundedStep(mode.index, 1, mode.count);
-    return next === null ? null : { type: 'TUNE', index: next, origin: 'swipe' };
-  }
-  if (dy > SWIPE_THRESHOLD) {                                              // :818-819 bounded
-    const next = boundedStep(mode.index, -1, mode.count);
-    return next === null ? null : { type: 'TUNE', index: next, origin: 'swipe' };
-  }
-  return null;
+  const dir = dy < -SWIPE_THRESHOLD ? 1 : dy > SWIPE_THRESHOLD ? -1 : null;
+  if (dir === null) return null;
+  const next = boundedStep(mode.index, dir, mode.count);
+  return next === null ? null : { type: 'TUNE', index: next, origin: 'swipe' };
+}
+
+/** Route a completed swipe by surface, retaining the current cabinet-specific vocabulary. */
+export function swipeToCommand(mode: SwipeMode, swipe: Swipe, cabinet: Cabinet): SwipeCommand | null {
+  if (swipe.ended === false || mode.notes) return null;
+  if (cabinet.isPhone && mode.base === 'signoff') return null;
+  const { dx, dy } = swipe;
+  const horizontal = Math.abs(dx) > Math.abs(dy);
+  if (mode.board) return boardSwipe(dx, dy, horizontal, cabinet);
+  if (mode.base === 'home') return homeSwipe(mode, dx, horizontal, cabinet);
+  // Stopping, off, and console sign-off retain the watching vocabulary.
+  return watchingSwipe(mode, dx, dy, horizontal, cabinet);
 }
 
 export type MediaSessionAction = 'previoustrack' | 'nexttrack';

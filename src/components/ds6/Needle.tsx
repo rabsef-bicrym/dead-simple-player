@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { amber, brass, fonts } from '../../constants/ds6';
+import { clockShort } from '../../utils/clock';
 
 /**
  * The progress needle — an amber filament running the apron's width,
@@ -14,18 +15,13 @@ interface NeedleProps {
   now?: Date;
 }
 
-function clock(d: Date): string {
-  let h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
 export function Needle({ start, stop, now = new Date() }: NeedleProps) {
   const span = stop.getTime() - start.getTime();
   const progress = span > 0 ? Math.min(1, Math.max(0, (now.getTime() - start.getTime()) / span)) : 0;
 
   return (
     <View style={styles.row}>
-      <Text style={styles.time}>{clock(start)}</Text>
+      <Text style={styles.time}>{clockShort(start)}</Text>
       <View style={styles.track}>
         <LinearGradient
           colors={[amber.deep, amber.needle, amber.glow]}
@@ -35,7 +31,7 @@ export function Needle({ start, stop, now = new Date() }: NeedleProps) {
         />
         <View style={[styles.tip, { left: `${progress * 100}%` }]} pointerEvents="none" />
       </View>
-      <Text style={styles.time}>{clock(stop)}</Text>
+      <Text style={styles.time}>{clockShort(stop)}</Text>
     </View>
   );
 }

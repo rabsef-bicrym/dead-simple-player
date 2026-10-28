@@ -7,6 +7,7 @@ import { Plate } from './Plate';
 import { FlipClock } from './FlipClock';
 import { Dial } from './Dial';
 import { greeting, timeToProse, countWord } from '../../utils/prose';
+import { clockShort } from '../../utils/clock';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -45,11 +46,6 @@ const REGISTER_MAX_PLATE_HEIGHT = 56;
 const REGISTER_PLATE_GAP = 6;
 const REGISTER_HEADER_HEIGHT = 30;
 const REGISTER_INDICATOR_HEIGHT = 14;
-
-function clockShort(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
 
 /** The framed art plate — programme art when the guide offers it, a woven blank when it doesn't. */
 function ArtFrame({ channel, art }: { channel: Channel; art?: string }) {

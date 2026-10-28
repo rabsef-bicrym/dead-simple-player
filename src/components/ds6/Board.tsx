@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { View, Text, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,7 +7,10 @@ import { Plate } from './Plate';
 import { STEP, flapChars, drumNeed, Cell } from './flap';
 import { playSound } from '../../utils/sound';
 import { dateProse } from '../../utils/prose';
-import { conjoinEvening, boardTitle } from '../../services/evening';
+import { clockShort } from '../../utils/clock';
+import { conjoinEvening } from '../../services/evening';
+import { boardRows, type BoardRow } from '../../services/boardRows';
+import { ROWS_DS6 as ROWS } from '../../station/board';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -23,22 +26,7 @@ import type { Channel, Programme } from '../../types';
  * does, and cascades when the channel changes.
  */
 
-const ROWS = 8;
-
 const LEN = { time: 5, title: 34, year: 4, note: 56 };
-
-interface BoardRow {
-  time: string;
-  title: string;
-  year: string;
-  note: string;
-  live: boolean;
-  past: boolean;
-  next: boolean;
-  prog?: Programme;
-}
-
-const BLANK_ROW: BoardRow = { time: '', title: '', year: '', note: '', live: false, past: false, next: false };
 
 function maxDrumNeed(prev: BoardRow[], cur: BoardRow[]): number {
   let max = 0;
@@ -50,30 +38,6 @@ function maxDrumNeed(prev: BoardRow[], cur: BoardRow[]): number {
     }
   }
   return max;
-}
-
-function clockShort(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-function rowsFor(progs: Programme[], liveIdx: number, scroll: number): BoardRow[] {
-  const start = (liveIdx < 0 ? 0 : liveIdx - 2) + scroll;
-  return Array.from({ length: ROWS }, (_, k) => {
-    const idx = start + k;
-    const p = idx >= 0 ? progs[idx] : undefined;
-    if (!p) return BLANK_ROW;
-    return {
-      time: clockShort(p.start),
-      title: boardTitle(p),
-      year: p.year ?? '',
-      note: p.description ?? '',
-      live: idx === liveIdx,
-      past: liveIdx >= 0 && idx < liveIdx,
-      next: idx === liveIdx + 1,
-      prog: p,
-    };
-  });
 }
 
 function rowsKey(rows: BoardRow[]): string {
@@ -104,9 +68,8 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
   const channel = channels[boardIndex];
   // Interstitial glue removed, same-AIRING repeats conjoined — identity is
   // title+episode, not title alone (see conjoinEvening for the MST3K case).
-  const progs = conjoinEvening(programmes, channel?.id);
-  const liveIdx = progs.findIndex((p) => p.start.getTime() <= clockNow.getTime() && p.stop.getTime() > clockNow.getTime());
-  const target = rowsFor(progs, liveIdx, scroll);
+  const progs = useMemo(() => conjoinEvening(programmes, channel?.id), [programmes, channel?.id]);
+  const target = useMemo(() => boardRows(progs, clockNow, scroll, ROWS), [progs, clockNow, scroll]);
   const targetKey = rowsKey(target);
 
   // The drum machinery: prev holds what the board showed, cur what it is
