@@ -1,0 +1,52 @@
+appId: com.rabsefbicrym.dsp
+---
+- launchApp:
+    clearState: true
+- setOrientation: PORTRAIT
+- assertVisible: "ANTENNA — CONNECTION TERMINALS"
+- takeScreenshot: ios-setup
+- tapOn: "192.168.1.100"
+- inputText: "127.0.0.1"
+- hideKeyboard
+- tapOn: "CONNECT"
+- extendedWaitUntil:
+    visible: "COLUMN SHIFT — SIX POSITIONS"
+    timeout: 30000
+- takeScreenshot: ios-portrait-home
+- tapOn: "Open This Evening"
+- assertVisible: "TAP THE RING — AND IT ROLLS HOME"
+- takeScreenshot: ios-portrait-board
+- swipe:
+    direction: LEFT
+- takeScreenshot: ios-portrait-board-next
+- swipe:
+    direction: UP
+- assertNotVisible: "TAP THE RING — AND IT ROLLS HOME"
+- tapOn: ".*THE PRISONER.*"
+- extendedWaitUntil:
+    visible: "CHANNEL 1 · THE PRISONER"
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: "A MOMENT, PLEASE"
+    timeout: 60000
+- assertNotVisible: "THE SIGNAL WILL NOT JOIN"
+- takeScreenshot: ios-portrait-playing
+- setOrientation: LANDSCAPE_LEFT
+- takeScreenshot: ios-landscape-playing
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "CHANNEL SELECTOR — SIX FORWARD SPEEDS"
+    timeout: 30000
+- takeScreenshot: ios-landscape-home
+- tapOn: "THIS EVENING"
+- assertVisible: "SWIPE FOR THE OTHER CHANNELS"
+- takeScreenshot: ios-landscape-board
+- swipe:
+    direction: LEFT
+- takeScreenshot: ios-landscape-board-next
+- swipe:
+    direction: UP
+- takeScreenshot: ios-landscape-board-page
+- tapOn: "RETURN"
+- assertVisible: "CHANNEL SELECTOR — SIX FORWARD SPEEDS"

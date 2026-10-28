@@ -1,0 +1,131 @@
+name: iOS Simulator review
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Commit or branch to compare against
+        default: master
+        required: true
+  # Bootstrap native validation for this PR without merging an untested workflow.
+  push:
+    branches: [codex/refactor-guide-and-shared-presentation]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [baseline, current]
+    defaults:
+      run:
+        shell: bash
+        working-directory: project
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+    steps:
+      - name: Check out the review harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+
+      - name: Check out the app revision
+        uses: actions/checkout@v4
+        with:
+          path: project
+          ref: ${{ matrix.revision == 'baseline' && (inputs.baseline_ref || '0844d706eb042fdd4881b89c0e4ead21b7840560') || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: project/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install app and simulator test tools
+        run: |
+          npm ci
+          brew tap mobile-dev-inc/tap
+          brew install maestro ffmpeg
+          mkdir -p review-artifacts
+
+      - name: Boot an available iPhone simulator
+        run: |
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
+          python3 - <<'PY'
+          import json, os, subprocess
+          with open(os.environ['RUNNER_TEMP'] + '/simulators.json') as f:
+              devices = json.load(f)['devices']
+          phones = [d for runtime, items in devices.items() if 'iOS' in runtime
+                    for d in items if d['name'].startswith('iPhone')]
+          if not phones:
+              raise SystemExit('No iPhone simulator installed on this runner')
+          phone = phones[0]
+          if phone['state'] != 'Booted':
+              subprocess.run(['xcrun', 'simctl', 'boot', phone['udid']], check=True)
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('IOS_SIMULATOR_UDID=' + phone['udid'] + '\n')
+          print('Review device:', phone['name'], phone['udid'])
+          PY
+
+      - name: Wait for simulator startup
+        run: |
+          xcrun simctl bootstatus "$IOS_SIMULATOR_UDID" -b
+          xcrun simctl status_bar "$IOS_SIMULATOR_UDID" override --time '9:41' --batteryState charged --batteryLevel 100
+
+      - name: Serve local guide and HLS fixtures
+        run: |
+          mkdir -p "$RUNNER_TEMP/dsp-media"
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=640x360:rate=24 \
+            -f lavfi -i sine=frequency=440:sample_rate=44100 -t 90 \
+            -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k \
+            -hls_time 2 -hls_playlist_type vod \
+            -hls_segment_filename "$RUNNER_TEMP/dsp-media/segment%03d.ts" "$RUNNER_TEMP/dsp-media/stream.m3u8"
+          python3 ../harness/scripts/serve-review-fixtures.py --media-root "$RUNNER_TEMP/dsp-media" \
+            > review-artifacts/fixture-server.log 2>&1 &
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:8409/iptv/channels.m3u > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8409/iptv/channel/review.m3u8 > /dev/null
+
+      - name: Build and launch the native app without distribution signing
+        run: npx expo run:ios --configuration Release --device "$IOS_SIMULATOR_UDID" --no-bundler 2>&1 | tee review-artifacts/native-build.log
+
+      - name: Exercise native portrait and landscape screens
+        run: |
+          maestro --device "$IOS_SIMULATOR_UDID" test \
+            --format junit --output review-artifacts/maestro.xml \
+            --test-output-dir review-artifacts --debug-output review-artifacts/debug \
+            ../harness/.maestro/ios-review.yaml
+
+      - name: Capture final simulator state even on failure
+        if: always() && env.IOS_SIMULATOR_UDID != ''
+        run: |
+          xcrun simctl io "$IOS_SIMULATOR_UDID" screenshot review-artifacts/final-screen.png
+          xcrun simctl spawn "$IOS_SIMULATOR_UDID" log show --last 10m --style compact \
+            --predicate 'process == "DS,P" OR eventMessage CONTAINS "DSPPicture"' \
+            > review-artifacts/native.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-review-${{ matrix.revision }}
+          path: project/review-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
