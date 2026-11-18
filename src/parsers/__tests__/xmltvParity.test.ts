@@ -117,6 +117,12 @@ describe('XMLTV parser parity with the reference parser', () => {
         + '<desc>&nbsp;&#160;&cent;&#162;&pound;&#163;&yen;&#165;&euro;&#8364;&copy;&#169;&reg;&#174;&inr;&#8377;&#232;&#233;&#215;&#128136;&#128308;&#x1F488;&#x1f488;</desc>')],
       ['entities that are not entities', doc('<title>&foo; &AMP; &#X41; &; &# &#; &#x; &amp &constructor; &toString; &#12345678; &#x1234567; &#1114112; &#x110000; AT&T</title>')],
       ['entities decoded twice, and not', doc('<title>&#38;amp; &#38;lt; &amp;lt; &#x26;#65; &am&#112;; &#38;#x41; &#3&#57;; &&#35;39; &amp;amp; &#38;#38; &l&#116;; &#x26;quot;</title>')],
+      ['a numeric reference completing another entity', doc(
+        '<title>&&#35;x41; &&#35;38; &&#x23;x41; &amp&#59; &#x41&#59; &lt&#59; &#3&#56;; &#x4&#49;; &#x2&#54;;</title>',
+        '<title>&&#35;x41;</title><desc>&amp&#59;</desc><sub-title>&#x4&#49;;</sub-title><category>&#3&#56;;</category><category>&#x41&#59;</category>',
+      )],
+      ['numeric references with too many digits, or an uppercase X', doc('<title>&#00000233; &#0000233; &#x00000E9; &#x0000E9; &#XE9; &#xe9; &#xE9; &#1234567; &#x10FFFF;</title>')],
+      ['names cut short or run long', doc('<title>&poun; &pounds; &quot &quot ; &quo; &quott; &amp &am; &ampx;</title><desc>a &quot</desc><sub-title>&pound</sub-title>')],
       ['numeric references to digits, letters and punctuation', doc('<title>&#48;&#57;&#65;&#90;&#97;&#122;&#35;&#59;&#x3b;&#0;&#9;&#10;&#xD800;&#55357;&#56840;</title>')],
       ['an entity straddling the trimmed edge', doc('<title>&#39; </title><desc> &quot</desc><sub-title>&</sub-title>')],
       ['entities in attributes', '<tv><channel id=" c&amp;1 "><icon src="http://localhost:8409/gen?v=1&amp;text=Nana%27s+Picks"/></channel>'

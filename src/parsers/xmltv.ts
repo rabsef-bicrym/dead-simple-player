@@ -96,10 +96,10 @@ function decodeSequential(text: string): string {
   return val;
 }
 
-const NAMED: Record<string, string> = {
-  apos: "'", gt: '>', lt: '<', quot: '"', amp: '&',
-  nbsp: ' ', cent: '¢', pound: '£', yen: '¥', euro: '€', copy: '©', reg: '®', inr: '₹',
-};
+const NAMED = new Map<string, string>([
+  ['apos', "'"], ['gt', '>'], ['lt', '<'], ['quot', '"'], ['amp', '&'],
+  ['nbsp', ' '], ['cent', '¢'], ['pound', '£'], ['yen', '¥'], ['euro', '€'], ['copy', '©'], ['reg', '®'], ['inr', '₹'],
+]);
 
 /**
  * Decode `s[from, to)`, whose first `&` is at `amp`, in one pass.
@@ -117,8 +117,8 @@ function decode(s: string, from: number, to: number, amp: number): string {
   let out = '';
   let last = from;
   while (amp !== -1 && amp < to) {
-    // An entity is `&`, at most eight characters, `;`, with no `&` between.
-    // `after` is the index just past its `;` once one is recognised.
+    // An entity is `&`, at most eight characters, `;`. `after` is the index
+    // just past its `;` once one is recognised.
     let value: string | undefined;
     let after = 0;
     const first = s.charCodeAt(amp + 1);
@@ -159,20 +159,12 @@ function decode(s: string, from: number, to: number, amp: number): string {
       value = '"';
       after = amp + 6;
     } else {
-      let semi = -1;
+      let semi = amp + 1;
       const limit = amp + 7 < to ? amp + 7 : to; // the longest name is `pound`
-      for (let k = amp + 1; k < limit; k++) {
-        const c = s.charCodeAt(k);
-        if (c === 59) { semi = k; break; }
-        if (c === 38) break;
-      }
-      if (semi > amp + 1) {
-        const name = s.slice(amp + 1, semi);
-        // Own-property check: `&constructor;` is not an entity.
-        if (Object.prototype.hasOwnProperty.call(NAMED, name)) {
-          value = NAMED[name];
-          after = semi + 1;
-        }
+      while (semi < limit && s.charCodeAt(semi) !== 59) semi++;
+      if (semi < limit) {
+        value = NAMED.get(s.slice(amp + 1, semi));
+        after = semi + 1;
       }
     }
     if (value === undefined) {

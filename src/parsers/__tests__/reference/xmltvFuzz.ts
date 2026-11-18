@@ -48,6 +48,10 @@ const ENTITIES = [
   '&;', '&', '&&', '&#', '&#x', '&amp', '&AMP;', '&Quot;', '&#X41;', '&foo;', '&constructor;', '&toString;',
   '&#38;amp;', '&#38;lt;', '&amp;lt;', '&#x26;#65;', '&am&#112;;', '&#38;#x41;', '&#3&#57;;', '&&#35;39;',
   '&amp;amp;', '&#38;#38;', '&l&#116;;', '&#x26;quot;', '&#00039;', '&#39', '& #39;', '&#3 9;', '&#-1;', '&#+1;',
+  // A numeric reference that decodes to `#`, `;` or a digit, completing an entity a later pass then reads.
+  '&&#35;x41;', '&&#35;38;', '&&#x23;x41;', '&amp&#59;', '&#x41&#59;', '&lt&#59;', '&#3&#56;;', '&#x4&#49;;', '&#x2&#54;;',
+  // Too many digits even when the value is small; an uppercase X; a name cut short or run long.
+  '&#00000233;', '&#0000233;', '&#x00000E9;', '&#x0000E9;', '&#XE9;', '&#xe9;', '&poun;', '&pounds;', '&quot', '&quot ;',
 ];
 
 const SPACES = [' ', ' ', ' ', '  ', '\n', '\t', '\r\n', '\r', ' ', ' ', '　', '﻿', '​', '\v', '\f'];
