@@ -38,6 +38,7 @@ import { SignOff } from '../src/components/ds8m/SignOff';
 import { TuningStatic } from '../src/components/ds8m/TuningStatic';
 import { VideoHardwareControls } from '../src/components/ds8m/VideoHardwareControls';
 import { useCabinet } from '../src/hooks/useCabinet';
+import { ConsoleStage } from '../src/ui/ConsoleStage';
 import { usePrewarm } from '../src/hooks/usePrewarm';
 import { PlayerSurface } from '../src/player/PlayerSurface';
 import type { PlayerError, PlayerSurfaceHandle } from '../src/player/types';
@@ -1128,15 +1129,18 @@ export default function WatchScreen() {
   // ── Render ──
   if (configLoading || dataLoading || (!indexRestored && channels.length > 0)) {
     return (
+      <ConsoleStage standalone>
       <View style={styles.center}>
         <View style={styles.momentJewel} />
         <Text style={styles.momentText}>WARMING UP</Text>
       </View>
+      </ConsoleStage>
     );
   }
 
   if (dataError || !currentChannel) {
     return (
+      <ConsoleStage standalone>
       <View style={styles.center}>
         <Text style={styles.difficultyKicker}>THE RECEIVER CANNOT FIND ITS STATIONS</Text>
         <Text style={styles.difficultyDetail}>{dataError ?? 'No channels found'}</Text>
@@ -1149,6 +1153,7 @@ export default function WatchScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      </ConsoleStage>
     );
   }
 
@@ -1279,6 +1284,14 @@ export default function WatchScreen() {
         </View>
 
         {watching && signalEl}
+
+        {/* Everything above the picture stands on the console's stage: the one
+            boundary that enlarges the whole cabinet on a television
+            (src/ui/ConsoleStage.tsx). The picture stays outside it and fills
+            the screen as it always has. On the phone and on native the stage
+            is not there at all. Its children keep their old indentation so
+            this boundary reads as two lines in the history, not two hundred. */}
+        <ConsoleStage>
         {(watching || stopping) && signalOverlays}
 
         <TouchableWithoutFeedback onPress={handleTap} onLongPress={openNotes}>
@@ -1479,6 +1492,7 @@ export default function WatchScreen() {
             onClose={() => setDetailProgramme(null)}
           />
         )}
+        </ConsoleStage>
       </View>
     </PanGestureHandler>
   );

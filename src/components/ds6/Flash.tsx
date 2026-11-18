@@ -1,8 +1,9 @@
-import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts, plateTracking } from '../../constants/ds6';
 import { timeToProse } from '../../utils/prose';
+import { useConsoleMetrics } from '../../ui/ConsoleStage';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -27,7 +28,9 @@ function Screw() {
 }
 
 export function Flash({ channel, nowPlaying, compact = false }: FlashProps) {
-  const { width, height } = useWindowDimensions();
+  // The stage's space, not the window's: on a television the plate is
+  // enlarged with the rest of the cabinet, once, at the stage.
+  const { width, height, gutter } = useConsoleMetrics();
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {/* the vignette — the cabinet leans in for a moment */}
@@ -42,7 +45,8 @@ export function Flash({ channel, nowPlaying, compact = false }: FlashProps) {
         <Rect x={0} y={0} width={width} height={height} fill="url(#flashVignette)" />
       </Svg>
 
-      <View style={[styles.shell, compact && styles.shellCompact]}>
+      {/* On an ultrawide display the plate keeps to the picture's corner, not the wall's. */}
+      <View style={[styles.shell, compact && styles.shellCompact, gutter > 0 && { left: (compact ? 26 : 40) + gutter }]}>
         <LinearGradient colors={[walnut.grain, '#231507']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={[styles.face, compact && styles.faceCompact]}>
           <View style={styles.kickerRow}>
             <View style={styles.jewel} />
