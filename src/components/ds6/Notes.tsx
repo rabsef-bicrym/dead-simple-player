@@ -2,10 +2,13 @@ import { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { durationProse, timeToProse } from '../../utils/prose';
 import { clockShort } from '../../utils/clock';
 import { useConsoleMetrics } from '../../ui/ConsoleStage';
+import { footLine } from '../../ui/notesFoot';
+import { lineCut } from '../ds8m/plateFit';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -27,6 +30,43 @@ interface NotesProps {
 }
 
 const RAIL_PADDING = 24;
+/** The rail's own top and bottom padding, and the gap between its parts. */
+const RAIL_PAD_V = 12;
+const RAIL_GAP = 16;
+const RAIL_FONT = 13.5;
+/** The fade at the foot, and where in it the dark is gathered, as drawn for a rail that sits on the glass's edge. */
+const FOOT_FADE_H = 124;
+const FOOT_FADE_GATHERED = 0.56;
+/** What the essay keeps clear beneath its last line: the fade and a little air. */
+const ESSAY_FOOT = 128;
+
+// ── the traveling set, upright ──
+/** The essay column's side padding. */
+const COLUMN_PAD = 20;
+/**
+ * The header plate is cut to the glass. Its side padding yields first (26
+ * as drawn, 16 on the phone); what is left for the legend is the column less
+ * the plate's border, that padding, the jewel and its gap, and a few px kept
+ * back so a face set a hair wide still cannot fold "19" onto a second line.
+ */
+const HEADER_PAD_M = 16;
+const HEADER_FURNITURE_M = 2 + 2 * HEADER_PAD_M + 8 + 10 + 4;
+const HEADER_FONT = 10;
+const HEADER_TRACKING = 3.2;
+/**
+ * Upright, the notes are not over the picture: they are over the cabinet,
+ * and a register of station plates read dimly through an essay is only
+ * noise. So the house lights go all the way down, in the same #0e0803. Near
+ * black a few levels are a great deal: at 0.985 a cream legend still stood
+ * four levels off the ground and could be read. At 0.995 it is within one.
+ * A hair short of opaque all the same, which is the rule for anything hung
+ * over the player.
+ */
+const DIM_UPRIGHT = 0.995;
+/** The foot fade for that ground: the essay goes out entirely behind the rail, so the rule is not drawn through a ghost of it. */
+const FOOT_FADE_UPRIGHT = ['rgba(14,8,3,0)', 'rgba(14,8,3,0.99)', 'rgba(14,8,3,0.995)'] as const;
+/** On a narrow glass a progress rule shorter than this is a stub; the sentence shortens to give it room. */
+const MIN_RULE_M = 72;
 /**
  * The foot of the projection. The essay scrolls beneath the rail, and its
  * lines used to run straight through the rail's own. This is the house
@@ -36,7 +76,7 @@ const RAIL_PADDING = 24;
  * is a fade, not a bar, and like the dimming above it is never opaque.
  */
 const FOOT_FADE = ['rgba(14,8,3,0)', 'rgba(14,8,3,0.96)', 'rgba(14,8,3,0.985)'] as const;
-const FOOT_FADE_STOPS = [0, 0.56, 1] as const;
+const FOOT_FADE_STOPS = [0, FOOT_FADE_GATHERED, 1] as const;
 
 function BrassRule() {
   return (
@@ -60,6 +100,7 @@ function metaLine(p: Programme): string {
 
 export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
   const { width, height, gutter } = useConsoleMetrics();
+  const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const offsetRef = useRef(0);
 
@@ -98,7 +139,33 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
   // The traveling set, on its side (9g): the projection splits into a
   // left column — plate, title, provenance — and a right pane where the
   // essay reads; a hairline rule stands between them.
-  const phoneLandscape = Math.min(width, height) < 500 && width > height;
+  const phone = Math.min(width, height) < 500;
+  const phoneLandscape = phone && width > height;
+  // The traveling set, upright. Everything below that asks `upright` is the
+  // phone's alone; the console and the tablet are drawn exactly as before.
+  const upright = phone && !phoneLandscape;
+
+  // Upright, the legend is cut to the plate: the tracking closes, then the
+  // letters, so "CHANNEL 19" stands on the one line with the rest.
+  const headerLegend = `PROGRAMME NOTES${channel ? ` — CHANNEL ${channel.number}` : ''}`;
+  const headerCut = upright
+    ? lineCut(headerLegend, width - 2 * COLUMN_PAD - HEADER_FURNITURE_M, HEADER_FONT, HEADER_TRACKING, 7.5, 400)
+    : null;
+
+  // Upright, the rail clears the home indicator the way the register cabinet
+  // does (MReading), and everything that stands on it is lifted by as much.
+  const footLift = upright ? Math.max(RAIL_PAD_V, insets.bottom) - RAIL_PAD_V : 0;
+  const foot = upright
+    ? footLine(
+        airing
+          ? [railText, `ends at ${clockShort(programme.stop)}`]
+          : future
+            ? [railText, `airs at ${clockShort(programme.start)}`]
+            : [railText],
+        width - 2 * RAIL_PADDING,
+        { fontSize: RAIL_FONT, gap: RAIL_GAP, minRule: MIN_RULE_M },
+      )
+    : null;
 
   if (phoneLandscape) {
     return (
@@ -157,22 +224,28 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
   return (
     <View style={StyleSheet.absoluteFill}>
       {/* the dimming — the projectionist lowers the house lights */}
-      <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
-        <Defs>
-          <RadialGradient id="notesDim" cx="50%" cy="46%" rx="75%" ry="90%">
-            <Stop offset="0%" stopColor="#0e0803" stopOpacity={0.72} />
-            <Stop offset="78%" stopColor="#0e0803" stopOpacity={0.95} />
-            <Stop offset="100%" stopColor="#0e0803" stopOpacity={0.97} />
-          </RadialGradient>
-        </Defs>
-        <Rect x={0} y={0} width={width} height={height} fill="url(#notesDim)" />
-      </Svg>
+      {upright ? (
+        <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
+          <Rect x={0} y={0} width={width} height={height} fill="#0e0803" fillOpacity={DIM_UPRIGHT} />
+        </Svg>
+      ) : (
+        <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
+          <Defs>
+            <RadialGradient id="notesDim" cx="50%" cy="46%" rx="75%" ry="90%">
+              <Stop offset="0%" stopColor="#0e0803" stopOpacity={0.72} />
+              <Stop offset="78%" stopColor="#0e0803" stopOpacity={0.95} />
+              <Stop offset="100%" stopColor="#0e0803" stopOpacity={0.97} />
+            </RadialGradient>
+          </Defs>
+          <Rect x={0} y={0} width={width} height={height} fill="url(#notesDim)" />
+        </Svg>
+      )}
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
       <ScrollView
         ref={scrollRef}
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
+        style={[styles.scroll, upright && { marginTop: insets.top }]}
+        contentContainerStyle={[styles.content, upright && { paddingBottom: ESSAY_FOOT + footLift }]}
         showsVerticalScrollIndicator={false}
         onScroll={(e) => {
           offsetRef.current = e.nativeEvent.contentOffset.y;
@@ -182,10 +255,20 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
         <View style={styles.column} pointerEvents="box-none">
           {/* Header plate */}
           <View style={styles.headerPlateShell}>
-            <LinearGradient colors={[walnut.grain, '#231507']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.headerPlate}>
+            <LinearGradient
+              colors={[walnut.grain, '#231507']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={[styles.headerPlate, upright && styles.headerPlateM]}
+            >
               <View style={styles.jewel} />
-              <Text style={styles.headerText}>
-                {`PROGRAMME NOTES${channel ? ` — CHANNEL ${channel.number}` : ''}`}
+              <Text
+                style={[
+                  styles.headerText,
+                  headerCut && { fontSize: headerCut.fontSize, letterSpacing: headerCut.letterSpacing },
+                ]}
+              >
+                {headerLegend}
               </Text>
             </LinearGradient>
           </View>
@@ -209,19 +292,43 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
       </ScrollView>
 
       {/* Bottom rail — faith with the broadcast */}
-      <View style={[styles.rail, gutter > 0 && { paddingHorizontal: RAIL_PADDING + gutter }]} pointerEvents="none">
+      <View
+        style={[
+          styles.rail,
+          gutter > 0 && { paddingHorizontal: RAIL_PADDING + gutter },
+          upright && { paddingBottom: RAIL_PAD_V + footLift },
+        ]}
+        pointerEvents="none"
+      >
+        {/* Lifted with the rail, the fade grows by the lift and gathers its dark at the same height above the line. */}
         <LinearGradient
-          colors={FOOT_FADE}
-          locations={FOOT_FADE_STOPS}
+          colors={upright ? FOOT_FADE_UPRIGHT : FOOT_FADE}
+          locations={footLift > 0 ? [0, (FOOT_FADE_H * FOOT_FADE_GATHERED) / (FOOT_FADE_H + footLift), 1] : FOOT_FADE_STOPS}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          style={styles.railFade}
+          style={[styles.railFade, footLift > 0 && { height: FOOT_FADE_H + footLift }]}
         />
-        <Text style={styles.railText}>{railText}</Text>
-        <View style={styles.railTrack}>
-          {airing && <View style={[styles.railFill, { width: `${progress * 100}%` }]} />}
-        </View>
-        <Text style={styles.railClock}>{`${clockShort(clockNow)} ${meridiem}`}</Text>
+        {foot ? (
+          // Upright: one line, always. The phone shows the hour itself, so the
+          // clock is the first furniture to go; `footLine` has already chosen
+          // a sentence that leaves the rule its room, or dropped the rule.
+          <>
+            <Text style={styles.railText} numberOfLines={1}>{foot.text}</Text>
+            {foot.rule && (
+              <View style={styles.railTrack}>
+                {airing && <View style={[styles.railFill, { width: `${progress * 100}%` }]} />}
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            <Text style={styles.railText}>{railText}</Text>
+            <View style={styles.railTrack}>
+              {airing && <View style={[styles.railFill, { width: `${progress * 100}%` }]} />}
+            </View>
+            <Text style={styles.railClock}>{`${clockShort(clockNow)} ${meridiem}`}</Text>
+          </>
+        )}
       </View>
     </View>
   );
@@ -234,13 +341,13 @@ const styles = StyleSheet.create({
   content: {
     paddingTop: 46,
     // Room for the last line to be read clear of the fade at the foot.
-    paddingBottom: 128,
+    paddingBottom: ESSAY_FOOT,
     alignItems: 'center',
   },
   column: {
     width: '100%',
     maxWidth: 700,
-    paddingHorizontal: 20,
+    paddingHorizontal: COLUMN_PAD,
     alignItems: 'center',
   },
   headerPlateShell: {
@@ -256,6 +363,9 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 26,
   },
+  headerPlateM: {
+    paddingHorizontal: HEADER_PAD_M,
+  },
   jewel: {
     width: 8,
     height: 8,
@@ -269,8 +379,8 @@ const styles = StyleSheet.create({
   },
   headerText: {
     fontFamily: fonts.plate,
-    fontSize: 10,
-    letterSpacing: 3.2,
+    fontSize: HEADER_FONT,
+    letterSpacing: HEADER_TRACKING,
     color: brass.bright,
   },
   title: {
@@ -341,8 +451,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    paddingVertical: 12,
+    gap: RAIL_GAP,
+    paddingVertical: RAIL_PAD_V,
     paddingHorizontal: RAIL_PADDING,
   },
   railFade: {
@@ -350,11 +460,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 124,
+    height: FOOT_FADE_H,
   },
   railText: {
     fontFamily: fonts.speech,
-    fontSize: 13.5,
+    fontSize: RAIL_FONT,
     color: brass.muted,
   },
   railTrack: {
