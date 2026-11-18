@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, StyleSheet, Animated, Pressable } from 'react-native';
-import Svg, { Circle, Defs, Line, Rect, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, Line, LinearGradient as SvgLinearGradient, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
+import { WalnutGrain } from '../../ui/Walnut';
 import { walnut, brass, amber, cream, fonts, plateTracking } from '../../constants/ds6';
 import { Plate } from './Plate';
 import { FlipClock } from './FlipClock';
@@ -87,6 +88,23 @@ function ArtFrame({ channel, art }: { channel: Channel; art?: string }) {
           <Text style={styles.artBlank}>{channel.name.toUpperCase()}</Text>
         </>
       )}
+      {/* The plate is under glass: the lamp shows along its upper edge and
+          the corners fall away. A still, not the picture, so it may be covered. */}
+      <Svg width={250} height={118} style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Defs>
+          <SvgLinearGradient id="artGlass" x1="0%" y1="0%" x2="30%" y2="100%">
+            <Stop offset="0%" stopColor={cream} stopOpacity={0.13} />
+            <Stop offset="38%" stopColor={cream} stopOpacity={0.02} />
+            <Stop offset="100%" stopColor={cream} stopOpacity={0} />
+          </SvgLinearGradient>
+          <RadialGradient id="artFall" cx="50%" cy="46%" rx="62%" ry="70%">
+            <Stop offset="55%" stopColor="#000000" stopOpacity={0} />
+            <Stop offset="100%" stopColor="#000000" stopOpacity={0.5} />
+          </RadialGradient>
+        </Defs>
+        <Rect x={0} y={0} width={250} height={118} fill="url(#artFall)" />
+        <Rect x={0} y={0} width={250} height={118} fill="url(#artGlass)" />
+      </Svg>
     </View>
   );
 }
@@ -262,6 +280,7 @@ export function Home({ channels, selectedIndex, tunedIndex, onSelect, onTune, on
         </Defs>
         <Rect x={0} y={0} width={screenWidth} height={height} fill="url(#cabinetLight)" />
       </Svg>
+      <WalnutGrain />
 
       {/* Masthead */}
       <View style={[styles.masthead, gutter > 0 && { paddingHorizontal: MASTHEAD_PADDING + gutter }]}>
@@ -473,8 +492,10 @@ const styles = StyleSheet.create({
     letterSpacing: plateTracking(9),
     color: brass.muted,
   },
+  // The bank is as tall as its plates, no taller, so the heading rides
+  // directly above the first plate and the two are centred as one piece.
   registerBody: {
-    flex: 1,
+    flexGrow: 0,
     justifyContent: 'center',
   },
   registerPlates: {
@@ -616,8 +637,12 @@ const styles = StyleSheet.create({
     height: 118,
     marginTop: 14,
     borderRadius: 6,
+    // A window let into the cabinet: its upper lip in shade, its sill lit.
     borderWidth: 1,
-    borderColor: walnut.void,
+    borderTopColor: 'rgba(0,0,0,0.9)',
+    borderLeftColor: 'rgba(0,0,0,0.75)',
+    borderRightColor: 'rgba(241,229,207,0.1)',
+    borderBottomColor: 'rgba(241,229,207,0.18)',
     backgroundColor: '#1e140b',
     overflow: 'hidden',
     alignItems: 'center',
