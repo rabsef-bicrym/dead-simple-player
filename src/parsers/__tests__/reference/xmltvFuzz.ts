@@ -54,7 +54,7 @@ const ENTITIES = [
   '&#00000233;', '&#0000233;', '&#x00000E9;', '&#x0000E9;', '&#XE9;', '&#xe9;', '&poun;', '&pounds;', '&quot', '&quot ;',
 ];
 
-const SPACES = [' ', ' ', ' ', '  ', '\n', '\t', '\r\n', '\r', ' ', ' ', '　', '﻿', '​', '\v', '\f'];
+const SPACES = [' ', ' ', ' ', '  ', '\n', '\t', '\r\n', '\r', '\u00a0', '\u2003', '\u3000', '\ufeff', '\u200b', '\v', '\f'];
 
 const NAMES = [
   'tv', 'channel', 'programme', 'title', 'sub-title', 'desc', 'category', 'episode-num', 'date', 'icon',
@@ -235,7 +235,7 @@ export function fuzzDocument(seed: number): string {
   if (prologue < 0.6) doc = `<?xml version="1.0" encoding="utf-8"?>${doc}`;
   else if (prologue < 0.7) doc = `<?xml version="1.0"?>\n<!DOCTYPE tv SYSTEM "xmltv.dtd">\n${doc}`;
   else if (prologue < 0.75) doc = `<!DOCTYPE tv ${pick(rand, ['', 'SYSTEM "a>b"', '<!-- c -->', '[ ]', '[<!-- <!ENTITY --> ]'])}>${doc}`;
-  if (chance(rand, 0.3)) doc = `﻿${doc}`;
+  if (chance(rand, 0.3)) doc = `\ufeff${doc}`;
   if (chance(rand, 0.05)) doc += pick(rand, ['</tv>', '<tv/>', '<tv></tv>', 'trailing', '<!-- end -->', '</tv><x/>', '</tv><?pi?>', '</tv></tv><![CDATA[x]]>']);
 
   return chance(rand, 0.35) ? doc : mutate(rand, doc);

@@ -68,7 +68,7 @@ describe('XMLTV parser parity with the reference parser', () => {
 
     it.each(fixtures)('%s parses the same with a BOM, with CRLF line endings, and cut short', (name) => {
       const raw = fs.readFileSync(path.join(TEST_DATA, name), 'utf-8');
-      expect(parseXMLTV(`﻿${raw}`)).toStrictEqual(parseReference(`﻿${raw}`));
+      expect(parseXMLTV(`\ufeff${raw}`)).toStrictEqual(parseReference(`\ufeff${raw}`));
       const crlf = raw.replace(/\n/g, '\r\n');
       expect(crlf).not.toBe(raw);
       expect(parseXMLTV(crlf)).toStrictEqual(parseReference(crlf));
@@ -84,7 +84,7 @@ describe('XMLTV parser parity with the reference parser', () => {
     const cases: Array<[string, string]> = [
       ['nothing at all', ''],
       ['no tags', 'just some text'],
-      ['a BOM and nothing', '﻿'],
+      ['a BOM and nothing', '\ufeff'],
       ['an empty <tv/>', '<tv/>'],
       ['an empty <tv></tv>', '<?xml version="1.0"?><tv></tv>'],
       ['<tv> holding only text', '<tv>hello &amp; goodbye</tv>'],
@@ -111,7 +111,7 @@ describe('XMLTV parser parity with the reference parser', () => {
       ['an attribute and no text reads as an object', doc('<title lang="en"></title><sub-title lang="en"/><desc lang="en"> </desc><category lang="en"></category><category></category><date lang="en"></date>')],
       ['an empty sub-title and description are empty strings', doc('<title>T</title><sub-title></sub-title><desc/>')],
       ['a child element inside a title', doc('<title>Foo <b>bar</b> baz</title><desc><i>all inside</i></desc><sub-title><b/></sub-title>')],
-      ['whitespace around text and between elements', doc('\n  <title lang="en">\n   Padded  Title \t</title>\n  <desc> 　nbsp and ideographic ﻿</desc>\n')],
+      ['whitespace around text and between elements', doc('\n  <title lang="en">\n   Padded  Title \t</title>\n  <desc>\u00a0\u3000nbsp and ideographic\u2003\ufeff</desc>\n')],
       ['entity-encoded spaces at the edges survive the trim', doc('<title>&#32;kept&#32;</title><desc>&nbsp;x&#160;y&#0160;z&#xA0;</desc>')],
       ['every entity the reference knows', doc('<title>&apos;&#39;&#x27;&gt;&#62;&#x3E;&lt;&#60;&#x3C;&quot;&#34;&#x22;&amp;&#38;&#x26;</title>'
         + '<desc>&nbsp;&#160;&cent;&#162;&pound;&#163;&yen;&#165;&euro;&#8364;&copy;&#169;&reg;&#174;&inr;&#8377;&#232;&#233;&#215;&#128136;&#128308;&#x1F488;&#x1f488;</desc>')],
@@ -159,7 +159,7 @@ describe('XMLTV parser parity with the reference parser', () => {
       ['a quote in an attribute name, a tab outside the quotes', doc('<icon a\'b src="x\'y\tz" "/>')],
       ['tabs as separators and inside values', '<tv><channel\tid="a\tb"><display-name\tlang="en">A</display-name></channel><programme\tstart="20260215070314 -0800"\tchannel="a\tb"><title\t>T</title></programme></tv>'],
       ['carriage returns everywhere', '<tv>\r\n<channel id="a\r\nb">\r<display-name>A\r\nB\rC</display-name>\r\n</channel>\r\n<programme channel="a\r\nb"\r\nstart="20260215070314 -0800"><title>\r\nT\r\n</title><desc>line one\r\nline two\rline three</desc></programme></tv>'],
-      ['newlines and odd spaces as tag separators', '<tv><channel\nid="a"><display-name lang="en">A</display-name></channel><programme　start="20260215070314 -0800"\n channel="a"><title\n lang="en"\n>T</title></programme></tv>'],
+      ['newlines and odd spaces as tag separators', '<tv><channel\nid="a"><display-name\u00a0lang="en">A</display-name></channel><programme\u3000start="20260215070314 -0800"\n channel="a"><title\n lang="en"\n>T</title></programme></tv>'],
       ['self-closing spellings', doc('<previously-shown />', '<title/><desc /><sub-title lang="en"/><date/><category/>', '<previously-shown></previously-shown>', '<previously-shown lang="en">x</previously-shown>')],
       ['the name carrying the slash', doc('<title/ x/><title>Real</title><previously-shown/ >', '<title/ lang="en"/>', '<desc/ >x</desc>').replace('<display-name>One</display-name>', '<display-name/ x/><display-name>One</display-name>')],
       ['near-miss names', doc('<Title>no</Title><titles>no</titles><tit>no</tit><title-x>no</title-x><x:title>no</x:title><title/x>no</title/x><descr>no</descr><previously-shown-x/>')],
