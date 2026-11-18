@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { durationProse, timeToProse } from '../../utils/prose';
 import { clockShort } from '../../utils/clock';
+import { useConsoleMetrics } from '../../ui/ConsoleStage';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -24,6 +25,18 @@ interface NotesProps {
   clockNow: Date;
   onClose: () => void;
 }
+
+const RAIL_PADDING = 24;
+/**
+ * The foot of the projection. The essay scrolls beneath the rail, and its
+ * lines used to run straight through the rail's own. This is the house
+ * lights' dark (the same #0e0803 the dimming is made of) gathered at the
+ * foot: nothing at its top edge, nearly the full dim behind the rail, so the
+ * essay dissolves as it goes under and the rail reads on a quiet ground. It
+ * is a fade, not a bar, and like the dimming above it is never opaque.
+ */
+const FOOT_FADE = ['rgba(14,8,3,0)', 'rgba(14,8,3,0.96)', 'rgba(14,8,3,0.985)'] as const;
+const FOOT_FADE_STOPS = [0, 0.56, 1] as const;
 
 function BrassRule() {
   return (
@@ -46,7 +59,7 @@ function metaLine(p: Programme): string {
 }
 
 export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
-  const { width, height } = useWindowDimensions();
+  const { width, height, gutter } = useConsoleMetrics();
   const scrollRef = useRef<ScrollView>(null);
   const offsetRef = useRef(0);
 
@@ -196,7 +209,14 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
       </ScrollView>
 
       {/* Bottom rail — faith with the broadcast */}
-      <View style={styles.rail} pointerEvents="none">
+      <View style={[styles.rail, gutter > 0 && { paddingHorizontal: RAIL_PADDING + gutter }]} pointerEvents="none">
+        <LinearGradient
+          colors={FOOT_FADE}
+          locations={FOOT_FADE_STOPS}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.railFade}
+        />
         <Text style={styles.railText}>{railText}</Text>
         <View style={styles.railTrack}>
           {airing && <View style={[styles.railFill, { width: `${progress * 100}%` }]} />}
@@ -213,7 +233,8 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingTop: 46,
-    paddingBottom: 80,
+    // Room for the last line to be read clear of the fade at the foot.
+    paddingBottom: 128,
     alignItems: 'center',
   },
   column: {
@@ -322,7 +343,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
     paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: RAIL_PADDING,
+  },
+  railFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 124,
   },
   railText: {
     fontFamily: fonts.speech,
