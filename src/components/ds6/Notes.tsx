@@ -257,7 +257,7 @@ export function Notes({ programme, channel, clockNow, onClose, pictureSeat = fal
         </LinearGradient>
       </View>
 
-      <Text style={styles.title}>{programme.title}</Text>
+      <Text style={[styles.title, upright && uprightTitleCut(programme.title)]}>{programme.title}</Text>
       <Text style={styles.meta}>{metaLine(programme)}</Text>
       <BrassRule />
 
@@ -383,6 +383,18 @@ export function Notes({ programme, channel, clockNow, onClose, pictureSeat = fal
       </View>
     </View>
   );
+}
+
+/**
+ * Held upright the page is narrow, and a long title at the full display cut
+ * runs to four lines and leaves the essay three. A long title is cut a size
+ * down, a very long one two, so the reading starts on the first screen.
+ */
+function uprightTitleCut(title: string): { fontSize: number; lineHeight: number } | null {
+  const length = title.trim().length;
+  if (length <= 14) return null;
+  if (length <= 26) return { fontSize: 46, lineHeight: 54 };
+  return { fontSize: 38, lineHeight: 46 };
 }
 
 const styles = StyleSheet.create({

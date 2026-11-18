@@ -1490,6 +1490,9 @@ export default function WatchScreen() {
             channel={channels.find((c) => c.id === detailProgramme.channelId)}
             clockNow={clockNow}
             onClose={() => setDetailProgramme(null)}
+            // Upright and watching, the picture keeps its seat above the page:
+            // the foot says it continues beneath, so it is shown to.
+            pictureSeat={portraitWatching && !boardVisible}
           />
         )}
         </ConsoleStage>
