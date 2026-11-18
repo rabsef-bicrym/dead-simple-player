@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { brass, walnut } from '../../constants/ds6';
+import { brass, fonts } from '../../constants/ds6';
 
 interface VideoHardwareControlsProps {
   onStop: () => void;
@@ -75,8 +75,9 @@ export function VideoHardwareControls({ onStop, onActivity }: VideoHardwareContr
         }}
         style={[styles.plate, styles.stopPlate]}
       >
-        <View style={[styles.xStroke, styles.xForward]} />
-        <View style={[styles.xStroke, styles.xBack]} />
+        {/* A plate on this set says what it does. The cross was the one mark
+            on the cabinet borrowed from a computer. */}
+        <Text style={styles.offLegend} allowFontScaling={false}>OFF</Text>
       </Pressable>
 
       {Platform.OS !== 'web' && (
@@ -106,8 +107,13 @@ const styles = StyleSheet.create({
     height: 38,
     alignItems: 'center',
     justifyContent: 'center',
+    // The same bevel as every other plate: bright where the edge faces the
+    // cabinet's light, dark where it turns away.
     borderWidth: 1,
-    borderColor: walnut.void,
+    borderTopColor: 'rgba(241,229,207,0.22)',
+    borderLeftColor: 'rgba(241,229,207,0.12)',
+    borderRightColor: 'rgba(0,0,0,0.8)',
+    borderBottomColor: 'rgba(0,0,0,0.9)',
     borderRadius: 4,
     backgroundColor: 'rgba(36,24,12,0.9)',
     shadowColor: '#000',
@@ -124,18 +130,15 @@ const styles = StyleSheet.create({
     right: 10,
     bottom: 10,
   },
-  xStroke: {
-    position: 'absolute',
-    width: 20,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: brass.bright,
-  },
-  xForward: {
-    transform: [{ rotate: '45deg' }],
-  },
-  xBack: {
-    transform: [{ rotate: '-45deg' }],
+  offLegend: {
+    fontFamily: fonts.plate,
+    fontWeight: '700',
+    fontSize: 9.5,
+    // Tracked caps carry their spacing after the last letter too; the
+    // padding puts the word back on the plate's centre.
+    letterSpacing: 2,
+    paddingLeft: 2,
+    color: brass.bright,
   },
   landscapeScreen: {
     width: 24,
