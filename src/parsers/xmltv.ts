@@ -113,7 +113,9 @@ function decode(s: string, from: number, to: number, amp: number): string {
   // Appended to, not collected and joined: under V8 the appended pieces stay
   // slices of the document (which is held anyway), where a join would copy
   // every decoded essay at two bytes a character; measured, that is 3.6 MB
-  // less kept per guide, and no slower. Hermes appends in place.
+  // less kept per guide and a quarter less time. (Measured under V8 only;
+  // there was no Hermes to run. The old parser appended character by
+  // character, so appending by the piece is no new demand on it.)
   let out = '';
   let last = from;
   while (amp !== -1 && amp < to) {
