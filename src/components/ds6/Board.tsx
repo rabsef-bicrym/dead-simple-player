@@ -11,6 +11,7 @@ import { clockShort } from '../../utils/clock';
 import { conjoinEvening } from '../../services/evening';
 import { boardRows, type BoardRow } from '../../services/boardRows';
 import { ROWS_DS6 as ROWS } from '../../station/board';
+import { flapNote } from '../../ui/flapNote';
 import { useConsoleMetrics } from '../../ui/ConsoleStage';
 import { engravedWidth } from '../../ui/engraverFit';
 import { fitStationStrip } from '../../ui/stationStrip';
@@ -143,7 +144,10 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
   cursorProgRef.current = target[cursor]?.prog ?? null;
 
   const short = height < 700;
-  const rowH = short ? 36 : 46;
+  // Eight rows share the room between the station strip and the foot. On a
+  // short window they keep the height they were drawn at; with room, each
+  // grows until the bank fills the board, so no dead band is left above it.
+  const rowSize = short ? { height: 36 } : { flex: 1, minHeight: 44, maxHeight: 66 };
   const meridiem = clockNow.getHours() < 12 ? 'A.M.' : 'P.M.';
 
   // The station strip is fitted to the room between its arrows: every name
@@ -231,14 +235,19 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
         {showTabHint && <Text style={styles.tabHint}>{TAB_HINT}</Text>}
       </View>
 
-      {/* The rows */}
+      {/* The rows, under the legend every departure board carries */}
+      <View style={styles.legend}>
+        <Text style={[styles.legendText, styles.legendTime]}>TIME</Text>
+        <Text style={[styles.legendText, styles.legendProgramme]}>PROGRAMME</Text>
+        <Text style={[styles.legendText, styles.legendRemarks]}>REMARKS</Text>
+      </View>
       <View style={styles.rows}>
         {cur.map((row, r) => {
           const pRow = prev[r];
           const timeChars = flapChars(pRow.time, row.time, LEN.time, ticks, true);
           const titleChars = flapChars(pRow.title, row.title, LEN.title, ticks, false);
           const yearChars = flapChars(pRow.year, row.year, LEN.year, ticks, true);
-          const noteChars = flapChars(pRow.note, row.note, LEN.note, ticks, false);
+          const noteChars = flapChars(flapNote(pRow.note, LEN.note), flapNote(row.note, LEN.note), LEN.note, ticks, false);
           const timeColor = row.past ? '#6e5f4b' : row.live ? amber.jewel : brass.bright;
           const titleColor = row.past ? brass.mid : row.live ? amber.jewel : brass.etch;
           const yearColor = row.past ? '#5c4f3d' : brass.mid;
@@ -250,7 +259,8 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
               onPress={() => row.prog && onNotes(row.prog)}
               style={[
                 styles.row,
-                { height: rowH, opacity: row.past ? 0.5 : 1 },
+                rowSize,
+                { opacity: row.past ? 0.5 : 1 },
                 r === cursor && styles.rowCursor,
                 { transform: [{ perspective: 800 }, { rotateX: jiggle }] } as never,
               ]}
@@ -424,11 +434,30 @@ const styles = StyleSheet.create({
     letterSpacing: 2.2,
     color: '#6e5f4b',
   },
+  legend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 22,
+    paddingBottom: 7,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(201,180,140,0.16)',
+  },
+  legendText: {
+    fontFamily: fonts.plate,
+    fontSize: 8.5,
+    letterSpacing: 2.6,
+    color: '#6e5f4b',
+  },
+  // The legend's columns stand over the row's own: the time box, the
+  // programme flaps, and the remark flaps (see mainBox and the cell runs).
+  legendTime: { width: 78 + 8, textAlign: 'center', paddingRight: 8 },
+  legendProgramme: { paddingLeft: 1 + 18 + 7 + 14, width: 1 + 18 + 7 + 14 + LEN.title * 13.5 + 14 + LEN.year * 12 + 14 },
+  legendRemarks: { flex: 1 },
   rows: {
     flex: 1,
-    marginTop: 16,
+    marginTop: 10,
     gap: 8,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   row: {
     flexDirection: 'row',
