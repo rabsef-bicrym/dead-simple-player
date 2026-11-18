@@ -23,6 +23,13 @@ interface PlateProps {
   jewel?: boolean;
   kickerSize?: number;
   labelSize?: number;
+  /**
+   * A label the engraver has already fitted (`engraverFit.ts`): its lines,
+   * and the tracking they were cut at. `label` is still the plate's identity
+   * (its screws are seeded from it); these are what is stamped.
+   */
+  labelLines?: string[];
+  labelTracking?: number;
 }
 
 /**
@@ -56,7 +63,7 @@ function Screw({ size = 7, seed = 0 }: { size?: number; seed?: number }) {
   );
 }
 
-export function Plate({ kicker, label, lit = false, compact = false, jewel = false, kickerSize = 10, labelSize = 15 }: PlateProps) {
+export function Plate({ kicker, label, lit = false, compact = false, jewel = false, kickerSize = 10, labelSize = 15, labelLines, labelTracking }: PlateProps) {
   // Each plate's screws sit at their own angles, stable per label —
   // the panel was assembled by a human, once.
   let seedBase = 0;
@@ -87,9 +94,22 @@ export function Plate({ kicker, label, lit = false, compact = false, jewel = fal
         )}
         <View style={styles.labelRow}>
           {jewel && <View style={styles.jewel} />}
-          <Text style={[styles.label, { color: textColor, fontSize: labelSize, letterSpacing: plateTracking(labelSize) * 0.55 }]}>
-            {label}
-          </Text>
+          {labelLines && labelLines.length > 1 ? (
+            <View style={styles.labelStack}>
+              {labelLines.map((line, i) => (
+                <Text
+                  key={i}
+                  style={[styles.label, { color: textColor, fontSize: labelSize, letterSpacing: labelTracking ?? plateTracking(labelSize) * 0.55 }]}
+                >
+                  {line}
+                </Text>
+              ))}
+            </View>
+          ) : (
+            <Text style={[styles.label, { color: textColor, fontSize: labelSize, letterSpacing: labelTracking ?? plateTracking(labelSize) * 0.55 }]}>
+              {labelLines?.[0] ?? label}
+            </Text>
+          )}
         </View>
       </LinearGradient>
     </View>
@@ -147,6 +167,9 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: fonts.plate,
     fontWeight: '700',
+  },
+  labelStack: {
+    alignItems: 'center',
   },
   screw: { position: 'absolute' },
   screwTL: { top: 3, left: 3 },
