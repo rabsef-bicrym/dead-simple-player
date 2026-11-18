@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
-import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Defs, Rect, RadialGradient, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
@@ -27,6 +27,14 @@ interface NotesProps {
   channel?: Channel;
   clockNow: Date;
   onClose: () => void;
+  /**
+   * The phone, upright, while watching: the live picture has its 16:9 seat
+   * at the safe top edge (MReading) and nothing else is there. Say so and
+   * the dimming leaves the picture dimly showing in that seat, under the
+   * plate and the title. Unsaid, the whole glass goes dark, which is right
+   * wherever the notes are opened over furniture (the board).
+   */
+  pictureSeat?: boolean;
 }
 
 const RAIL_PADDING = 24;
@@ -64,6 +72,9 @@ const HEADER_TRACKING = 3.2;
  */
 const DIM_UPRIGHT = 0.995;
 /** The foot fade for that ground: the essay goes out entirely behind the rail, so the rule is not drawn through a ghost of it. */
+/** With the picture in its seat: how far the lights go down over it, and the depth of the ramp at its foot into the full dark. */
+const DIM_SEAT = 0.78;
+const SEAT_RAMP = 44;
 const FOOT_FADE_UPRIGHT = ['rgba(14,8,3,0)', 'rgba(14,8,3,0.99)', 'rgba(14,8,3,0.995)'] as const;
 /** On a narrow glass a progress rule shorter than this is a stub; the sentence shortens to give it room. */
 const MIN_RULE_M = 72;
@@ -98,7 +109,7 @@ function metaLine(p: Programme): string {
   return bits.join(' · ').toUpperCase();
 }
 
-export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
+export function Notes({ programme, channel, clockNow, onClose, pictureSeat = false }: NotesProps) {
   const { width, height, gutter } = useConsoleMetrics();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -151,6 +162,9 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
   const headerCut = upright
     ? lineCut(headerLegend, width - 2 * COLUMN_PAD - HEADER_FURNITURE_M, HEADER_FONT, HEADER_TRACKING, 7.5, 400)
     : null;
+
+  // Where the picture's seat ends, upright: the safe top edge and 16:9 of the width (MReading).
+  const seatFoot = insets.top + (width * 9) / 16;
 
   // Upright, the rail clears the home indicator the way the register cabinet
   // does (MReading), and everything that stands on it is lifted by as much.
@@ -226,7 +240,24 @@ export function Notes({ programme, channel, clockNow, onClose }: NotesProps) {
       {/* the dimming — the projectionist lowers the house lights */}
       {upright ? (
         <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
-          <Rect x={0} y={0} width={width} height={height} fill="#0e0803" fillOpacity={DIM_UPRIGHT} />
+          {pictureSeat && (
+            <Defs>
+              <SvgLinearGradient id="notesDimSeat" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset={0} stopColor="#0e0803" stopOpacity={DIM_SEAT} />
+                <Stop offset={(seatFoot - SEAT_RAMP) / height} stopColor="#0e0803" stopOpacity={DIM_SEAT} />
+                <Stop offset={seatFoot / height} stopColor="#0e0803" stopOpacity={DIM_UPRIGHT} />
+                <Stop offset={1} stopColor="#0e0803" stopOpacity={DIM_UPRIGHT} />
+              </SvgLinearGradient>
+            </Defs>
+          )}
+          <Rect
+            x={0}
+            y={0}
+            width={width}
+            height={height}
+            fill={pictureSeat ? 'url(#notesDimSeat)' : '#0e0803'}
+            fillOpacity={pictureSeat ? 1 : DIM_UPRIGHT}
+          />
         </Svg>
       ) : (
         <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
