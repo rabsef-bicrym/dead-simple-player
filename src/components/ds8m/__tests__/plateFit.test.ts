@@ -7,6 +7,7 @@ import {
   numeralCut,
   shortenBlurb,
   tabStrip,
+  thenComes,
   type TabLabel,
 } from '../plateFit';
 
@@ -295,5 +296,30 @@ describe('blurbBudget', () => {
   it('shrinks with the panel and never goes negative', () => {
     expect(blurbBudget(220, 13.5, 3)).toBeLessThan(blurbBudget(340, 13.5, 3));
     expect(blurbBudget(0, 13.5, 3)).toBe(0);
+  });
+});
+
+describe('thenComes', () => {
+  const sentence = (t: { title: string; when: string }) => `Then comes ${t.title}, at ${t.when}.`;
+
+  it('says the hour in words when the line has room', () => {
+    expect(thenComes('The Prisoner', 'five to ten', '9:55', 100)).toEqual({ title: 'The Prisoner', when: 'five to ten' });
+  });
+
+  it('says it in figures before the title gives way', () => {
+    const then = thenComes('U.S. Faces War Says Roosevelt', 'twenty-one minutes to eleven', '10:39', 65);
+    expect(then).toEqual({ title: 'U.S. Faces War Says Roosevelt', when: '10:39' });
+    expect(sentence(then).length).toBeLessThanOrEqual(65);
+  });
+
+  it('cuts the title, never the hour, when even figures leave no room', () => {
+    const then = thenComes('Mystery Science Theater 3000: The Giant Gila Monster', 'eight minutes to twelve', '11:52', 50);
+    expect(then.when).toBe('11:52');
+    expect(then.title).toBe('Mystery Science Theater…');
+    expect(sentence(then).length).toBeLessThanOrEqual(50);
+  });
+
+  it('always leaves the title something to say', () => {
+    expect(thenComes('The Prisoner', 'five to ten', '9:55', 0).title).toBe('The…');
   });
 });

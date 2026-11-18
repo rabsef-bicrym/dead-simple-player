@@ -326,3 +326,32 @@ export function tabStrip(labels: TabLabel[], room: number, o: TabStripOptions): 
     fits: false,
   };
 }
+
+// ── "Then comes …" ──
+
+export interface ThenComes {
+  title: string;
+  when: string;
+}
+
+/** "Then comes " + ", at " + the full stop. */
+const THEN_FURNITURE = 'Then comes , at .'.length;
+
+/**
+ * What follows, and when, in a line with room for about `budget`
+ * characters: "Then comes <title>, at <when>."
+ *
+ * When it starts is the half a viewer acts on, so it is never the half that
+ * is dotted off. The hour is said in the announcer's words if the line has
+ * room for them, and in figures if it has not; only then does the title
+ * give way.
+ */
+export function thenComes(title: string, prose: string, figures: string, budget: number): ThenComes {
+  const length = (s: string) => Array.from(s).length;
+  if (length(title) + length(prose) + THEN_FURNITURE <= budget) return { title, when: prose };
+  if (length(title) + length(figures) + THEN_FURNITURE <= budget) return { title, when: figures };
+  return {
+    title: shortenBlurb(title, Math.max(8, budget - THEN_FURNITURE - length(figures))),
+    when: figures,
+  };
+}
