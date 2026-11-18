@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { View, Text, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
@@ -11,6 +11,9 @@ import { clockShort } from '../../utils/clock';
 import { conjoinEvening } from '../../services/evening';
 import { boardRows, type BoardRow } from '../../services/boardRows';
 import { ROWS_DS6 as ROWS } from '../../station/board';
+import { useConsoleMetrics } from '../../ui/ConsoleStage';
+import { engravedWidth } from '../../ui/engraverFit';
+import { fitStationStrip } from '../../ui/stationStrip';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -27,6 +30,14 @@ import type { Channel, Programme } from '../../types';
  */
 
 const LEN = { time: 5, title: 34, year: 4, note: 56 };
+const BOARD_PADDING = 56;
+
+/** An arrow chip and the margin it keeps either side. */
+const TAB_ARROW_WIDTH = 34 + 6 * 2;
+const TAB_HINT = 'THE ARROWS CHANGE THE CHANNEL';
+const TAB_HINT_WIDTH = engravedWidth(TAB_HINT, 9, 2.2, 400);
+/** The footer's four legends and its aside, as drawn; narrower than this the aside yields. */
+const FOOTER_FULL_WIDTH = 960;
 
 function maxDrumNeed(prev: BoardRow[], cur: BoardRow[]): number {
   let max = 0;
@@ -63,7 +74,7 @@ interface BoardProps {
 }
 
 export function Board({ channels, boardIndex, onSelectChannel, programmes, scroll, cursor, cursorProgRef, onNotes, onTune, onClose, clockNow }: BoardProps) {
-  const { width, height } = useWindowDimensions();
+  const { width, height, gutter } = useConsoleMetrics();
 
   const channel = channels[boardIndex];
   // Interstitial glue removed, same-AIRING repeats conjoined — identity is
@@ -135,8 +146,23 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
   const rowH = short ? 36 : 46;
   const meridiem = clockNow.getHours() < 12 ? 'A.M.' : 'P.M.';
 
+  // The station strip is fitted to the room between its arrows: every name
+  // whole, all tabs cut alike, a second row before anything is shortened.
+  const contentWidth = width - (BOARD_PADDING + gutter) * 2;
+  const tabLabels = useMemo(
+    () => channels.map((ch) => `${ch.number} · ${ch.name.toUpperCase()}`),
+    [channels],
+  );
+  const strip = useMemo(() => {
+    // The widest gap any cut uses, so the room does not depend on the answer.
+    const room = contentWidth - TAB_ARROW_WIDTH * 2 - 8 * 2;
+    return { room, ...fitStationStrip(tabLabels, room) };
+  }, [tabLabels, contentWidth]);
+  // The caption is furniture: it shows only where the strip leaves it room.
+  const showTabHint = strip.rows.length === 1 && strip.room - strip.width >= TAB_HINT_WIDTH + 24;
+
   return (
-    <View style={styles.board}>
+    <View style={[styles.board, gutter > 0 && { paddingHorizontal: BOARD_PADDING + gutter }]}>
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
         <Defs>
           <RadialGradient id="boardLight" cx="50%" cy="0%" rx="100%" ry="130%">
@@ -158,35 +184,51 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
       </View>
 
       {/* Channel tabs */}
-      <View style={styles.tabs}>
+      <View style={[styles.tabs, { gap: strip.cut.gap }]}>
         <Pressable onPress={() => onSelectChannel((boardIndex - 1 + channels.length) % channels.length)} hitSlop={10}>
           <View style={styles.tabArrowChip}>
             <View style={[styles.tabArrowTri, styles.tabArrowTriLeft]} />
           </View>
         </Pressable>
-        {channels.map((ch, i) => {
-          const active = i === boardIndex;
-          return (
-            <Pressable key={ch.id} onPress={() => onSelectChannel(i)}>
-              <LinearGradient
-                colors={active ? ['#f2bd6b', '#d99b3f'] : [walnut.grain, '#231507']}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={[styles.tab, active && styles.tabActive]}
-              >
-                <Text style={[styles.tabText, { color: active ? '#2a1a08' : brass.mid }]}>
-                  {ch.number} · {ch.name.toUpperCase()}
-                </Text>
-              </LinearGradient>
-            </Pressable>
-          );
-        })}
+        <View style={{ gap: strip.cut.gap }}>
+          {strip.rows.map((row, r) => (
+            <View key={r} style={[styles.tabRow, { gap: strip.cut.gap }]}>
+              {row.map((i) => {
+                const ch = channels[i];
+                const active = i === boardIndex;
+                return (
+                  <Pressable key={ch.id} onPress={() => onSelectChannel(i)}>
+                    <LinearGradient
+                      colors={active ? ['#f2bd6b', '#d99b3f'] : [walnut.grain, '#231507']}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 1 }}
+                      style={[styles.tab, { paddingHorizontal: strip.cut.padX }, active && styles.tabActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.tabText,
+                          {
+                            color: active ? '#2a1a08' : brass.mid,
+                            fontSize: strip.cut.fontSize,
+                            letterSpacing: strip.cut.letterSpacing,
+                          },
+                        ]}
+                      >
+                        {tabLabels[i]}
+                      </Text>
+                    </LinearGradient>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
+        </View>
         <Pressable onPress={() => onSelectChannel((boardIndex + 1) % channels.length)} hitSlop={10}>
           <View style={styles.tabArrowChip}>
             <View style={[styles.tabArrowTri, styles.tabArrowTriRight]} />
           </View>
         </Pressable>
-        <Text style={styles.tabHint}>THE ARROWS CHANGE THE CHANNEL</Text>
+        {showTabHint && <Text style={styles.tabHint}>{TAB_HINT}</Text>}
       </View>
 
       {/* The rows */}
@@ -276,7 +318,9 @@ export function Board({ channels, boardIndex, onSelectChannel, programmes, scrol
           <Plate label="G" compact labelSize={10} />
           <Text style={styles.hintText}>RETURN</Text>
         </Pressable>
-        <Text style={styles.footNote}>the board advances itself when the hour does</Text>
+        {contentWidth >= FOOTER_FULL_WIDTH && (
+          <Text style={styles.footNote}>the board advances itself when the hour does</Text>
+        )}
       </View>
     </View>
   );
@@ -286,7 +330,7 @@ const styles = StyleSheet.create({
   board: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: walnut.void,
-    paddingHorizontal: 56,
+    paddingHorizontal: BOARD_PADDING,
     paddingTop: 30,
     paddingBottom: 22,
   },
@@ -320,6 +364,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 16,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   // Drawn triangles, not typeset ones — Besley has no U+25C0/25B6, so iOS
   // substitutes a system glyph that breaks the printed-legend aesthetic.
