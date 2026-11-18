@@ -1,6 +1,6 @@
 # Proposed TV layout follow-up
 
-Status: proposal only; no layout change is included in the refactor. The user requested a separate UI fix for the large-TV spacing problem. The design below still needs approval before implementation.
+Status: implemented on 2026-11-18 in `src/ui/consoleScale.ts` and `src/ui/ConsoleStage.tsx`, using the sizing rule below with the composition capped at 16:9 so an ultrawide screen keeps the cabinet centred. Web only: on native the stage passes its children through, since no iPad reaches the 1440x900 threshold. Checked in headless Chrome at 1440x900, 1920x1080, 3840x2160 and 3440x1440; not yet seen on the living-room television itself. The original proposal text follows.
 
 ## Observed problem
 
