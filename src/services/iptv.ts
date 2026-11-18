@@ -38,11 +38,12 @@ let guideCacheWarningLogged = false;
 /**
  * The last guide parsed, beside the exact text it was parsed from.
  *
- * The station's schedule changes a few times a day; the set asks for it
- * every half hour, and again whenever it returns to the foreground. When
- * the answer is the text already held, the guide already parsed is handed
- * back: the very same object, so React sees no change and nothing under a
- * playing programme is re-rendered, and nothing is parsed or written.
+ * The set asks for the guide every half hour, and again whenever it returns
+ * to the foreground; the station rewrites it far less often than that, and
+ * in between every answer is byte for byte the one before. When the answer
+ * is the text already held, the guide already parsed is handed back: the
+ * very same object, so React sees no change and nothing under a playing
+ * programme is re-rendered, and nothing is parsed or written.
  * Comparing two 3.5 MB strings is a memory compare (about a millisecond);
  * hashing them in JS would cost the thread more than the parse it saves.
  *
