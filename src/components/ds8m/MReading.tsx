@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { walnut, brass, amber, fonts } from '../../constants/ds6';
 import { MColumnRegister } from './MHome';
+import { WalnutGrain } from '../../ui/Walnut';
 import { FilamentLamp } from '../../ui/FilamentLamp';
 import { clock12 } from '../../utils/clock';
 import { lineCut } from './plateFit';
@@ -84,6 +85,9 @@ export function MReading({
           },
         ]}
       >
+        {/* The cabinet's own wood, inside the cabinet's own bounds: it stops
+            at the picture's sill and never crosses onto the glass. */}
+        <WalnutGrain opacity={0.75} />
         <View style={styles.liveRail}>
           <LinearGradient
             colors={['#f2bd6b', '#d99b3f']}
