@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Animated, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
 import { STEP, flapChars, drumNeed, Cell } from '../ds6/flap';
 import { playSound } from '../../utils/sound';
@@ -19,6 +20,8 @@ import {
 import { BLANK_BOARD_ROW, boardRows, type BoardRow } from '../../services/boardRows';
 import { ROWS_DS8M as ROWS } from '../../station/board';
 import { clock12 } from '../../utils/clock';
+import { engravedWidth } from '../../ui/engraverFit';
+import { lineCut, tabStrip } from './plateFit';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -33,6 +36,16 @@ import type { Channel, Programme } from '../../types';
 
 const LEN_L = { time: 5, title: 20, year: 4 };
 const LEN_P = { time: 5, title: 16, year: 4 };
+
+// The channel strip as drawn. The layout below and the fit both read these.
+const TAB = { fontSize: 7.5, letterSpacing: 1, pad: 9, gap: 6, tightPad: 5, tightGap: 4, border: 2, gaps: 4 } as const;
+/** An arrow chip: its triangle, its padding, its border. */
+const TAB_ARROW_W = 7 + 2 * 9 + 2;
+const TAB_HINT = 'SWIPE FOR THE OTHER CHANNELS';
+const TAB_HINT_SIZE = 7;
+const TAB_HINT_TRACKING = 1.6;
+/** Landscape header: the title, the amber channel plate, the clock, as drawn. */
+const HEAD = { title: 'THIS EVENING', titleSize: 20, titleTracking: 1.2, plateSize: 8, plateTracking: 1.6, platePad: 12, gap: 14, onAirSize: 8, onAirTracking: 2 } as const;
 
 function rowsKey(rows: BoardRow[]): string {
   return rows.map((r) => `${r.time}|${r.title}|${r.year}`).join('~');
@@ -204,26 +217,71 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
   const prevIdx = (boardIndex - 1 + channels.length) % channels.length;
   const nextIdx = (boardIndex + 1) % channels.length;
 
+  // The safe area, reasoned not seen (the web review has none). Held on its
+  // side a notched iPhone reports its sensor housing as equal left and right
+  // insets; without them the time flaps of the middle rows sit under it.
+  const insets = useSafeAreaInsets();
+  const { width: winW } = useWindowDimensions();
+  const sidePad = landscape
+    ? { paddingLeft: Math.max(24, insets.left), paddingRight: Math.max(24, insets.right) }
+    : { paddingLeft: 16, paddingRight: 16 };
+  const innerW = winW - sidePad.paddingLeft - sidePad.paddingRight;
+
+  // Three tabs between two arrows. Ten stations do not always go in the
+  // room six did, so the strip is fitted: furniture first, then tracking,
+  // then a break at a word. In landscape the swipe hint is furniture too
+  // and leaves before any plate is touched.
+  const tabIdx = channels.length > 0 ? [prevIdx, boardIndex, nextIdx] : [];
+  const tabKey = tabIdx.map((i) => `${channels[i].number}|${channels[i].name}`).join('~');
+  const strip = useMemo(() => {
+    const labels = tabIdx.map((i) => ({ prefix: `${channels[i].number} · `, name: channels[i].name.toUpperCase() }));
+    const room = innerW - 2 * TAB_ARROW_W;
+    if (landscape) {
+      const hintW = engravedWidth(TAB_HINT, TAB_HINT_SIZE, TAB_HINT_TRACKING, 400) + TAB.gap + 2;
+      const withHint = tabStrip(labels, room - hintW, TAB);
+      if (withHint.asDrawn) return { ...withHint, hint: true };
+    }
+    return { ...tabStrip(labels, room, TAB), hint: false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabKey, innerW, landscape]);
+  const tabTwoLine = strip.tabs.some((lines) => lines.length > 1);
+
   const tabs = (
-    <View style={styles.tabs}>
+    <View style={[styles.tabs, { gap: strip.gap }]}>
       <Pressable onPress={() => onSelectChannel(prevIdx)} hitSlop={10} style={styles.tabArrowChip}>
         <View style={[styles.tabArrowTri, styles.tabArrowTriLeft]} />
       </Pressable>
-      {[prevIdx, boardIndex, nextIdx].map((i, k) => {
+      {tabIdx.map((i, k) => {
         const active = k === 1;
-        const ch = channels[i];
-        if (!ch) return null;
+        const lines = strip.tabs[k];
         return (
           <Pressable key={`${i}-${k}`} onPress={() => onSelectChannel(i)}>
             <LinearGradient
               colors={active ? ['#f2bd6b', '#d99b3f'] : [walnut.grain, '#231507']}
               start={{ x: 0.5, y: 0 }}
               end={{ x: 0.5, y: 1 }}
-              style={[styles.tab, active && styles.tabActive]}
+              style={[
+                styles.tab,
+                { paddingHorizontal: strip.pad },
+                // One plate broken over two lines sets the height for all three.
+                tabTwoLine && styles.tabTall,
+                active && styles.tabActive,
+              ]}
             >
-              <Text style={[styles.tabText, { color: active ? '#2a1a08' : brass.mid }]}>
-                {ch.number} · {ch.name.toUpperCase()}
-              </Text>
+              {lines.map((line, l) => (
+                <Text
+                  key={l}
+                  style={[
+                    styles.tabText,
+                    { letterSpacing: strip.letterSpacing, color: active ? '#2a1a08' : brass.mid },
+                    tabTwoLine && styles.tabTextTall,
+                  ]}
+                  // The strip is fitted; a dotted name here means every resort was spent.
+                  numberOfLines={strip.fits ? undefined : 1}
+                >
+                  {line}
+                </Text>
+              ))}
             </LinearGradient>
           </Pressable>
         );
@@ -231,9 +289,19 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
       <Pressable onPress={() => onSelectChannel(nextIdx)} hitSlop={10} style={styles.tabArrowChip}>
         <View style={[styles.tabArrowTri, styles.tabArrowTriRight]} />
       </Pressable>
-      {landscape && <Text style={styles.tabHint}>SWIPE FOR THE OTHER CHANNELS</Text>}
+      {landscape && strip.hint && <Text style={styles.tabHint}>{TAB_HINT}</Text>}
     </View>
   );
+
+  // Landscape header: the amber channel plate is cut to the room the title
+  // and the clock leave it, so the clock is never pushed off the glass.
+  const headText = channel ? `CHANNEL ${channel.number} · ${channel.name.toUpperCase()}` : '';
+  const onAirText = `ON THE AIR — ${clock12(clockNow)}`;
+  const headRoom = innerW
+    - engravedWidth(HEAD.title, HEAD.titleSize, HEAD.titleTracking, 700)
+    - (6 + 7 + engravedWidth(onAirText, HEAD.onAirSize, HEAD.onAirTracking, 400))
+    - 2 * HEAD.gap - 2 * HEAD.platePad - 2 - 4;
+  const headCut = lineCut(headText, headRoom, HEAD.plateSize, HEAD.plateTracking, 6.5);
 
   const rows = cur.map((row, r) => {
     const pRow = prev[r];
@@ -301,12 +369,17 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
 
   if (landscape) {
     return (
-      <View style={styles.boardL}>
+      <View style={[styles.boardL, sidePad]}>
         <View style={styles.headerL}>
           <Text style={styles.titleL}>THIS EVENING</Text>
           {channel && (
             <LinearGradient colors={['#f2bd6b', '#d99b3f']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.headPlate}>
-              <Text style={styles.headPlateText}>CHANNEL {channel.number} · {channel.name.toUpperCase()}</Text>
+              <Text
+                style={[styles.headPlateText, { fontSize: headCut.fontSize, letterSpacing: headCut.letterSpacing }]}
+                numberOfLines={1}
+              >
+                {headText}
+              </Text>
             </LinearGradient>
           )}
           <View style={styles.onAir}>
@@ -314,7 +387,7 @@ export function MBoard({ channels, boardIndex, onSelectChannel, programmes, scro
               amplitude={0.028}
               style={[styles.jewel, { backgroundColor: amber.jewel, shadowColor: amber.glow, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }]}
             />
-            <Text style={styles.onAirText}>ON THE AIR — {clock12(clockNow)}</Text>
+            <Text style={styles.onAirText}>{onAirText}</Text>
           </View>
         </View>
         {tabs}
@@ -358,14 +431,13 @@ const styles = StyleSheet.create({
   boardL: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#170e07',
-    paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: 8,
   },
   headerL: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: HEAD.gap,
   },
   titleL: {
     fontFamily: fonts.plate,
@@ -382,7 +454,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: walnut.void,
     paddingVertical: 3,
-    paddingHorizontal: 12,
+    paddingHorizontal: HEAD.platePad,
+    flexShrink: 1,
     shadowColor: amber.jewel,
     shadowOpacity: 0.3,
     shadowRadius: 14,
@@ -410,7 +483,6 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
     marginTop: 8,
   },
   // Drawn triangles, not typeset ones — Besley has no U+25C0/25B6, so iOS
@@ -446,7 +518,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: walnut.void,
     paddingVertical: 4,
-    paddingHorizontal: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Two lines of 7.5pt at a 9.5pt lead, and the plate's own padding.
+  tabTall: {
+    minHeight: 2 * 9.5 + 2 * 4 + 2,
+    paddingVertical: 3,
+  },
+  tabTextTall: {
+    lineHeight: 9.5,
+    textAlign: 'center',
   },
   tabActive: {
     shadowColor: amber.jewel,
@@ -457,14 +539,13 @@ const styles = StyleSheet.create({
   tabText: {
     fontFamily: fonts.plate,
     fontWeight: '700',
-    fontSize: 7.5,
-    letterSpacing: 1,
+    fontSize: TAB.fontSize,
   },
   tabHint: {
     marginLeft: 'auto',
     fontFamily: fonts.plate,
-    fontSize: 7,
-    letterSpacing: 1.6,
+    fontSize: TAB_HINT_SIZE,
+    letterSpacing: TAB_HINT_TRACKING,
     color: '#6e5f4b',
   },
   rowsWrap: {

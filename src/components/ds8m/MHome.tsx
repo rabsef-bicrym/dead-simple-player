@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Animated, Pressable, useWindowDimensions } from 'react-native';
+import type { StyleProp, TextStyle } from 'react-native';
 import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,13 +21,16 @@ import {
   useReducedMotion,
 } from '../../ui/motion';
 import { clock12, clockShort } from '../../utils/clock';
+import { engrave, engravedWidth } from '../../ui/engraverFit';
+import { blurbBudget, gateLegend, gateLegendColumn, numeralCut, shortenBlurb, thenComes, type GateLegendOptions } from './plateFit';
 import type { Channel, Programme } from '../../types';
 
 /**
  * The DS-8/M home — the traveling set's receiver, both uprightnesses.
  *
- * Landscape (9a): the dial becomes a floor shifter. Four slots, two
- * gates each — eight forward speeds when the eighth station arrives.
+ * Landscape (9a): the dial becomes a floor shifter. One slot for every
+ * two stations, a gate at each end — ten forward speeds today, each with
+ * its numeral at the gate and its name cut whole beside it.
  * Drag isn't required: run the gate with a sideways swipe, or tap a
  * gate and the lever throws itself there, through neutral, and settles
  * with the same detent the big dial uses.
@@ -62,10 +66,14 @@ function Jewel({ size = 7, amplitude = 0.035 }: { size?: number; amplitude?: num
   );
 }
 
+/** Side padding, always given edge by edge so a safe-area inset can widen one side. */
+interface SidePad { paddingLeft: number; paddingRight: number }
+const MASTHEAD_PAD: SidePad = { paddingLeft: 24, paddingRight: 24 };
+
 /** The masthead: the D S , P plate, the one chrome signature, the hour. */
-function Masthead({ clockNow, compact }: { clockNow: Date; compact?: boolean }) {
+function Masthead({ clockNow, compact, pad = MASTHEAD_PAD }: { clockNow: Date; compact?: boolean; pad?: SidePad }) {
   return (
-    <View style={styles.masthead}>
+    <View style={[styles.masthead, pad]}>
       <View style={styles.markShell}>
         <LinearGradient colors={[walnut.grain, '#231507']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.markFace}>
           <Text style={[styles.markText, compact && { fontSize: 11 }]}>D S , P</Text>
@@ -83,34 +91,104 @@ function Masthead({ clockNow, compact }: { clockNow: Date; compact?: boolean }) 
 
 // ── The gated shifter (9a) ──
 
-const PLATE_W = 372;
+// The plate is drawn at these sizes and scaled as one piece to the room's
+// height. Its width is not fixed: ten speeds need wider columns than six
+// did, so the home hands the plate what the answering panel can spare.
 const PLATE_H = 272;
-const SLOT_TOP = 64;
-const SLOT_H = 150;
-const RAIL_Y = 133; // the neutral crossbar
+/** The plate as first drawn, for six speeds. It is never narrower than this. */
+const PLATE_DRAWN_W = 372;
+/** Past this the ten legends are already at their designed size, and the panel wants the room. */
+const PLATE_MAX_W = 480;
+const PLATE_PAD = 6;
+const SLOT_TOP = 71;
+const SLOT_H = 132;
+const RAIL_Y = 131; // the neutral crossbar
 const KNOB = 46;
+/** A gate's tap target starts this far down, clear of the plate's heading. */
+const GATE_TAP_INSET = 24;
+/** The lever seats this far in from a slot's end. */
+const GATE_SEAT = 22;
+
+// A gate's legend: the numeral nearest the slot, the name outboard of it.
+const LEGEND_NUMERAL = 13;
+const LEGEND_NUMERAL_LINE = 15;
+const LEGEND_NAME = 9.5;
+/** The legend is never cut below this on the plate, nor below 7.5 on the glass. */
+const LEGEND_NAME_MIN = 8;
+const LEGEND_ON_GLASS_MIN = 7.5;
+const LEGEND_H = LEGEND_NUMERAL_LINE + 2 * (LEGEND_NAME + 1.5);
+const legendTracking = (fontSize: number) => fontSize * 0.13;
+/** Clear air between one gate's legend and the next. */
+const LEGEND_GUTTER = 4;
+
+/**
+ * How the gate's legend is cut on a plate shown at `scale`. The floor is
+ * held on the glass, after the plate's scale, not merely on the drawing: a
+ * short window draws the legend larger so that it lands no smaller.
+ */
+function legendCut(scale: number): GateLegendOptions {
+  const floor = Math.max(LEGEND_NAME_MIN, Math.ceil((LEGEND_ON_GLASS_MIN / scale) * 2) / 2);
+  return {
+    fontSize: Math.max(LEGEND_NAME, floor),
+    minFontSize: floor,
+    tracking: legendTracking,
+    // A name closes its tracking to half before it breaks at a word; one
+    // long word, which cannot break, may close to a quarter.
+    minTrackingRatio: 0.5,
+    lastResortTrackingRatio: 0.25,
+  };
+}
+
+/** The narrowest plate on which every one of these names is whole at the floor size. */
+function plateNeed(names: string[], scale: number): number {
+  const slots = Math.max(1, Math.ceil(names.length / 2));
+  const column = gateLegendColumn(names, legendCut(scale)) + LEGEND_GUTTER + 0.5;
+  return Math.max(PLATE_DRAWN_W, slots * column + 2 * PLATE_PAD);
+}
 
 interface ShifterProps {
   channels: Channel[];
   selectedIndex: number;
   onGate: (index: number) => void;
   scale: number;
+  /** The plate's drawn width, before `scale`. */
+  width: number;
 }
 
-function Shifter({ channels, selectedIndex, onGate, scale }: ShifterProps) {
+function Shifter({ channels, selectedIndex, onGate, scale, width }: ShifterProps) {
   const reducedMotion = useReducedMotion();
   const slots = Math.max(1, Math.ceil(channels.length / 2));
-  const spacing = slots > 1 ? (PLATE_W - 104) / (slots - 1) : 0;
-  const slotX = (s: number) => 52 + s * spacing;
+  // One column a slot, edge to edge: a legend is centred on its slot and
+  // owns the column, so no two can meet.
+  const column = (width - 2 * PLATE_PAD) / slots;
+  const slotX = (s: number) => PLATE_PAD + column * (s + 0.5);
   const gatePos = (i: number) => {
     const s = Math.floor(i / 2);
     const top = i % 2 === 0;
-    return { x: slotX(s), y: top ? SLOT_TOP + 20 : SLOT_TOP + SLOT_H - 20 };
+    return { x: slotX(s), y: top ? SLOT_TOP + GATE_SEAT : SLOT_TOP + SLOT_H - GATE_SEAT };
   };
+
+  // Every name is cut at one size, the largest at which all of them go into
+  // a column, long ones broken at a word.
+  const names = channels.map((ch) => ch.name);
+  const namesKey = names.join('\n');
+  const legend = useMemo(
+    () => gateLegend(names, column - LEGEND_GUTTER, legendCut(scale)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [namesKey, column, scale],
+  );
 
   const target = gatePos(Math.min(selectedIndex, channels.length - 1));
   const pos = useRef(new Animated.ValueXY(target)).current;
   const prevIndex = useRef(selectedIndex);
+
+  // The plate's width follows the window. If it changes under a resting
+  // lever (a resized review window, a split screen), reseat the lever.
+  useEffect(() => {
+    pos.stopAnimation();
+    pos.setValue(gatePos(Math.min(prevIndex.current, channels.length - 1)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [column]);
 
   // The throw: pull to neutral, run the gate, push home. Detent on
   // settle — the same click the big dial makes.
@@ -143,8 +221,24 @@ function Shifter({ channels, selectedIndex, onGate, scale }: ShifterProps) {
   }, [selectedIndex, reducedMotion]);
 
   return (
-    <View style={{ width: PLATE_W * scale, height: PLATE_H * scale }}>
-      <View style={[styles.shifterPlate, { transform: [{ scale }], width: PLATE_W, height: PLATE_H }]}>
+    <View style={{ width: width * scale, height: PLATE_H * scale }}>
+      {/* Scaled about its centre, then walked back, so the plate's top-left
+          corner stays on the wrapper's: the scaled plate fills the box the
+          row was told it has, instead of sitting half its shrinkage off. */}
+      <View
+        style={[
+          styles.shifterPlate,
+          {
+            width,
+            height: PLATE_H,
+            transform: [
+              { translateX: (-width * (1 - scale)) / 2 },
+              { translateY: (-PLATE_H * (1 - scale)) / 2 },
+              { scale },
+            ],
+          },
+        ]}
+      >
         <Screw style={{ left: 8, top: 8 }} />
         <Screw style={{ right: 8, top: 8 }} />
         <Screw style={{ left: 8, bottom: 8 }} />
@@ -157,29 +251,54 @@ function Shifter({ channels, selectedIndex, onGate, scale }: ShifterProps) {
         {Array.from({ length: slots }, (_, s) => (
           <View key={s} style={[styles.slot, { left: slotX(s) - 6 }]} />
         ))}
-        <View style={styles.rail} />
+        <View style={[styles.rail, { left: slotX(0) - 6, width: slotX(slots - 1) - slotX(0) + 12 }]} />
 
-        {/* gear labels, tappable — the gate answers the finger */}
+        {/* gear legends, tappable — the gate answers the finger. Each speed
+            owns its column from the plate's edge to the crossbar, so the
+            targets are as large as the plate allows and cannot overlap. */}
         {channels.map((ch, i) => {
           const s = Math.floor(i / 2);
           const top = i % 2 === 0;
           const active = i === selectedIndex;
+          const cut = legend.names[i];
+          const tapTop = top ? GATE_TAP_INSET : RAIL_Y + 6 + 1;
+          const tapH = RAIL_Y + 6 - 1 - GATE_TAP_INSET;
+          const legendTop = top ? SLOT_TOP - 5 - LEGEND_H : SLOT_TOP + SLOT_H + 4;
+          const nameStyle = [
+            styles.gateName,
+            {
+              fontSize: legend.fontSize,
+              lineHeight: legend.fontSize + 1.5,
+              letterSpacing: cut.letterSpacing,
+            },
+            active && styles.gateLabelLit,
+          ];
+          const numeral = (
+            <Text style={[styles.gateNumeral, active && styles.gateLabelLit]} numberOfLines={1}>
+              {ch.number}
+            </Text>
+          );
           return (
             <Pressable
               key={ch.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Channel ${ch.number}, ${ch.name}`}
               onPress={() => onGate(i)}
-              style={[styles.gateTap, { left: slotX(s) - spacing / 2 + 4, width: spacing - 8, top: top ? 24 : PLATE_H / 2 + 2, height: PLATE_H / 2 - 26 }]}
+              style={[styles.gateTap, { left: slotX(s) - column / 2 + 1, width: column - 2, top: tapTop, height: tapH }]}
             >
-              <Text
+              <View
                 style={[
-                  styles.gateLabel,
-                  top ? { top: 12 } : { bottom: 12 },
-                  active && styles.gateLabelLit,
+                  styles.gateLegend,
+                  { top: legendTop - tapTop, height: LEGEND_H, justifyContent: top ? 'flex-end' : 'flex-start' },
                 ]}
-                numberOfLines={1}
               >
-                {ch.number} · {ch.name.toUpperCase()}
-              </Text>
+                {!top && numeral}
+                {cut.lines.map((line, l) => (
+                  // The cut already fits; one line each is only the net under it.
+                  <Text key={l} style={nameStyle} numberOfLines={1}>{line.toUpperCase()}</Text>
+                ))}
+                {top && numeral}
+              </View>
             </Pressable>
           );
         })}
@@ -218,6 +337,14 @@ function Shifter({ channels, selectedIndex, onGate, scale }: ShifterProps) {
 
 // ── Landscape home (9a) ──
 
+/** The answering panel's reading measure: the blurb is never set wider. */
+const PANEL_MEASURE = 340;
+/** The least the panel is ever left, whatever the gate would like. */
+const PANEL_FLOOR = 120;
+const PANEL_BLURB_SIZE = 13.5;
+const PANEL_BLURB_LINES = 3;
+const PANEL_THEN_SIZE = 12.5;
+
 interface MHomeLandscapeProps {
   channels: Channel[];
   selectedIndex: number;
@@ -250,7 +377,45 @@ export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPow
     return () => panelOpacity.stopAnimation();
   }, [selectedIndex, panelOpacity, reducedMotion]);
 
-  const scale = Math.min(1, (height - 112) / PLATE_H);
+  // The safe area, reasoned not seen (the web review has none). Held on its
+  // side a notched iPhone reports its sensor housing as equal left and right
+  // insets, and its home indicator as a bottom one. The gate's legends now
+  // run to the plate's edge and THIS EVENING sits 9pt off the bottom, so
+  // both would sit under them; the cabinet steps in by the insets instead.
+  const insets = useSafeAreaInsets();
+  const { width: winW } = useWindowDimensions();
+  // A small phone has no margin to spare: the walnut border yields 8pt a side.
+  const margin = winW < 720 ? 16 : 24;
+  const padLeft = Math.max(margin, insets.left);
+  const padRight = Math.max(margin, insets.right);
+  const sidePad: SidePad = { paddingLeft: padLeft, paddingRight: padRight };
+  const railBottom = Math.max(9, insets.bottom);
+
+  // What the masthead and the service rail take, and 6pt of air above and
+  // below the plate so that a scaled plate never touches either.
+  const scale = Math.min(1, (height - 118 - (railBottom - 9)) / PLATE_H);
+  // The gate takes what the answering panel can spare past its reading
+  // measure: never narrower than its legends need to be whole, and no wider
+  // than they can use. Only a window too small for any phone caps it short.
+  const rowW = winW - padLeft - padRight - margin;
+  const namesKey = channels.map((ch) => ch.name).join('\n');
+  const plateMinW = useMemo(
+    () => plateNeed(namesKey.split('\n'), scale),
+    [namesKey, scale],
+  );
+  const plateW = Math.min(
+    Math.max(plateMinW, Math.min(PLATE_MAX_W, (rowW - PANEL_MEASURE) / scale)),
+    Math.max(PLATE_DRAWN_W, (rowW - PANEL_FLOOR) / scale),
+  );
+  const panelW = Math.max(0, rowW - plateW * scale);
+  const blurb = now?.description
+    ? shortenBlurb(now.description, blurbBudget(Math.min(PANEL_MEASURE, panelW), PANEL_BLURB_SIZE, PANEL_BLURB_LINES))
+    : '';
+  // "Then comes …, at …" has two lines. On a narrow panel a long title
+  // used to push the hour off the end of the second; the hour stays.
+  const then = next
+    ? thenComes(next.title, timeToProse(next.start), clockShort(next.start), blurbBudget(panelW, PANEL_THEN_SIZE, 2))
+    : null;
   const meta = now
     ? [`${clockShort(now.start)} TO ${clockShort(now.stop)}`, now.subtitle?.toUpperCase()].filter(Boolean).join(' · ')
     : null;
@@ -258,10 +423,10 @@ export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPow
   return (
     <View style={styles.cabinet}>
       <CabinetLight />
-      <Masthead clockNow={clockNow} />
+      <Masthead clockNow={clockNow} pad={sidePad} />
 
-      <View style={styles.midRow}>
-        <Shifter channels={channels} selectedIndex={selectedIndex} onGate={onGate} scale={scale} />
+      <View style={[styles.midRow, sidePad, { gap: margin }]}>
+        <Shifter channels={channels} selectedIndex={selectedIndex} onGate={onGate} scale={scale} width={plateW} />
 
         <Animated.View style={[styles.panel, { opacity: panelOpacity }]}>
           {selected && (
@@ -272,12 +437,12 @@ export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPow
               </View>
               <Text style={styles.panelTitle} numberOfLines={2}>{now?.title ?? selected.name}</Text>
               {meta && <Text style={styles.panelMeta} numberOfLines={1}>{meta}</Text>}
-              {now?.description ? (
-                <Text style={styles.panelBlurb} numberOfLines={3}>{now.description}</Text>
+              {blurb ? (
+                <Text style={styles.panelBlurb} numberOfLines={PANEL_BLURB_LINES}>{blurb}</Text>
               ) : null}
-              {next && (
+              {then && (
                 <Text style={styles.panelThen} numberOfLines={2}>
-                  Then comes <Text style={styles.panelThenTitle}>{next.title}</Text>, at {timeToProse(next.start)}.
+                  Then comes <Text style={styles.panelThenTitle}>{then.title}</Text>, at {then.when}.
                 </Text>
               )}
             </Pressable>
@@ -285,7 +450,7 @@ export function MHomeLandscape({ channels, selectedIndex, onGate, onBoard, onPow
         </Animated.View>
       </View>
 
-      <View style={styles.railBar}>
+      <View style={[styles.railBar, sidePad, { paddingBottom: railBottom }]}>
         <Text style={styles.railModel}>MODEL DS-{channels.length}/M · TRAVELING SET</Text>
         <Pressable onPress={onBoard} style={styles.railButton}>
           <Text style={styles.railButtonText}>THIS EVENING</Text>
@@ -323,10 +488,41 @@ interface MHomePortraitProps {
   selectionRequest?: { index: number; token: number } | null;
 }
 
-function nowLine(now?: Programme, next?: Programme): string {
-  if (now) return `${now.title} · until ${clockShort(now.stop)}`;
-  if (next) return `then ${next.title}`;
-  return '';
+// The column register's drawn sizes, the full plate and the compact one the
+// watch seat uses. The row's layout and its engraving both read these, so
+// the name is cut to the room the layout really leaves it.
+const ROW = {
+  full: { side: 52, pad: 14, gap: 12, numeral: 22, numeralSize: 20, name: 11, nameMin: 8, tracking: 1.8, onAir: 7, onAirTracking: 1.6 },
+  compact: { side: 38, pad: 9, gap: 8, numeral: 18, numeralSize: 15, name: 9, nameMin: 7, tracking: 1.5, onAir: 6, onAirTracking: 1.2 },
+} as const;
+const ON_AIR = 'ON THE AIR';
+
+/** A row shorter than this cannot hold the name and the programme line both. */
+const TWO_LINE_ROW = { full: 32, compact: 25 } as const;
+
+/**
+ * What is on, and when it ends. The ending is the one thing a viewer needs
+ * from this line, so it is set whole and the title gives way before it.
+ */
+function NowLine({ now, next, style }: { now?: Programme; next?: Programme; style: StyleProp<TextStyle> }) {
+  if (now) {
+    return (
+      <View style={styles.columnNowRow}>
+        <Text style={[style, styles.columnNowTitle]} numberOfLines={1}>{now.title}</Text>
+        {/* The word space before the dot is a margin, not a character: a
+            leading space is not kept the same way by every platform. */}
+        <Text style={[style, styles.columnNowUntil]}>{`· until ${clockShort(now.stop)}`}</Text>
+      </View>
+    );
+  }
+  if (next) {
+    return (
+      <View style={styles.columnNowRow}>
+        <Text style={[style, styles.columnNowTitle]} numberOfLines={1}>{`then ${next.title}`}</Text>
+      </View>
+    );
+  }
+  return null;
 }
 
 interface MColumnRegisterProps {
@@ -352,8 +548,14 @@ interface ColumnRowProps {
   now?: Programme;
   next?: Programme;
   active: boolean;
+  /** The lever rests here, but the set is not playing: the plate wears lit ink, no fill. */
+  resting: boolean;
   pending: boolean;
   compact: boolean;
+  /** The row's width, border to border. */
+  rowWidth: number;
+  /** False when the row is too short for the programme line; the name stays. */
+  showNow: boolean;
   bloom: Animated.Value;
   stampOnMount: boolean;
   reducedMotion: boolean;
@@ -366,13 +568,37 @@ function ColumnRow({
   now,
   next,
   active,
+  resting,
   pending,
   compact,
+  rowWidth,
+  showNow,
   bloom,
   stampOnMount,
   reducedMotion,
   onPress,
 }: ColumnRowProps) {
+  const d = compact ? ROW.compact : ROW.full;
+  // A numeral wider than one digit keeps its size and its centre line.
+  const numeral = numeralCut(channel.number, d.numeral, d.numeralSize);
+  // The room the name really has: the row, less its border and padding, the
+  // numeral's column, and the ON THE AIR stamp when this row wears it.
+  const onAirW = active ? engravedWidth(ON_AIR, d.onAir, d.onAirTracking, 400) + d.gap : 0;
+  const nameRoom = rowWidth - 2 - 2 * d.pad - d.numeral - d.gap - onAirW;
+  const name = useMemo(
+    () => engrave(channel.name, nameRoom, {
+      fontSize: d.name,
+      minFontSize: d.nameMin,
+      tracking: (size) => (d.tracking * size) / d.name,
+      minTrackingRatio: 0.5,
+      margin: 1,
+    }),
+    [channel.name, nameRoom, d],
+  );
+  // Lit ink is for a plate at rest. Under the bloom the row is turning amber
+  // itself, and amber on amber would vanish.
+  const lit = resting && !pending;
+
   const stamp = useRef(new Animated.Value(1)).current;
   const [printed, setPrinted] = useState(!stampOnMount || reducedMotion);
 
@@ -425,24 +651,38 @@ function ColumnRow({
                   />
                 </Animated.View>
               )}
-              <Text style={[styles.columnNo, compact && styles.columnNoCompact, active && styles.columnInk]}>
+              <Text
+                style={[
+                  styles.columnNo,
+                  { width: numeral.width, marginHorizontal: -numeral.bleed, fontSize: numeral.fontSize },
+                  active && styles.columnInk,
+                  lit && styles.columnLit,
+                ]}
+                numberOfLines={1}
+              >
                 {channel.number}
               </Text>
               <View style={styles.columnCopy}>
                 <Text
-                  style={[styles.columnName, compact && styles.columnNameCompact, active && styles.columnInk]}
+                  style={[
+                    styles.columnName,
+                    { fontSize: name.fontSize, letterSpacing: name.letterSpacing },
+                    active && styles.columnInk,
+                    lit && styles.columnLit,
+                  ]}
                   numberOfLines={1}
                 >
                   {channel.name.toUpperCase()}
                 </Text>
-                <Text
-                  style={[styles.columnNow, compact && styles.columnNowCompact, active && styles.columnInkMuted]}
-                  numberOfLines={1}
-                >
-                  {nowLine(now, next)}
-                </Text>
+                {showNow && (
+                  <NowLine
+                    now={now}
+                    next={next}
+                    style={[styles.columnNow, compact && styles.columnNowCompact, active && styles.columnInkMuted]}
+                  />
+                )}
               </View>
-              {active && <Text style={[styles.columnOnAir, compact && styles.columnOnAirCompact]}>ON THE AIR</Text>}
+              {active && <Text style={[styles.columnOnAir, compact && styles.columnOnAirCompact]}>{ON_AIR}</Text>}
             </LinearGradient>
           </Pressable>
         </Animated.View>
@@ -466,7 +706,9 @@ export function MColumnRegister({
   selectionRequest,
 }: MColumnRegisterProps) {
   const reducedMotion = useReducedMotion();
+  const { width: winW } = useWindowDimensions();
   const [bodyH, setBodyH] = useState(0);
+  const [bodyW, setBodyW] = useState(0);
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const pendingRef = useRef<number | null>(null);
   const bloomCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -478,8 +720,18 @@ export function MColumnRegister({
   const knobReady = useRef(false);
   const safeTuned = Math.min(tunedIndex, channels.length - 1);
   const n = Math.max(1, channels.length);
-  const gap = compact ? 4 : 7;
-  const rowPitch = bodyH > 0 ? (bodyH - gap * (n - 1)) / n : 0;
+  const d = compact ? ROW.compact : ROW.full;
+  // Ten plates on a small phone: the air between them yields before a plate
+  // drops under a finger's width.
+  const pitchAt = (g: number) => (bodyH > 0 ? (bodyH - g * (n - 1)) / n : 0);
+  const gap = compact || (bodyH > 0 && pitchAt(7) < 44) ? 4 : 7;
+  const rowPitch = pitchAt(gap);
+  // And if the room is shorter still (more stations than any phone has yet
+  // been asked to carry), the programme line goes and the names stay whole.
+  const showNow = rowPitch === 0 || rowPitch >= (compact ? TWO_LINE_ROW.compact : TWO_LINE_ROW.full);
+  // The body's measured width; before the first layout, the window less the
+  // padding each of the register's two seats gives it.
+  const rowWidth = Math.max(0, (bodyW || winW - (compact ? 28 : 44)) - 2 * d.side);
   const knobSize = compact ? 28 : 36;
   const displayIndex = pendingIndex ?? safeTuned;
   const knobCenter = rowPitch > 0 ? displayIndex * (rowPitch + gap) + rowPitch / 2 : -100;
@@ -558,7 +810,10 @@ export function MColumnRegister({
 
       <View
         style={[styles.columnBody, compact && styles.columnBodyCompact]}
-        onLayout={(e) => setBodyH(e.nativeEvent.layout.height)}
+        onLayout={(e) => {
+          setBodyH(e.nativeEvent.layout.height);
+          setBodyW(e.nativeEvent.layout.width);
+        }}
       >
         <View style={[styles.columnRail, compact && styles.columnRailCompact]} />
         {rowPitch > 0 && (
@@ -597,8 +852,11 @@ export function MColumnRegister({
                 now={now}
                 next={next}
                 active={engaged && i === safeTuned}
+                resting={!engaged && i === safeTuned}
                 pending={pendingIndex === i}
                 compact={compact}
+                rowWidth={rowWidth}
+                showNow={showNow}
                 bloom={bloom}
                 stampOnMount={stampOnMount}
                 reducedMotion={reducedMotion}
@@ -663,7 +921,10 @@ export function MHomePortrait({
       <Animated.View
         style={[
           styles.portraitPad,
-          { paddingTop: insets.top },
+          // The top inset clears the status bar and the sensor housing. The
+          // bottom one clears the home indicator, which would otherwise lie
+          // across THIS EVENING: the watch seat already steps up for it.
+          { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 14) },
           entrance === 'expand' && {
             transform: [
               { translateY: entry.interpolate({ inputRange: [0, 1], outputRange: [expandFrom, 0] }) },
@@ -721,10 +982,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 24,
     paddingTop: 14,
     zIndex: 2,
   },
+
   markShell: {
     borderRadius: 3,
     borderWidth: 1,
@@ -742,7 +1003,13 @@ const styles = StyleSheet.create({
     letterSpacing: 3.1,
     color: brass.bright,
   },
+  // On a 375pt phone the masthead as drawn has under a point to spare at
+  // "9:59 A.M." and is a point over at "10:00 A.M.". On the phone that
+  // point simply overhangs, unseen. In a browser a line of text gives way
+  // instead, and the hour's second digit folded the signature and the
+  // clock onto two lines and pushed the whole bank down. Neither may fold.
   signature: {
+    flexShrink: 0,
     fontFamily: fonts.signature,
     fontSize: 17,
     color: amber.needle,
@@ -753,6 +1020,7 @@ const styles = StyleSheet.create({
   },
   mastClock: {
     marginLeft: 'auto',
+    flexShrink: 0,
     fontFamily: fonts.plate,
     fontSize: 9,
     letterSpacing: 2.3,
@@ -771,8 +1039,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    gap: 24,
   },
 
   // ── shifter plate ──
@@ -809,8 +1075,6 @@ const styles = StyleSheet.create({
   },
   rail: {
     position: 'absolute',
-    left: 46,
-    right: 46,
     top: RAIL_Y,
     height: 12,
     backgroundColor: '#170e07',
@@ -821,15 +1085,25 @@ const styles = StyleSheet.create({
   gateTap: {
     position: 'absolute',
   },
-  gateLabel: {
+  gateLegend: {
     position: 'absolute',
     left: 0,
     right: 0,
+    alignItems: 'center',
+  },
+  gateNumeral: {
+    fontFamily: fonts.plate,
+    fontWeight: '700',
+    fontSize: LEGEND_NUMERAL,
+    lineHeight: LEGEND_NUMERAL_LINE,
+    textAlign: 'center',
+    color: brass.mid,
+  },
+  gateName: {
+    alignSelf: 'stretch',
     textAlign: 'center',
     fontFamily: fonts.plate,
     fontWeight: '700',
-    fontSize: 7.5,
-    letterSpacing: 1,
     color: brass.mid,
   },
   gateLabelLit: {
@@ -925,15 +1199,15 @@ const styles = StyleSheet.create({
   },
   panelBlurb: {
     fontFamily: fonts.speech,
-    fontSize: 13.5,
+    fontSize: PANEL_BLURB_SIZE,
     lineHeight: 21,
     color: '#cbba99',
     marginTop: 10,
-    maxWidth: 340,
+    maxWidth: PANEL_MEASURE,
   },
   panelThen: {
     fontFamily: fonts.speech,
-    fontSize: 12.5,
+    fontSize: PANEL_THEN_SIZE,
     color: brass.muted,
     marginTop: 8,
   },
@@ -947,8 +1221,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 22,
-    paddingHorizontal: 24,
-    paddingVertical: 9,
+    paddingTop: 9,
     borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.8)',
     zIndex: 2,
@@ -998,7 +1271,6 @@ const styles = StyleSheet.create({
   portraitPad: {
     flex: 1,
     paddingHorizontal: 22,
-    paddingBottom: 14,
   },
   register: {
     flex: 1,
@@ -1112,12 +1384,12 @@ const styles = StyleSheet.create({
   },
   columnRows: {
     flex: 1,
-    marginLeft: 52,
-    marginRight: 52,
+    marginLeft: ROW.full.side,
+    marginRight: ROW.full.side,
   },
   columnRowsCompact: {
-    marginLeft: 38,
-    marginRight: 38,
+    marginLeft: ROW.compact.side,
+    marginRight: ROW.compact.side,
   },
   columnRowSlot: {
     flex: 1,
@@ -1132,16 +1404,16 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
+    gap: ROW.full.gap,
+    paddingHorizontal: ROW.full.pad,
     borderWidth: 1,
     borderColor: walnut.void,
     borderRadius: 4,
     overflow: 'hidden',
   },
   columnRowCompact: {
-    gap: 8,
-    paddingHorizontal: 9,
+    gap: ROW.compact.gap,
+    paddingHorizontal: ROW.compact.pad,
     borderRadius: 3,
   },
   columnRowLit: {
@@ -1164,28 +1436,29 @@ const styles = StyleSheet.create({
   columnInkMuted: {
     color: 'rgba(42,26,8,0.75)',
   },
+  // The gate's lit legend, on the column: amber ink and its glow, no fill.
+  columnLit: {
+    color: amber.jewel,
+    textShadowColor: 'rgba(240,184,98,0.8)',
+    textShadowRadius: 10,
+    textShadowOffset: { width: 0, height: 0 },
+  },
+  // The numeral's size and box, and the name's size and tracking, are set
+  // on the row itself: they are cut to the station (see ColumnRow).
   columnNo: {
     fontFamily: fonts.plate,
     fontWeight: '600',
-    fontSize: 20,
     color: brass.muted,
-    width: 22,
     textAlign: 'center',
-  },
-  columnNoCompact: {
-    width: 18,
-    fontSize: 15,
   },
   columnName: {
     fontFamily: fonts.plate,
     fontWeight: '700',
-    fontSize: 11,
-    letterSpacing: 1.8,
     color: brass.bright,
   },
-  columnNameCompact: {
-    fontSize: 9,
-    letterSpacing: 1.5,
+  columnNowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   columnNow: {
     fontFamily: fonts.speech,
@@ -1197,15 +1470,23 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     marginTop: 0,
   },
+  columnNowTitle: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  columnNowUntil: {
+    flexShrink: 0,
+    marginLeft: 3,
+  },
   columnOnAir: {
     fontFamily: fonts.plate,
-    fontSize: 7,
-    letterSpacing: 1.6,
+    fontSize: ROW.full.onAir,
+    letterSpacing: ROW.full.onAirTracking,
     color: 'rgba(42,26,8,0.7)',
   },
   columnOnAirCompact: {
-    fontSize: 6,
-    letterSpacing: 1.2,
+    fontSize: ROW.compact.onAir,
+    letterSpacing: ROW.compact.onAirTracking,
   },
   portraitFoot: {
     alignItems: 'center',

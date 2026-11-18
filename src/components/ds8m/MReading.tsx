@@ -5,6 +5,7 @@ import { walnut, brass, amber, fonts } from '../../constants/ds6';
 import { MColumnRegister } from './MHome';
 import { FilamentLamp } from '../../ui/FilamentLamp';
 import { clock12 } from '../../utils/clock';
+import { lineCut } from './plateFit';
 import type { Channel, Programme } from '../../types';
 
 /**
@@ -14,6 +15,10 @@ import type { Channel, Programme } from '../../types';
  * receiver's existing column shift occupies the rest of the cabinet,
  * compressed for direct, in-place tuning without hiding the programme.
  */
+
+/** The register cabinet's side padding, and the share of its rail the channel plate may take. */
+const CABINET_PAD = 14;
+const CHAN_PLATE_SHARE = 0.76;
 
 interface MReadingProps {
   channels: Channel[];
@@ -49,6 +54,12 @@ export function MReading({
   const stripH = (width * 9) / 16;
   const safeTuned = Math.min(tunedIndex, channels.length - 1);
   const channel = channels[safeTuned];
+  // The amber plate may take CHAN_PLATE_SHARE of the rail. Its legend is cut
+  // to what that leaves inside the border, the padding and the jewel, so a
+  // long station name closes up rather than being dotted off.
+  const chanText = channel ? `CHANNEL ${channel.number} · ${channel.name.toUpperCase()}` : '';
+  const chanRoom = (width - 2 * CABINET_PAD) * CHAN_PLATE_SHARE - 2 - 2 * 10 - 6 - 7;
+  const chanCut = lineCut(chanText, chanRoom, 8, 1.4, 6.5);
 
   return (
     <View style={styles.room}>
@@ -81,8 +92,11 @@ export function MReading({
             style={styles.chanPlate}
           >
             <FilamentLamp style={styles.jewel} amplitude={0.032} />
-            <Text style={styles.chanText} numberOfLines={1}>
-              CHANNEL {channel?.number} · {channel?.name.toUpperCase()}
+            <Text
+              style={[styles.chanText, { fontSize: chanCut.fontSize, letterSpacing: chanCut.letterSpacing }]}
+              numberOfLines={1}
+            >
+              {chanText}
             </Text>
           </LinearGradient>
           <Text style={styles.clock}>{clock12(clockNow)}</Text>
@@ -127,7 +141,7 @@ const styles = StyleSheet.create({
   registerCabinet: {
     flex: 1,
     minHeight: 0,
-    paddingHorizontal: 14,
+    paddingHorizontal: CABINET_PAD,
     backgroundColor: '#120a05',
     borderTopWidth: 1,
     borderTopColor: brass.shadow,
@@ -141,7 +155,7 @@ const styles = StyleSheet.create({
   },
   chanPlate: {
     minWidth: 0,
-    maxWidth: '76%',
+    maxWidth: `${CHAN_PLATE_SHARE * 100}%`,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
