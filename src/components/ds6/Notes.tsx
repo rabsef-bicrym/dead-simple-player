@@ -235,6 +235,48 @@ export function Notes({ programme, channel, clockNow, onClose, pictureSeat = fal
     );
   }
 
+  const essay = (
+    <>
+      {/* Header plate */}
+      <View style={styles.headerPlateShell}>
+        <LinearGradient
+          colors={[walnut.grain, '#231507']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={[styles.headerPlate, upright && styles.headerPlateM]}
+        >
+          <View style={styles.jewel} />
+          <Text
+            style={[
+              styles.headerText,
+              headerCut && { fontSize: headerCut.fontSize, letterSpacing: headerCut.letterSpacing },
+            ]}
+          >
+            {headerLegend}
+          </Text>
+        </LinearGradient>
+      </View>
+
+      <Text style={styles.title}>{programme.title}</Text>
+      <Text style={styles.meta}>{metaLine(programme)}</Text>
+      <BrassRule />
+
+      {paragraphs.length > 0 ? (
+        paragraphs.map((para, i) => (
+          <Text key={i} style={i === 0 ? styles.lede : styles.body}>
+            {para}
+          </Text>
+        ))
+      ) : (
+        <Text style={styles.body}>The library offers no notes for this programme.</Text>
+      )}
+
+      <Text style={styles.hint}>
+        {upright ? 'TAP TO RETURN TO THE PICTURE' : 'READ ON · N RETURNS TO THE PICTURE'}
+      </Text>
+    </>
+  );
+
   return (
     <View style={StyleSheet.absoluteFill}>
       {/* the dimming — the projectionist lowers the house lights */}
@@ -283,43 +325,21 @@ export function Notes({ programme, channel, clockNow, onClose, pictureSeat = fal
         }}
         scrollEventThrottle={32}
       >
-        <View style={styles.column} pointerEvents="box-none">
-          {/* Header plate */}
-          <View style={styles.headerPlateShell}>
-            <LinearGradient
-              colors={[walnut.grain, '#231507']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={[styles.headerPlate, upright && styles.headerPlateM]}
-            >
-              <View style={styles.jewel} />
-              <Text
-                style={[
-                  styles.headerText,
-                  headerCut && { fontSize: headerCut.fontSize, letterSpacing: headerCut.letterSpacing },
-                ]}
-              >
-                {headerLegend}
-              </Text>
-            </LinearGradient>
+        {/*
+          Upright there is no N to press, and the pressable behind the
+          projection lies wholly under this scroll: a touch on the page never
+          reached it, so the notes could not be left by hand. The page itself
+          takes the tap. A drag is the scroll's and is not a tap.
+        */}
+        {upright ? (
+          <Pressable style={styles.column} onPress={onClose} accessible={false}>
+            {essay}
+          </Pressable>
+        ) : (
+          <View style={styles.column} pointerEvents="box-none">
+            {essay}
           </View>
-
-          <Text style={styles.title}>{programme.title}</Text>
-          <Text style={styles.meta}>{metaLine(programme)}</Text>
-          <BrassRule />
-
-          {paragraphs.length > 0 ? (
-            paragraphs.map((para, i) => (
-              <Text key={i} style={i === 0 ? styles.lede : styles.body}>
-                {para}
-              </Text>
-            ))
-          ) : (
-            <Text style={styles.body}>The library offers no notes for this programme.</Text>
-          )}
-
-          <Text style={styles.hint}>READ ON · N RETURNS TO THE PICTURE</Text>
-        </View>
+        )}
       </ScrollView>
 
       {/* Bottom rail — faith with the broadcast */}
