@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Pressable, useWindowDimensions } from 'react-native';
 import type { StyleProp, TextStyle } from 'react-native';
-import Svg, { Defs, Rect, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Defs, Rect, RadialGradient, Stop, Circle, Line } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { walnut, brass, amber, cream, fonts } from '../../constants/ds6';
@@ -22,6 +22,8 @@ import {
 } from '../../ui/motion';
 import { clock12, clockShort } from '../../utils/clock';
 import { engrave, engravedWidth } from '../../ui/engraverFit';
+import { elapsedFraction } from '../../ui/elapsed';
+import { WalnutGrain } from '../../ui/Walnut';
 import { blurbBudget, gateLegend, gateLegendColumn, numeralCut, shortenBlurb, thenComes, type GateLegendOptions } from './plateFit';
 import type { Channel, Programme } from '../../types';
 
@@ -239,6 +241,12 @@ function Shifter({ channels, selectedIndex, onGate, scale, width }: ShifterProps
           },
         ]}
       >
+        <LinearGradient
+          colors={PLATE_REST}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={styles.shifterFace}
+        />
         <Screw style={{ left: 8, top: 8 }} />
         <Screw style={{ right: 8, top: 8 }} />
         <Screw style={{ left: 8, bottom: 8 }} />
@@ -315,7 +323,9 @@ function Shifter({ channels, selectedIndex, onGate, scale, width }: ShifterProps
               ],
             },
           ]}
-        />
+        >
+          <ShiftKnob size={KNOB - 2} />
+        </Animated.View>
         <Animated.View
           pointerEvents="none"
           style={[
@@ -492,10 +502,13 @@ interface MHomePortraitProps {
 // watch seat uses. The row's layout and its engraving both read these, so
 // the name is cut to the room the layout really leaves it.
 const ROW = {
-  full: { side: 52, pad: 14, gap: 12, numeral: 22, numeralSize: 20, name: 11, nameMin: 8, tracking: 1.8, onAir: 7, onAirTracking: 1.6 },
-  compact: { side: 38, pad: 9, gap: 8, numeral: 18, numeralSize: 15, name: 9, nameMin: 7, tracking: 1.5, onAir: 6, onAirTracking: 1.2 },
+  full: { side: 52, sideRight: 4, pad: 14, gap: 12, numeral: 22, numeralSize: 20, name: 11, nameMin: 8, tracking: 1.8, onAir: 7, onAirTracking: 1.6 },
+  compact: { side: 38, sideRight: 2, pad: 9, gap: 8, numeral: 18, numeralSize: 15, name: 9, nameMin: 7, tracking: 1.5, onAir: 6, onAirTracking: 1.2 },
 } as const;
 const ON_AIR = 'ON THE AIR';
+/** The console's plate metals: dark stamped walnut at rest, backlit amber when tuned. */
+const PLATE_REST = [walnut.grain, walnut.raised, walnut.panel] as const;
+const PLATE_LIT = [amber.glow, amber.jewel, amber.deep] as const;
 
 /** A row shorter than this cannot hold the name and the programme line both. */
 const TWO_LINE_ROW = { full: 32, compact: 25 } as const;
@@ -584,7 +597,7 @@ function ColumnRow({
   // The room the name really has: the row, less its border and padding, the
   // numeral's column, and the ON THE AIR stamp when this row wears it.
   const onAirW = active ? engravedWidth(ON_AIR, d.onAir, d.onAirTracking, 400) + d.gap : 0;
-  const nameRoom = rowWidth - 2 - 2 * d.pad - d.numeral - d.gap - onAirW;
+  const nameRoom = rowWidth - 2 - 2 * d.pad - d.numeral - 2 * d.gap - 1 - onAirW;
   const name = useMemo(
     () => engrave(channel.name, nameRoom, {
       fontSize: d.name,
@@ -598,6 +611,7 @@ function ColumnRow({
   // Lit ink is for a plate at rest. Under the bloom the row is turning amber
   // itself, and amber on amber would vanish.
   const lit = resting && !pending;
+  const elapsed = showNow ? elapsedFraction(now, Date.now()) : null;
 
   const stamp = useRef(new Animated.Value(1)).current;
   const [printed, setPrinted] = useState(!stampOnMount || reducedMotion);
@@ -630,9 +644,9 @@ function ColumnRow({
         <Animated.View style={[styles.columnRowStamp, { transform: [{ scaleX: stamp }, { scaleY: stamp }] }]}>
           <Pressable onPress={onPress} style={styles.columnRowPressable}>
             <LinearGradient
-              colors={active ? ['#f2bd6b', '#d99b3f'] : ['#2e2013', '#171006']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
+              colors={active ? PLATE_LIT : PLATE_REST}
+              start={{ x: 0.15, y: 0 }}
+              end={{ x: 0.85, y: 1 }}
               style={[styles.columnRow, compact && styles.columnRowCompact, active && styles.columnRowLit]}
             >
               {pending && (
@@ -651,6 +665,14 @@ function ColumnRow({
                   />
                 </Animated.View>
               )}
+              {!compact && (
+                <>
+                  <View style={[styles.plateScrew, styles.plateScrewTL]}><View style={styles.plateScrewSlot} /></View>
+                  <View style={[styles.plateScrew, styles.plateScrewTR]}><View style={[styles.plateScrewSlot, styles.plateScrewSlotB]} /></View>
+                  <View style={[styles.plateScrew, styles.plateScrewBL]}><View style={[styles.plateScrewSlot, styles.plateScrewSlotC]} /></View>
+                  <View style={[styles.plateScrew, styles.plateScrewBR]}><View style={[styles.plateScrewSlot, styles.plateScrewSlotD]} /></View>
+                </>
+              )}
               <Text
                 style={[
                   styles.columnNo,
@@ -662,6 +684,7 @@ function ColumnRow({
               >
                 {channel.number}
               </Text>
+              <View style={[styles.columnDivider, (active || pending) && styles.columnDividerInk]} />
               <View style={styles.columnCopy}>
                 <Text
                   style={[
@@ -683,11 +706,65 @@ function ColumnRow({
                 )}
               </View>
               {active && <Text style={[styles.columnOnAir, compact && styles.columnOnAirCompact]}>{ON_AIR}</Text>}
+              {elapsed !== null && (
+                // How far the programme has run, along the plate's foot: the
+                // same amber line the apron draws under the picture.
+                <View pointerEvents="none" style={styles.columnRun}>
+                  <View
+                    style={[
+                      styles.columnRunDone,
+                      (active || pending) && styles.columnRunDoneInk,
+                      { width: `${Math.round(elapsed * 1000) / 10}%` },
+                    ]}
+                  />
+                </View>
+              )}
             </LinearGradient>
           </Pressable>
         </Animated.View>
       )}
     </View>
+  );
+}
+
+/**
+ * The lever's knob: a turned brass cap with a knurled skirt, lit from above
+ * like everything else on the cabinet. The jewel sits in its crown.
+ */
+function ShiftKnob({ size }: { size: number }) {
+  const c = size / 2;
+  const ticks = Array.from({ length: 28 }, (_, i) => (i / 28) * Math.PI * 2);
+  const rOut = c - 0.5;
+  const rIn = c * 0.74;
+  return (
+    <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <Defs>
+        <RadialGradient id="shiftKnobCap" cx="38%" cy="28%" r="80%">
+          <Stop offset="0%" stopColor={brass.light} />
+          <Stop offset="38%" stopColor={brass.shadow} />
+          <Stop offset="100%" stopColor="#2c1e0e" />
+        </RadialGradient>
+        <RadialGradient id="shiftKnobWell" cx="50%" cy="50%" r="50%">
+          <Stop offset="0%" stopColor="#0e0803" />
+          <Stop offset="70%" stopColor="#1c1208" />
+          <Stop offset="100%" stopColor="#3a2a14" />
+        </RadialGradient>
+      </Defs>
+      <Circle cx={c} cy={c} r={rOut} fill="#2a1c0d" />
+      {ticks.map((a, i) => (
+        <Line
+          key={i}
+          x1={c + rIn * Math.cos(a)}
+          y1={c + rIn * Math.sin(a)}
+          x2={c + rOut * Math.cos(a)}
+          y2={c + rOut * Math.sin(a)}
+          stroke={Math.sin(a) < 0.2 ? 'rgba(241,229,207,0.34)' : 'rgba(241,229,207,0.14)'}
+          strokeWidth={1}
+        />
+      ))}
+      <Circle cx={c} cy={c} r={rIn} fill="url(#shiftKnobCap)" stroke="rgba(0,0,0,0.6)" strokeWidth={0.75} />
+      <Circle cx={c} cy={c} r={c * 0.34} fill="url(#shiftKnobWell)" />
+    </Svg>
   );
 }
 
@@ -731,7 +808,7 @@ export function MColumnRegister({
   const showNow = rowPitch === 0 || rowPitch >= (compact ? TWO_LINE_ROW.compact : TWO_LINE_ROW.full);
   // The body's measured width; before the first layout, the window less the
   // padding each of the register's two seats gives it.
-  const rowWidth = Math.max(0, (bodyW || winW - (compact ? 28 : 44)) - 2 * d.side);
+  const rowWidth = Math.max(0, (bodyW || winW - (compact ? 28 : 44)) - d.side - d.sideRight);
   const knobSize = compact ? 28 : 36;
   const displayIndex = pendingIndex ?? safeTuned;
   const knobCenter = rowPitch > 0 ? displayIndex * (rowPitch + gap) + rowPitch / 2 : -100;
@@ -804,9 +881,13 @@ export function MColumnRegister({
 
   return (
     <View style={styles.register}>
-      <Text style={[styles.columnHead, compact && styles.columnHeadCompact]}>
-        COLUMN SHIFT — {countWord(channels.length)} POSITIONS
-      </Text>
+      <View style={[styles.columnHeadRow, compact && styles.columnHeadRowCompact]}>
+        <View style={styles.columnHeadRule} />
+        <Text style={[styles.columnHead, compact && styles.columnHeadCompact]}>
+          COLUMN SHIFT — {countWord(channels.length)} POSITIONS
+        </Text>
+        <View style={styles.columnHeadRule} />
+      </View>
 
       <View
         style={[styles.columnBody, compact && styles.columnBodyCompact]}
@@ -816,6 +897,18 @@ export function MColumnRegister({
         }}
       >
         <View style={[styles.columnRail, compact && styles.columnRailCompact]} />
+        {/* one drilled detent in the slot for every position the lever can rest in */}
+        {rowPitch > 0 && channels.map((ch, i) => (
+          <View
+            key={ch.id}
+            pointerEvents="none"
+            style={[
+              styles.columnDetent,
+              compact && styles.columnDetentCompact,
+              { top: i * (rowPitch + gap) + rowPitch / 2 - (compact ? 1.5 : 2) },
+            ]}
+          />
+        ))}
         {rowPitch > 0 && (
           <Animated.View
             pointerEvents="none"
@@ -825,7 +918,9 @@ export function MColumnRegister({
               { transform: [{ translateY: knobY }] },
             ]}
           >
-            <View style={[styles.columnKnob, compact && styles.columnKnobCompact, { top: -knobSize / 2 }]} />
+            <View style={[styles.columnKnob, compact && styles.columnKnobCompact, { top: -knobSize / 2 }]}>
+              <ShiftKnob size={knobSize - 2} />
+            </View>
             <FilamentLamp
               lit={engaged || pendingIndex !== null}
               amplitude={0.075}
@@ -837,8 +932,6 @@ export function MColumnRegister({
             />
           </Animated.View>
         )}
-
-        <View style={[styles.columnBumper, compact && styles.columnBumperCompact]} />
 
         <View style={[styles.columnRows, compact && styles.columnRowsCompact, { gap }]}>
           {channels.map((ch, i) => {
@@ -876,6 +969,14 @@ export function MColumnRegister({
         onLongPress={onService}
         style={[styles.portraitFoot, compact && styles.portraitFootCompact]}
       >
+        <LinearGradient
+          colors={PLATE_REST}
+          start={{ x: 0.15, y: 0 }}
+          end={{ x: 0.85, y: 1 }}
+          style={styles.portraitFootFace}
+        />
+        <View style={[styles.plateScrew, styles.footScrewL]}><View style={styles.plateScrewSlot} /></View>
+        <View style={[styles.plateScrew, styles.footScrewR]}><View style={[styles.plateScrewSlot, styles.plateScrewSlotC]} /></View>
         <Text style={[styles.footEvening, compact && styles.footEveningCompact]}>THIS EVENING</Text>
       </Pressable>
     </View>
@@ -954,6 +1055,7 @@ export function MHomePortrait({
 /** The cabinet's light falls from up-left (landscape) or above (portrait). */
 function CabinetLight({ portrait }: { portrait?: boolean }) {
   return (
+    <>
     <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
       <Defs>
         <RadialGradient
@@ -970,6 +1072,8 @@ function CabinetLight({ portrait }: { portrait?: boolean }) {
       </Defs>
       <Rect x={0} y={0} width="100%" height="100%" fill="url(#mCabinetLight)" />
     </Svg>
+    <WalnutGrain />
+    </>
   );
 }
 
@@ -1045,12 +1149,19 @@ const styles = StyleSheet.create({
   shifterPlate: {
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: walnut.void,
+    borderTopColor: 'rgba(241,229,207,0.16)',
+    borderLeftColor: 'rgba(241,229,207,0.09)',
+    borderRightColor: 'rgba(0,0,0,0.7)',
+    borderBottomColor: 'rgba(0,0,0,0.85)',
     backgroundColor: '#241809',
     shadowColor: '#000',
     shadowOpacity: 0.5,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 6 },
+  },
+  shifterFace: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 5,
   },
   shifterHead: {
     position: 'absolute',
@@ -1119,6 +1230,8 @@ const styles = StyleSheet.create({
     width: KNOB,
     height: KNOB,
     borderRadius: KNOB / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#3a2a14',
     borderWidth: 1,
     borderColor: walnut.void,
@@ -1276,16 +1389,28 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
+  columnHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 18,
+  },
+  columnHeadRowCompact: {
+    marginTop: 8,
+  },
+  columnHeadRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: brass.shadow,
+  },
   columnHead: {
     fontFamily: fonts.plate,
     fontSize: 7.5,
     letterSpacing: 2.5,
     color: brass.mid,
     textAlign: 'center',
-    marginTop: 18,
   },
   columnHeadCompact: {
-    marginTop: 8,
     fontSize: 7,
     letterSpacing: 2.2,
   },
@@ -1302,10 +1427,29 @@ const styles = StyleSheet.create({
     top: 10,
     bottom: 10,
     width: 12,
-    backgroundColor: '#170e07',
+    // A slot milled into the cabinet: its upper lip is in shade, its lower
+    // lip catches the light.
+    backgroundColor: '#0c0602',
     borderWidth: 1,
-    borderColor: walnut.void,
+    borderTopColor: 'rgba(0,0,0,0.85)',
+    borderLeftColor: 'rgba(0,0,0,0.7)',
+    borderRightColor: 'rgba(241,229,207,0.1)',
+    borderBottomColor: 'rgba(241,229,207,0.16)',
     borderRadius: 7,
+  },
+  columnDetent: {
+    position: 'absolute',
+    left: 18,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: brass.shadow,
+  },
+  columnDetentCompact: {
+    left: 12,
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
   },
   columnRailCompact: {
     left: 9,
@@ -1330,6 +1474,8 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#3a2a14',
     borderWidth: 1,
     borderColor: walnut.void,
@@ -1364,32 +1510,14 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
-  columnBumper: {
-    position: 'absolute',
-    right: 2,
-    top: 10,
-    bottom: 10,
-    width: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: walnut.void,
-    backgroundColor: '#20150a',
-  },
-  columnBumperCompact: {
-    right: 0,
-    top: 6,
-    bottom: 6,
-    width: 28,
-    borderRadius: 14,
-  },
   columnRows: {
     flex: 1,
     marginLeft: ROW.full.side,
-    marginRight: ROW.full.side,
+    marginRight: ROW.full.sideRight,
   },
   columnRowsCompact: {
     marginLeft: ROW.compact.side,
-    marginRight: ROW.compact.side,
+    marginRight: ROW.compact.sideRight,
   },
   columnRowSlot: {
     flex: 1,
@@ -1406,11 +1534,72 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: ROW.full.gap,
     paddingHorizontal: ROW.full.pad,
+    // The console plate's bevel: the edges that face the light are bright,
+    // the edges that turn from it are in shade.
     borderWidth: 1,
-    borderColor: walnut.void,
+    borderTopColor: 'rgba(241,229,207,0.16)',
+    borderLeftColor: 'rgba(241,229,207,0.09)',
+    borderRightColor: 'rgba(0,0,0,0.7)',
+    borderBottomColor: 'rgba(0,0,0,0.85)',
     borderRadius: 4,
     overflow: 'hidden',
   },
+  columnDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    marginVertical: 9,
+    backgroundColor: brass.shadow,
+    opacity: 0.8,
+  },
+  columnDividerInk: {
+    backgroundColor: 'rgba(26,16,6,0.32)',
+    opacity: 1,
+  },
+  columnRun: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 2,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+  },
+  columnRunDone: {
+    height: 2,
+    backgroundColor: amber.needle,
+    opacity: 0.85,
+  },
+  columnRunDoneInk: {
+    backgroundColor: '#2a1a08',
+    opacity: 0.55,
+  },
+  plateScrew: {
+    position: 'absolute',
+    zIndex: 2,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: brass.mid,
+    borderWidth: 0.5,
+    borderColor: walnut.void,
+  },
+  // Slots sit at their own angles: aligned slots are the tell of a fake panel.
+  plateScrewSlot: {
+    width: 3.5,
+    height: 1,
+    backgroundColor: walnut.deep,
+    transform: [{ rotate: '22deg' }],
+  },
+  plateScrewSlotB: { transform: [{ rotate: '-48deg' }] },
+  plateScrewSlotC: { transform: [{ rotate: '74deg' }] },
+  plateScrewSlotD: { transform: [{ rotate: '-11deg' }] },
+  plateScrewTL: { top: 3, left: 3 },
+  plateScrewTR: { top: 3, right: 3 },
+  plateScrewBL: { bottom: 4, left: 3 },
+  plateScrewBR: { bottom: 4, right: 3 },
+  footScrewL: { left: 7, top: '50%', marginTop: -2.5 },
+  footScrewR: { right: 7, top: '50%', marginTop: -2.5 },
   columnRowCompact: {
     gap: ROW.compact.gap,
     paddingHorizontal: ROW.compact.pad,
@@ -1498,9 +1687,16 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 24,
     borderWidth: 1,
-    borderColor: walnut.void,
+    borderTopColor: 'rgba(241,229,207,0.16)',
+    borderLeftColor: 'rgba(241,229,207,0.09)',
+    borderRightColor: 'rgba(0,0,0,0.7)',
+    borderBottomColor: 'rgba(0,0,0,0.85)',
     borderRadius: 4,
     backgroundColor: '#2a1c0e',
+    overflow: 'hidden',
+  },
+  portraitFootFace: {
+    ...StyleSheet.absoluteFillObject,
   },
   portraitFootCompact: {
     minWidth: 154,
