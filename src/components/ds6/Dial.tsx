@@ -54,7 +54,7 @@ function ringSlice(c: number, rInner: number, rOuter: number, a0: number, a1: nu
  * axis toward the light, falling away to nothing on either side. Drawn as
  * narrow slices, each a little dimmer than the last.
  */
-const SHEEN_STEP = 3; // degrees per slice
+const SHEEN_STEP = 2; // degrees per slice
 function sheenFan(centerDeg: number, halfSpreadDeg: number, peak: number): { a0: number; a1: number; opacity: number }[] {
   const slices: { a0: number; a1: number; opacity: number }[] = [];
   for (let d = -halfSpreadDeg; d < halfSpreadDeg; d += SHEEN_STEP) {
@@ -62,8 +62,8 @@ function sheenFan(centerDeg: number, halfSpreadDeg: number, peak: number): { a0:
     const fall = Math.cos((mid / halfSpreadDeg) * (Math.PI / 2));
     slices.push({
       a0: ((centerDeg + d) * Math.PI) / 180,
-      // A hair of overlap, so no seam shows between neighbours.
-      a1: ((centerDeg + d + SHEEN_STEP + 0.35) * Math.PI) / 180,
+      // The least overlap that closes the seam; more shows as a bright spoke.
+      a1: ((centerDeg + d + SHEEN_STEP + 0.06) * Math.PI) / 180,
       opacity: peak * fall * fall,
     });
   }
