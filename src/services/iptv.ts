@@ -35,6 +35,33 @@ const MAX_WEB_GUIDE_CACHE_CHARS = 3_000_000;
 let guideCacheWritesDisabled = false;
 let guideCacheWarningLogged = false;
 
+/**
+ * The last guide parsed, beside the exact text it was parsed from.
+ *
+ * The set asks for the guide every half hour, and again whenever it returns
+ * to the foreground; the station rewrites it once an hour, on the hour, and
+ * in between every answer is byte for byte the one before. When the answer
+ * is the text already held, the guide already parsed is handed back: the
+ * very same object, so React sees no change and nothing under a playing
+ * programme is re-rendered, and nothing is parsed or written.
+ * Comparing two 3.5 MB strings is a memory compare (about a millisecond);
+ * hashing them in JS would cost the thread more than the parse it saves,
+ * and a cheaper fingerprint would be wrong: one hourly rewrite changed
+ * sixty characters (the logos' version stamps) and no length.
+ *
+ * The price is the text itself staying in memory (3.5 MB of characters).
+ */
+interface GuideMemo {
+  cacheKey: string;
+  text: string;
+  epg: EpgData;
+  /** The storage `cacheGuide` has finished with for this text, if any… */
+  storage: GuideStorage | null;
+  /** …and whether that storage now holds the text under `cacheKey`. */
+  cached: boolean;
+}
+let guideMemo: GuideMemo | null = null;
+
 /** Build a normalized http URL for a server + path. */
 function buildServerUrl(config: ServerConfig, path: string): string {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
@@ -66,16 +93,18 @@ async function evictGuideCaches(storage: GuideStorage, keepKey?: string): Promis
   await Promise.all(keys.filter((key) => key !== keepKey).map((key) => storage.removeItem(key)));
 }
 
-async function cacheGuide(storage: GuideStorage, cacheKey: string, xmltvText: string): Promise<void> {
-  if (guideCacheWritesDisabled) return;
+/** Resolves to whether `storage` now holds `xmltvText` under `cacheKey`. */
+async function cacheGuide(storage: GuideStorage, cacheKey: string, xmltvText: string): Promise<boolean> {
+  if (guideCacheWritesDisabled) return false;
 
   try {
     if (Platform.OS === 'web' && xmltvText.length > MAX_WEB_GUIDE_CACHE_CHARS) {
       await evictGuideCaches(storage);
-      return;
+      return false;
     }
     await evictGuideCaches(storage, cacheKey);
     await storage.setItem(cacheKey, xmltvText);
+    return true;
   } catch (error) {
     guideCacheWritesDisabled = true;
     if (!guideCacheWarningLogged) {
@@ -87,6 +116,7 @@ async function cacheGuide(storage: GuideStorage, cacheKey: string, xmltvText: st
     } catch {
       // Storage may remain unavailable; the live guide is still usable.
     }
+    return false;
   }
 }
 
@@ -138,21 +168,75 @@ export async function fetchIptvGuide(
 
   try {
     const xmltvText = await fetchTextWithTimeout(xmltvUrl, 'XMLTV');
-    const epg = parseGuide(xmltvText, config);
-    await cacheGuide(storage, cacheKey, xmltvText);
-    return { epg, state: 'fresh' };
+    let memo = guideMemo;
+    if (memo === null || memo.cacheKey !== cacheKey || memo.text !== xmltvText) {
+      // Remembered before the cache write is awaited, so a second request
+      // landing meanwhile (launch and a foreground event can overlap) is
+      // handed this guide rather than parsing its own.
+      memo = { cacheKey, text: xmltvText, epg: parseGuide(xmltvText, config), storage: null, cached: false };
+      guideMemo = memo;
+    }
+    if (memo.storage !== storage) {
+      memo.cached = await cacheGuide(storage, cacheKey, xmltvText);
+      memo.storage = storage;
+    }
+    return { epg: memo.epg, state: 'fresh' };
   } catch (error) {
     const errorText = errorMessage(error);
-    try {
-      const cached = await storage.getItem(cacheKey);
-      if (cached) {
-        return { epg: parseGuide(cached, config), state: 'cached', error: errorText };
-      }
-    } catch {
-      // A malformed or unreadable cache is the same as no guide at all.
+    // The cache holds the text this guide was parsed from: reading 3.5 MB
+    // back and parsing it again would arrive at the guide already in hand.
+    const memo = guideMemo;
+    if (memo !== null && memo.cacheKey === cacheKey && memo.storage === storage && memo.cached) {
+      return { epg: memo.epg, state: 'cached', error: errorText };
     }
+    const cached = await readGuideCache(config, storage);
+    if (cached) return { epg: cached, state: 'cached', error: errorText };
     return { epg: EMPTY_EPG, state: 'unavailable', error: errorText };
   }
+}
+
+/** The guide cached for this server, parsed and remembered; null when there is none. */
+async function readGuideCache(config: ServerConfig, storage: GuideStorage): Promise<EpgData | null> {
+  const cacheKey = guideCacheKey(config);
+  try {
+    const cached = await storage.getItem(cacheKey);
+    if (!cached) return null;
+    // A fresh guide may have arrived while storage was being read; the
+    // older text must not displace it.
+    const newer = guideMemo;
+    if (newer !== null && newer.cacheKey === cacheKey && newer.text !== cached) return newer.epg;
+    if (newer !== null && newer.cacheKey === cacheKey) {
+      newer.storage = storage;
+      newer.cached = true;
+      return newer.epg;
+    }
+    const epg = parseGuide(cached, config);
+    guideMemo = { cacheKey, text: cached, epg, storage, cached: true };
+    return epg;
+  } catch {
+    // A malformed or unreadable cache is the same as no guide at all.
+    return null;
+  }
+}
+
+/**
+ * The last guide known for this server, without asking the network: the
+ * one in memory if this server's was the last parsed, otherwise the one in
+ * storage. Null when there is neither.
+ *
+ * For painting Home at once on a cold start while `fetchIptvGuide` is still
+ * on the wire. When the network then answers with the same text, that call
+ * returns this same guide object, so showing it first costs no second parse
+ * and no second render.
+ */
+export async function readCachedGuide(
+  config: ServerConfig,
+  storage: GuideStorage = AsyncStorage,
+): Promise<IptvGuide | null> {
+  const memo = guideMemo;
+  if (memo !== null && memo.cacheKey === guideCacheKey(config)) return { epg: memo.epg, state: 'cached' };
+  const epg = await readGuideCache(config, storage);
+  return epg ? { epg, state: 'cached' } : null;
 }
 
 /** Fetch both sources resiliently for callers that want a single bundle. */
