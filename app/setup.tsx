@@ -15,6 +15,7 @@ import { verifyServerConnection } from '../src/services/iptv';
 import { walnut, brass, amber, cream, fonts } from '../src/constants/ds6';
 import { ServiceLabel, TerminalInput, PlateButton, Lamp } from '../src/components/ds6/Service';
 import { useCabinet } from '../src/hooks/useCabinet';
+import { ConsoleStage } from '../src/ui/ConsoleStage';
 import type { SavedServer } from '../src/types';
 
 /**
@@ -80,6 +81,8 @@ export default function SetupScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.cabinet} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {/* The console's stage: the terminals are enlarged with the rest of the cabinet on a television. */}
+      <ConsoleStage standalone>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.column}>
           {router.canGoBack() && (
@@ -166,6 +169,7 @@ export default function SetupScreen() {
           </Text>
         </View>
       </ScrollView>
+      </ConsoleStage>
     </KeyboardAvoidingView>
   );
 }

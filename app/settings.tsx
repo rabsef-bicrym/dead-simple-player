@@ -11,6 +11,7 @@ import { ServiceLabel, TerminalInput, PlateButton, Lamp } from '../src/component
 import { setSoundMuted, isSoundMuted, setSignoffTone, getSignoffTone } from '../src/utils/sound';
 import { timeToProse } from '../src/utils/prose';
 import { useCabinet } from '../src/hooks/useCabinet';
+import { ConsoleStage } from '../src/ui/ConsoleStage';
 import * as Clipboard from 'expo-clipboard';
 import {
   describeTuneTrace,
@@ -155,6 +156,8 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.cabinet} edges={['top']}>
+      {/* The console's stage: the door is enlarged with the rest of the cabinet on a television. */}
+      <ConsoleStage standalone>
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.column}>
           {/* Header */}
@@ -322,6 +325,7 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </ScrollView>
+      </ConsoleStage>
     </SafeAreaView>
   );
 }
